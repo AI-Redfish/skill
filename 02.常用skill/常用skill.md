@@ -44,7 +44,7 @@ https://github.com/anthropics/skills/mcp-builder
 
 
 
-# playwright
+# playwright-不推荐
 
 https://agentskill.sh/@openai/playwright
 
