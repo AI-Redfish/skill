@@ -66,11 +66,13 @@ https://agentskill.sh/@openai/playwright
 
 
 
+# Product-Manager-Skills
 
+产品经理skill。
 
+分析需求，输出prd.
 
-
-
+https://github.com/deanpeters/Product-Manager-Skills
 
 
 
