@@ -100,6 +100,12 @@ https://github.com/anthropics/skills/skill-creator
 
 
 
+# find-skills
+
+按关键词搜索现成 的skill。
+
+
+
 # mcp-builder
 
 https://github.com/anthropics/skills/mcp-builder
