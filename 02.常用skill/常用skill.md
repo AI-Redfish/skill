@@ -18,6 +18,64 @@ https://github.com/heilcheng/awesome-agent-skills/blob/main/README.zh-CN.md#%E5%
 
 
 
+# 产品设计
+
+## Product-Manager-Skills
+
+产品经理skill。
+
+分析需求，输出prd.
+
+https://github.com/deanpeters/Product-Manager-Skills
+
+
+
+**快速上手**
+
+下载仓库到本地，内容放到本地.claude目录下。
+
+
+
+编写prd
+
+```
+use skill:prd-development
+帮我写个prd，用于实现一个软件，查询指定日期从A城市到B城市购买12306火车票最佳购票方案。
+```
+
+
+
+**完整使用**
+
+```
+假设你的问题是：“注册完成率太低，我想搞清楚问题并决定做什么。”
+
+你可以这样一步步来：
+
+第一步：先定义问题
+
+claude "Using skills/problem-statement/SKILL.md, help me frame the problem of low signup completion. Ask what evidence I have first."
+
+第二步：决定怎么验证
+
+claude "Using skills/pol-probe/SKILL.md, design a lightweight validation experiment for the hypothesis that users abandon signup because the form feels too long."
+
+第三步：做优先级判断
+
+claude "Using skills/prioritization-advisor/SKILL.md, help me choose how to prioritize fixes to the signup flow."
+
+第四步：写用户故事
+
+claude "Using skills/user-story/SKILL.md, write user stories for reducing friction in the signup form."
+
+第五步：如果要正式推进，再写 PRD
+
+claude "Using skills/prd-development/SKILL.md, create a PRD for improving signup completion."
+
+这就是这套 PM Skills 最典型的用法：
+先诊断，再验证，再决策，再产出文档。
+```
+
 
 
 # 前端UI开发
@@ -131,18 +189,6 @@ https://agentskill.sh/@openai/playwright
 
 
 因此，特定网站使用特定网站的skill和mcp，如"小红书MCP"封装了对小红书平台的相关操作。
-
-
-
-
-
-# Product-Manager-Skills
-
-产品经理skill。
-
-分析需求，输出prd.
-
-https://github.com/deanpeters/Product-Manager-Skills
 
 
 
