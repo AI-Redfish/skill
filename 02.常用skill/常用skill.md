@@ -116,7 +116,7 @@ git clone https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git
 
 # 2. 复制技能文件夹到你的项目
 # Windows:
-xcopy /E /I .claude\samples\ui-ux-pro-max "你的项目路径\.claude\skills\ui-ux-pro-max\"
+xcopy /E /I .claude\skills "你的项目路径\.claude\skills\"
 
 # macOS/Linux:
 cp -r .claude/samples/ui-ux-pro-max /path/to/your/project/.claude/skills/ui-ux-pro-max
