@@ -6,6 +6,12 @@ https://agentskill.sh/
 
 
 
+**skills.sh**
+
+https://skills.sh/
+
+
+
 **Smithery**
 
 https://smithery.ai/skills
