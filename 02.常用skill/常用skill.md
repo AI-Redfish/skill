@@ -12,6 +12,12 @@ https://skills.sh/
 
 
 
+**skillsmp**
+
+https://skillsmp.com/
+
+
+
 **Smithery**
 
 https://smithery.ai/skills
