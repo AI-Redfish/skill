@@ -317,6 +317,158 @@ npx skills add claude-office-skills/skills@html-slides
 
 
 
+# hyperframes
+
+HyperFrames 是一个把 HTML 渲染成 MP4 视频的skill 集合。
+
+
+官网：
+
+https://hyperframes.video/
+
+GitHub：
+
+https://github.com/heygen-com/hyperframes
+
+
+**愿景**
+大语言模型天然地"会"写 HTML，经过数十亿网页的训练，HTML、CSS、JavaScript 已经是它们最熟悉的语言。如果我们能让 AI 用它最擅长的语言——HTML——来描述一段视频，然后把渲染的脏活交给框架去做，会更顺畅。
+
+
+环境要求：
+
+- Node.js 22+
+- FFmpeg
+
+**实际使用场景**
+内容自动化生产：电商平台的商品介绍视频、新闻资讯的可视化短片、数据报告的动态呈现——这些需要大批量、模板化生产的视频，可以完全交给 AI 智能体通过 HyperFrames 自动生成。
+
+AI Agent 工作流：与 MCP（Model Context Protocol）集成后，HyperFrames 可以成为多智能体工作流的一个节点，接收上游的文案、数据，输出渲染好的视频文件。
+
+开发者视频工具：对于有编程背景的内容创作者，HyperFrames 提供了比传统剪辑软件更精确、更可版本控制的视频创作方式。
+
+
+**设计思路**
+
+HyperFrames 的视频本质上是一个 HTML 文档：
+
+- 根节点用 `data-width`、`data-height`、`data-duration` 定义画布尺寸和总时长
+- 元素通常用 `data-start`、`data-duration` 控制出现时间
+- 写完后通过 `preview` 预览，通过 `render` 输出 MP4
+
+所以它非常适合 AI：LLM 天然擅长生成 HTML/CSS/JS，再交给 HyperFrames 做确定性渲染。
+
+```
+<div id="stage" data-composition-id="my-video" data-start="0" data-width="1920" data-height="1080">
+  <!-- 第 0 秒开始播放，持续 5 秒 -->
+  <video id="clip-1" data-start="0" data-duration="5" data-track="0"
+    src="intro.mp4" muted playsinline></video>
+  <!-- 第 2 秒出现，叠加 3 秒 -->
+  <img id="overlay" data-start="2" data-duration="3" data-track="1" src="logo.png" />
+  <!-- 背景音乐，音量 50% -->
+  <audio id="bg-music" data-start="0" data-duration="9" data-track="2"
+    data-volume="0.5" src="music.wav"></audio>
+</div>
+```
+
+
+
+**手动项目**
+
+如果你想手动起一个项目，也可以：
+
+```
+# 初始化项目
+npx hyperframes init my-video
+cd my-video
+
+# 编写html
+
+# 验证 HTML 语法和结构
+npx hyperframes lint ./my-video
+
+# 预览
+npx hyperframes preview
+# 生成视频mp4
+npx hyperframes render
+
+```
+
+**项目结构**
+```
+my-video/
+├── index.html          # 主视频工程文件
+├── components/         # 组件目录（可选）
+│   ├── bar-chart.html  # 柱状图组件
+│   └── title-card.html # 标题卡组件
+└── output/             # 渲染输出目录
+```
+
+
+**安装skill**
+```
+npx skills add heygen-com/hyperframes
+```
+
+安装后，AI 编码助手会自动获得框架的使用规范，包括：HTML 合成结构的正确写法、data- 属性的使用规则、时间轴注册方式、渲染约束（例如禁止使用随机数，所有动画必须是确定性的）等。
+
+这意味着，你可以直接对 Claude Code 说："帮我做一个产品发布的宣传短视频，开头是 Logo 动画，然后展示三个核心功能，最后是 Call to Action"，AI 会真正理解框架的规则，生成可以直接渲染的代码。
+
+**使用**
+```
+做一个 15 秒的产品介绍视频：
+16:9，黑色背景，标题 0.5 秒淡入，
+中间展示 3 个卖点，结尾出现官网和 CTA。
+```
+
+```
+把 https://xxx.com 首页做成一个 20 秒宣传视频，
+风格偏科技感，输出 1080x1920 竖屏。
+```
+
+```
+给这个视频加一个 glitch-text 开场，
+再用 /hyperframes-cli 完成预览和渲染。
+```
+
+
+**写提示词时最好补充的信息**
+
+- 视频时长：例如 10 秒、20 秒、45 秒
+- 画幅比例：16:9、9:16、1:1
+- 场景结构：开场、主体、结尾分别做什么
+- 视觉风格：科技感、极简、电影感、商务、赛博等
+- 文字内容：标题、副标题、卖点、CTA
+- 素材来源：图片、视频、Logo、配音、BGM 是否已提供
+- 是否需要字幕、转场、配音、音频驱动效果
+
+**视觉设计**
+HyperFrames 不只是一个渲染引擎，它还内置了一套完整的视觉设计体系。
+
+框架提供了 8 种命名视觉风格预设，包括：
+
+- Swiss Pulse——瑞士风格，简洁几何
+- Velvet Standard——奢华质感
+- Data Drift——数据可视化风格
+- Shadow Cut——高对比度暗黑风格
+每种风格都包含颜色方案（精确到 hex 值）、字体搭配建议、GSAP 缓动签名，以及禁止使用的反模式清单。
+
+这意味着，当你让 AI 生成一个"瑞士风格"的产品介绍视频时，它不需要从零发明审
+美，而是直接调用框架预定义的设计规范。
+
+
+**相关说明**
+
+1，HyperFrames 的一个核心优势是“确定性渲染”：同样的 HTML 和参数，在不同机器、不同时间渲染，理论上可以得到一致输出。不要依赖 `Date.now()`、`setTimeout()` 这类真实时间驱动逻辑。这对 AI 自动改稿、CI 批量渲染、结果回归验证很有价值。
+
+2，官方比较推荐 AI 先 `lint --json` / `inspect --json`，确认结构没问题后再 `render`。因为渲染最耗时，先静态检查更省成本。
+
+3，如果你不想从零写效果，优先使用 `hyperframes add <block-name>` 引入官方现成 block，会比“让 AI 自己凭空发明一个特效”更稳定。
+
+
+
+
+
 
 
 
