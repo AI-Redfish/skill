@@ -165,6 +165,42 @@ claude "Using skills/prd-development/SKILL.md, create a PRD for improving signup
 
 
 
+## product-designer
+
+```
+use skill:product-designer
+帮我设计一个 SaaS 首页的用户旅程和低保真线框图
+
+用 product-designer skill 帮我设计一个移动端登录页
+
+用 product-designer 帮我：
+1. 分析这个页面的 UX 问题
+2. 重新设计信息架构
+3. 给出 wireframe
+4. 定义颜色、字体、间距 token
+
+
+用 product-designer 帮我设计一个 AI Agent 管理后台首页
+```
+
+
+
+它适合这些场景：
+
+- 设计用户旅程图
+- 画低保真 / 高保真页面方案
+- 规划产品功能体验
+- 做 UI/UX 评审
+- 定义设计系统、组件规范、设计 token
+- 制定可用性测试方案
+- 生成产品设计原则和交互规范
+
+
+
+
+
+
+
 # 前端UI开发
 
 ## frontend-design
@@ -317,7 +353,13 @@ npx skills add claude-office-skills/skills@html-slides
 
 
 
-# hyperframes
+# 视频生成
+
+
+
+
+
+## hyperframes
 
 HyperFrames 是一个把 HTML 渲染成 MP4 视频的skill 集合。
 
@@ -467,13 +509,44 @@ HyperFrames 不只是一个渲染引擎，它还内置了一套完整的视觉�
 
 
 
+## Remotion
+
+**原理**
+
+用 React 代码来写视频。
+
+- 网页渲染： 你写的 React 代码在浏览器里跑起来，展示出精美的动画。
+- 截屏： Remotion 调动一个后台浏览器（比如 Puppeteer），以每秒 30 帧或 60 帧的速度，像“连拍”一样把这些画面全截下来。
+- 合成： 最后利用强大的 FFmpeg 工具，把几千张截屏合成一个流畅的视频。
 
 
 
+**安装**
+
+```
+ npx skills add remotion-dev/skills@remotion-best-practices
+```
 
 
 
+**使用**
 
+```
+use skill:remotion-best-practices
+帮我创建一个 10 秒的 Remotion 产品介绍视频模板
+
+use skill:remotion-best-practices
+帮我用 Remotion 做一个 1920x1080、30fps、15 秒的品牌宣传视频，包含标题动画、三段卖点和结尾 CTA
+
+use skill:remotion-best-practices
+帮我把这个 React 组件改成适合 Remotion 渲染的视频组件
+
+use skill:remotion-best-practices
+帮我设计一个短视频模板，支持传入标题、字幕、图片和背景色
+
+use skill:remotion-best-practices
+在当前目录创建一个 Remotion 视频项目，做一个 10 秒登录页展示视频
+```
 
 
 
