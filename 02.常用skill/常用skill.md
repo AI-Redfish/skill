@@ -619,7 +619,9 @@ npx skills add claude-office-skills/skills@html-slides
 
 
 
+## frontend-slides
 
+https://github.com/zarazhangrui/frontend-slides
 
 
 
