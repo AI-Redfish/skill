@@ -309,47 +309,7 @@ https://agentskill.sh/@openai/playwright
 
 
 
-# html-slides
 
-html-slides 是一个用来生成 HTML 幻灯片 的技能。
-
-
-
-**安装**
-
-```
-npx skills add claude-office-skills/skills@html-slides
-```
-
-
-
-**使用**
-
-```
-“做一个关于 AI Agent 的 10 页中文演示，风格简洁，黑色主题”
-“生成一个前端性能优化分享，带代码高亮和 speaker notes”
-“做一个产品发布会风格的 slides，带动画和数据页”
-做一个 8 页中文 AI 介绍 slides，科技感深色主题。
-```
-
-
-
-你最好补充这几类信息，这样生成效果更准：
-
-  - 主题内容：讲什么
-  - 页数/结构：几页，是否要目录、总结、Q&A
-  - 视觉风格：商务、科技感、极简、深色/浅色
-  - 功能需求：代码高亮、备注、自动播放、渐进动画、背景图/视频
-  - 语言：中文或英文
-
-  常见可配项包括：
-
-  - 主题：black、white、night、moon、solarized
-  - 切换：slide、fade、zoom
-  - 动画：fragment 分步显示
-  - 备注：按 S 打开 speaker notes
-
-  如果你愿意，我现在就可以直接帮你生成一份。
 
 
 
@@ -547,6 +507,125 @@ use skill:remotion-best-practices
 use skill:remotion-best-practices
 在当前目录创建一个 Remotion 视频项目，做一个 10 秒登录页展示视频
 ```
+
+
+
+# PPT制作
+
+## Open-Slide-推荐
+
+**安装**
+
+```
+https://open-slide.dev/
+帮我安装上面这个平台对应的插件。
+```
+
+这个插件默认为项目级安装,如果需要需要保证当前项目安装过这个插件.
+
+
+
+**生成大纲**
+
+```
+请基于 NVIDIA 最新官方财报资料，做一份 20 页以内的商业汇报 PPT。
+
+资料来源优先级：
+1. NVIDIA Q1 FY2027 财报新闻稿
+2. NVIDIA FY2026 Annual Report
+3. NVIDIA Q4 FY2026 Quarterly Presentation
+
+任务：
+先阅读资料，提炼 NVIDIA 最新业绩、增长驱动、业务结构、数据中心业务、毛利率、现金流和未来风险。
+
+先不要生成 PPT，先给我一版 PPT 大纲：
+每页包括：页标题、核心观点、建议图表、需要引用的数据来源。
+
+要求：
+1. 控制在 15-20 页。
+2. 每页只讲一个核心观点。
+3. 尽量多用图表，不要堆文字。
+4. 风格：专业、科技感、适合商业汇报。
+5. 所有数据必须来自官方资料，不要编造。
+```
+
+以上prompt的任务执行完毕后,会输出一个ppt结构化文档.
+
+预览该文档,进行适当调整.
+
+
+
+**生成在线PPT**
+
+可以让AI直接基于输出的文档生成PPT,但是我个人更推荐让AI提供下OpenSlide的模板,选择对应模板后再生成ppt.
+
+```
+行 我们先不着急生成ppt，先给我一个openslide提供的风格模版的playground，我挑选一下适合的
+```
+
+
+
+**修改PPT**
+
+AI生成完成PPT后,可以访问插件服务:http://127.0.0.1:5173
+
+选择喜欢的模板(如果没有喜欢的让AI重新生成),进行在线修改.
+
+
+
+
+
+## html-slides
+
+html-slides 是一个用来生成 HTML 幻灯片 的技能。
+
+
+
+**安装**
+
+```
+npx skills add claude-office-skills/skills@html-slides
+```
+
+
+
+**使用**
+
+```
+“做一个关于 AI Agent 的 10 页中文演示，风格简洁，黑色主题”
+“生成一个前端性能优化分享，带代码高亮和 speaker notes”
+“做一个产品发布会风格的 slides，带动画和数据页”
+做一个 8 页中文 AI 介绍 slides，科技感深色主题。
+```
+
+
+
+你最好补充这几类信息，这样生成效果更准：
+
+  - 主题内容：讲什么
+  - 页数/结构：几页，是否要目录、总结、Q&A
+  - 视觉风格：商务、科技感、极简、深色/浅色
+  - 功能需求：代码高亮、备注、自动播放、渐进动画、背景图/视频
+  - 语言：中文或英文
+
+  常见可配项包括：
+
+  - 主题：black、white、night、moon、solarized
+  - 切换：slide、fade、zoom
+  - 动画：fragment 分步显示
+  - 备注：按 S 打开 speaker notes
+
+  如果你愿意，我现在就可以直接帮你生成一份。
+
+
+
+
+
+
+
+
+
+
 
 
 
