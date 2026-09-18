@@ -1,0 +1,8 @@
+[
+  {"slide": 1, "transition": "fade",    "duration": 0.8, "advance": 3.0},
+  {"slide": 2, "transition": "push",    "direction": "left", "advance": 2.5},
+  {"slide": 3, "transition": "wipe",    "direction": "up", "advance": 2.5},
+  {"slide": 4, "transition": "wheel",   "options": {"spokes": "3"}, "advance": 2.5},
+  {"slide": 5, "transition": "reveal",  "direction": "throughblack", "advance": 2.5},
+  {"slide": 6, "transition": "glitter", "direction": "l", "options": {"pattern": "hexagon"}, "advance": 3.5}
+]
