@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>婚礼邀请函 · {{GROOM}} &amp; {{BRIDE}}</title>
+<style>
+  :root{
+    --cream:#FFF6DC; --green:#7BC86C; --green-d:#5AA84E; --leaf:#6FBF4A;
+    --blue:#8ED3F0; --blue-d:#5FB6DD; --brown:#6B4F35; --brown-l:#8A6D50;
+    --ticket:#F7B32B; --ticket-d:#E09A18; --pink:#F9C6D0; --yellow:#FFD95C;
+    --shadow:0 6px 0 rgba(0,0,0,.08);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;}
+  body{
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",sans-serif;
+    background:#243447; color:var(--brown); user-select:none; position:fixed; inset:0;
+  }
+  #app{ position:relative; width:100%; max-width:430px; height:100%; margin:0 auto;
+    overflow:hidden; background:var(--cream); }
+  @media(min-width:520px){
+    body{display:flex;align-items:center;justify-content:center;}
+    #app{height:92vh;max-height:880px;border-radius:34px;box-shadow:0 24px 60px rgba(0,0,0,.45),0 0 0 8px #1d2a3a;}
+  }
+  .page{
+    position:absolute; inset:0; padding:34px 26px 90px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    opacity:0; transform:translateY(24px) scale(.98); pointer-events:none;
+    transition:opacity .55s ease, transform .55s ease;
+    overflow-y:auto; overscroll-behavior:contain;
+  }
+  .page.active{opacity:1;transform:none;pointer-events:auto;}
+  .page-tag{ font-size:12px; letter-spacing:.35em; text-indent:.35em; color:var(--brown-l);
+    background:#fff;border-radius:999px;padding:6px 16px;box-shadow:var(--shadow);font-weight:700; }
+  h1,h2{font-weight:900;color:var(--brown);}
+  .name{font-size:30px;letter-spacing:.06em;}
+  .heart{color:#E86A8A;font-size:24px;margin:0 4px;}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;justify-content:center;
+    background:linear-gradient(#FFE28A,#FFC93C); color:#7A5310; font-weight:900;
+    border:none;border-radius:999px; padding:14px 30px; font-size:17px; letter-spacing:.05em;
+    box-shadow:0 5px 0 #D9A018, 0 8px 14px rgba(0,0,0,.15); cursor:pointer;
+    transition:transform .08s, box-shadow .08s; text-decoration:none;
+  }
+  .btn:active{transform:translateY(4px);box-shadow:0 1px 0 #D9A018;}
+  .btn.small{padding:10px 18px;font-size:14px;box-shadow:0 4px 0 #D9A018;}
+  .btn.green{background:linear-gradient(#9FDD8E,#6FC25E);color:#20511A;box-shadow:0 5px 0 #4E9A41,0 8px 14px rgba(0,0,0,.15);}
+  .btn.green:active{box-shadow:0 1px 0 #4E9A41;}
+  #p0{background:radial-gradient(120% 90% at 50% 0%, #FFF9E3 0%, #FFEFC2 55%, #FFE3A6 100%);}
+  .leaf-logo{width:104px;height:104px;animation:bob 3s ease-in-out infinite;}
+  @keyframes bob{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-10px) rotate(4deg)}}
+  #p0 .en{font-size:13px;letter-spacing:.45em;text-indent:.45em;color:#B08A45;font-weight:800;}
+  #p0 h1{font-size:34px;}
+  #p0 .sub{font-size:15px;color:var(--brown-l);}
+  .ticket{
+    width:100%; max-width:340px; border-radius:20px; overflow:hidden;
+    box-shadow:0 10px 24px rgba(107,79,53,.25);
+    animation:sway 4.5s ease-in-out infinite; background:#fff;
+  }
+  @keyframes sway{0%,100%{transform:rotate(-1.6deg)}50%{transform:rotate(1.6deg)}}
+  .ticket-top{
+    background:linear-gradient(160deg,#FFC85C,#F5A81F); padding:26px 20px 20px; position:relative;
+    color:#7A4E07; text-align:center;
+  }
+  .ticket-top::before,.ticket-top::after{
+    content:'';position:absolute;top:50%;width:22px;height:22px;border-radius:50%;
+    background:var(--cream);transform:translateY(-50%);
+  }
+  .ticket-top::before{left:-11px;}
+  .ticket-top::after{right:-11px;}
+  .ticket-top .tt-icon{display:flex;justify-content:center;gap:12px;font-size:30px;margin-bottom:6px;}
+  .ticket-top .tt-title{font-size:26px;font-weight:900;letter-spacing:.18em;text-indent:.18em;}
+  .ticket-top .tt-en{font-size:10px;letter-spacing:.4em;text-indent:.4em;font-weight:800;opacity:.75;margin-top:4px;}
+  .ticket-cut{height:0;border-top:3px dashed #E3B45E;margin:0 14px;}
+  .ticket-bottom{padding:20px 22px 22px;text-align:center;}
+  .ticket-bottom .tb-names{font-size:25px;font-weight:900;}
+  .ticket-bottom .tb-line{margin-top:8px;font-size:15px;font-weight:700;color:var(--brown-l);line-height:1.7;}
+  .ticket-note{font-size:12px;color:#B08A45;letter-spacing:.2em;font-weight:700;}
+  .passport{
+    width:100%; max-width:340px; background:#FFFDF4; border:3px solid #CFE7B8;
+    border-radius:20px; overflow:hidden; box-shadow:0 8px 18px rgba(107,79,53,.18);
+  }
+  .passport-head{
+    background:linear-gradient(120deg,#8FCB7C,#63B053); color:#fff;
+    padding:9px 16px; display:flex;align-items:center;gap:8px;font-weight:900;font-size:14px;letter-spacing:.12em;
+  }
+  .passport-body{display:flex;gap:14px;padding:14px 16px;align-items:center;}
+  .avatar{
+    width:86px;height:86px;border-radius:50%;flex:0 0 auto;
+    background:radial-gradient(circle at 35% 30%,#FFF3C9,#FFE08A);
+    border:3px solid #EFD386; display:flex;align-items:center;justify-content:center;font-size:44px;
+    box-shadow:inset 0 -4px 8px rgba(160,110,20,.15);
+  }
+  .p-info{flex:1;min-width:0;}
+  .p-row{display:flex;align-items:center;gap:7px;font-size:13px;padding:3.5px 0;}
+  .p-row .ic{width:20px;text-align:center;flex:0 0 auto;}
+  .p-row .lb{color:#A78F6E;font-weight:700;flex:0 0 auto;}
+  .p-row .vl{font-weight:900;color:var(--brown);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .p-name{font-size:19px;font-weight:900;}
+  .hint{font-size:11.5px;color:#BCA47F;text-align:center;line-height:1.8;}
+  .speaker{display:flex;align-items:center;gap:10px;margin-bottom:-8px;z-index:2;}
+  .speaker .sp-av{
+    width:52px;height:52px;border-radius:50%;background:#fff;border:3px solid #E8DFC8;
+    display:flex;align-items:center;justify-content:center;font-size:26px;box-shadow:var(--shadow);
+  }
+  .speaker .sp-nm{background:#fff;border-radius:999px;padding:6px 14px;font-size:13px;font-weight:900;box-shadow:var(--shadow);}
+  .dialog{
+    width:100%;max-width:350px;background:#fff;border-radius:24px;border:3px solid #EAE1CB;
+    padding:24px 22px 20px;box-shadow:0 10px 0 rgba(0,0,0,.05),0 14px 26px rgba(107,79,53,.16);
+    position:relative;font-size:16.5px;line-height:2.05;font-weight:700;min-height:300px;
+  }
+  .dialog::after{
+    content:'';position:absolute;left:46px;bottom:-16px;
+    border:9px solid transparent;border-top:11px solid #fff;
+  }
+  .dialog::before{content:'';position:absolute;left:43px;bottom:-22px;
+    border:12px solid transparent;border-top:14px solid #EAE1CB;z-index:-1;}
+  .caret{display:inline-block;width:2px;height:1.05em;background:var(--brown);vertical-align:-0.15em;animation:blink .8s steps(1) infinite;}
+  @keyframes blink{50%{opacity:0}}
+  .datecard{
+    width:100%;max-width:340px;background:#fff;border-radius:22px;padding:20px 20px 16px;text-align:center;
+    box-shadow:0 8px 18px rgba(107,79,53,.18);border:3px solid #F3E9CE;
+  }
+  .datecard .dc-y{font-size:13px;letter-spacing:.5em;text-indent:.5em;color:#B08A45;font-weight:800;}
+  .datecard .dc-d{font-size:46px;font-weight:900;letter-spacing:.04em;line-height:1.25;}
+  .datecard .dc-w{font-size:14px;color:var(--brown-l);font-weight:800;margin-top:2px;}
+  .countdown{display:flex;justify-content:center;gap:8px;margin-top:14px;}
+  .cd-box{background:var(--cream);border:2px solid #EBD9A8;border-radius:12px;min-width:52px;padding:8px 4px;}
+  .cd-num{font-size:20px;font-weight:900;color:#C4702B;}
+  .cd-lb{font-size:10px;color:#B08A45;font-weight:800;letter-spacing:.1em;}
+  .venue{
+    width:100%;max-width:340px;background:#fff;border-radius:22px;padding:16px 20px;text-align:center;
+    box-shadow:0 8px 18px rgba(107,79,53,.18);border:3px solid #F3E9CE;
+  }
+  .venue .v-nm{font-size:20px;font-weight:900;}
+  .venue .v-ad{font-size:13px;color:var(--brown-l);font-weight:700;margin-top:4px;}
+  .map-box{width:100%;max-width:340px;border-radius:20px;overflow:hidden;border:4px solid #fff;box-shadow:0 8px 18px rgba(107,79,53,.2);}
+  .btnrow{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}
+  .star{color:#E8A33D;}
+  .album{width:100%;max-width:340px;display:flex;flex-direction:column;gap:14px;}
+  .photo{
+    position:relative;height:150px;border-radius:18px;overflow:hidden;border:5px solid #fff;
+    box-shadow:0 8px 16px rgba(107,79,53,.2);
+  }
+  .photo .cap{
+    position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border-radius:999px;
+    padding:5px 14px;font-size:13px;font-weight:900;color:var(--brown);box-shadow:var(--shadow);
+  }
+  .ph-spring{background:linear-gradient(180deg,#FFE3EC 0%,#FFD1E0 55%,#C6E8A8 55.5%,#A9DA8B 100%);}
+  .ph-spring .tree{position:absolute;bottom:8px;left:24px;font-size:44px;filter:drop-shadow(0 3px 3px rgba(0,0,0,.12));}
+  .ph-spring .petal{position:absolute;font-size:15px;animation:fall 5s linear infinite;}
+  .ph-summer{background:linear-gradient(180deg,#BDE9FF 0%,#9ADCF8 50%,#7BC86C 50.5%,#63B053 100%);}
+  .ph-summer .sun{position:absolute;top:16px;right:22px;width:38px;height:38px;border-radius:50%;
+    background:radial-gradient(circle at 35% 35%,#FFF3B0,#FFCE4F);box-shadow:0 0 22px #FFD96A;}
+  .ph-summer .sea{position:absolute;bottom:0;left:0;right:0;height:26%;
+    background:repeating-linear-gradient(-45deg,#7CC9EE 0 10px,#8ED3F0 10px 20px);opacity:.55;}
+  .ph-summer .boat{position:absolute;bottom:20px;left:22px;font-size:30px;}
+  .ph-autumn{background:linear-gradient(180deg,#FFD9A0 0%,#FFB877 58%,#8A6D50 58.5%,#6B4F35 100%);}
+  .ph-autumn .asun{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:52px;height:52px;border-radius:50%;
+    background:radial-gradient(circle at 40% 40%,#FFF6D8,#FFC46B);}
+  .ph-autumn .aheart{position:absolute;bottom:14px;right:22px;font-size:26px;}
+  @keyframes fall{0%{transform:translateY(-20px) rotate(0)}100%{transform:translateY(170px) rotate(360deg)}}
+  #p6{background:radial-gradient(130% 100% at 50% 0%, #FFF3D9 0%, #FFE2BE 60%, #FFD3B0 100%);}
+  #p6 .bigheart{font-size:64px;animation:beat 1.2s ease-in-out infinite;filter:drop-shadow(0 6px 10px rgba(200,60,90,.35));}
+  @keyframes beat{0%,100%{transform:scale(1)}12%{transform:scale(1.18)}24%{transform:scale(1)}36%{transform:scale(1.12)}48%{transform:scale(1)}}
+  #p6 h2{font-size:32px;letter-spacing:.1em;}
+  #p6 .fin{font-size:15px;font-weight:800;color:var(--brown-l);line-height:2;}
+  #p6 .made{font-size:11px;color:#C9A96E;letter-spacing:.25em;margin-top:10px;font-weight:700;}
+  #musicBtn{
+    position:absolute;top:16px;right:16px;z-index:50;width:44px;height:44px;border-radius:50%;
+    background:#fff;border:3px solid #F0E4C8;box-shadow:var(--shadow);font-size:20px;
+    display:none;align-items:center;justify-content:center;cursor:pointer;
+  }
+  #musicBtn.on{display:flex;animation:spin 5s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #musicBtn.mute{animation:none;}
+  #dots{position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:40;display:none;flex-direction:column;gap:9px;}
+  #dots.show{display:flex;}
+  #dots i{width:8px;height:8px;border-radius:50%;background:#D8C79E;transition:.3s;cursor:pointer;}
+  #dots i.cur{background:#E8912D;transform:scale(1.5);box-shadow:0 0 0 3px rgba(232,145,45,.25);}
+  #nextBtn{
+    position:absolute;bottom:18px;left:50%;transform:translateX(-50%);z-index:40;display:none;
+    flex-direction:column;align-items:center;gap:2px;color:#C9A96E;font-size:11px;font-weight:800;letter-spacing:.2em;
+  }
+  #nextBtn.show{display:flex;}
+  #nextBtn .arr{
+    width:38px;height:38px;border-radius:50%;background:#fff;border:3px solid #F0E4C8;
+    box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;font-size:16px;color:#E8912D;
+    animation:updown 1.6s ease-in-out infinite;
+  }
+  @keyframes updown{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+  .petal-fx{position:absolute;top:-30px;font-size:16px;opacity:.85;z-index:5;pointer-events:none;
+    animation:pfall linear infinite;}
+  @keyframes pfall{
+    0%{transform:translateY(-5vh) translateX(0) rotate(0)}
+    50%{transform:translateY(48vh) translateX(26px) rotate(200deg)}
+    100%{transform:translateY(105vh) translateX(-14px) rotate(380deg)}
+  }
+  #toast{
+    position:absolute;left:50%;bottom:110px;transform:translateX(-50%);z-index:99;
+    background:rgba(80,60,35,.92);color:#FFF6DC;font-size:14px;font-weight:700;
+    border-radius:999px;padding:10px 22px;opacity:0;transition:.3s;pointer-events:none;white-space:nowrap;
+  }
+  #toast.show{opacity:1;}
+  .fadeup{animation:fadeup .8s ease both;}
+  @keyframes fadeup{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== P0 启动页 ===== -->
+  <section class="page active" id="p0">
+    <svg class="leaf-logo" viewBox="0 0 100 100">
+      <path d="M50 8 C78 20 90 46 85 72 C66 90 34 90 15 72 C10 46 22 20 50 8 Z" fill="#6FBF4A"/>
+      <path d="M50 8 C60 22 64 44 62 74 L56 76 C52 48 46 26 42 14 Z" fill="#8FD96A" opacity=".8"/>
+      <path d="M50 18 C56 36 57 58 54 80" stroke="#3F8F2F" stroke-width="5" stroke-linecap="round" fill="none"/>
+    </svg>
+    <div class="en">WEDDING&nbsp;INVITATION</div>
+    <h1>{{GROOM}} <span class="heart">&#10084;</span> {{BRIDE}}</h1>
+    <div class="sub">诚 挚 邀 请 你 登 岛</div>
+    <button class="btn" id="startBtn">&#9654; 点击开启请柬</button>
+    <div class="hint">建议打开声音 &#127925; 效果更佳</div>
+  </section>
+
+  <!-- ===== P1 里程票 ===== -->
+  <section class="page" id="p1">
+    <div class="page-tag">NOOK MILES TICKET</div>
+    <div class="ticket fadeup">
+      <div class="ticket-top">
+        <div class="tt-icon"><span>&#9992;&#65039;</span>
+          <svg width="34" height="34" viewBox="0 0 100 100">
+            <path d="M50 8 C78 20 90 46 85 72 C66 90 34 90 15 72 C10 46 22 20 50 8 Z" fill="#FFF6DC"/>
+            <path d="M50 18 C56 36 57 58 54 80" stroke="#E09A18" stroke-width="6" stroke-linecap="round" fill="none"/>
+          </svg>
+          <span>&#128036;</span>
+        </div>
+        <div class="tt-title">婚礼邀请函</div>
+        <div class="tt-en">WEDDING&nbsp;PARTY&nbsp;TICKET</div>
+      </div>
+      <div class="ticket-cut"></div>
+      <div class="ticket-bottom">
+        <div class="tb-names">{{GROOM}} &#10084; {{BRIDE}}</div>
+        <div class="tb-line">{{DATE_DOT}}&nbsp;&nbsp;{{WEEKDAY}}<br>{{VENUE_NAME}}</div>
+      </div>
+    </div>
+    <div class="ticket-note">&#127908; 凭此票登岛 · 永久有效 · 无限次使用</div>
+  </section>
+
+  <!-- ===== P2 护照 ===== -->
+  <section class="page" id="p2">
+    <div class="page-tag">ISLANDER PASSPORT</div>
+    <div class="passport fadeup">
+      <div class="passport-head">
+        <svg width="16" height="16" viewBox="0 0 100 100"><path d="M50 8 C78 20 90 46 85 72 C66 90 34 90 15 72 C10 46 22 20 50 8 Z" fill="#FFF6DC"/><path d="M50 18 C56 36 57 58 54 80" stroke="#5AA84E" stroke-width="6" stroke-linecap="round" fill="none"/></svg>
+        岛民护照 · PASSPORT
+      </div>
+      <div class="passport-body">
+        <div class="avatar">{{GROOM_AVATAR}}</div>
+        <div class="p-info">
+          <div class="p-name">{{GROOM}}</div>
+          <div class="p-row"><span class="ic">&#128081;</span><span class="lb">身份</span><span class="vl">新郎 · The Groom</span></div>
+          <div class="p-row"><span class="ic">&#127958;&#65039;</span><span class="lb">岛屿</span><span class="vl">婚礼岛</span></div>
+          <div class="p-row"><span class="ic">&#128172;</span><span class="lb">性格</span><span class="vl">{{GROOM_PERSONALITY}}</span></div>
+          <div class="p-row"><span class="ic">&#127800;</span><span class="lb">最爱</span><span class="vl">{{GROOM_FAVOR}}</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="passport fadeup">
+      <div class="passport-head">
+        <svg width="16" height="16" viewBox="0 0 100 100"><path d="M50 8 C78 20 90 46 85 72 C66 90 34 90 15 72 C10 46 22 20 50 8 Z" fill="#FFF6DC"/><path d="M50 18 C56 36 57 58 54 80" stroke="#5AA84E" stroke-width="6" stroke-linecap="round" fill="none"/></svg>
+        岛民护照 · PASSPORT
+      </div>
+      <div class="passport-body">
+        <div class="avatar">{{BRIDE_AVATAR}}</div>
+        <div class="p-info">
+          <div class="p-name">{{BRIDE}}</div>
+          <div class="p-row"><span class="ic">&#128081;</span><span class="lb">身份</span><span class="vl">新娘 · The Bride</span></div>
+          <div class="p-row"><span class="ic">&#127958;&#65039;</span><span class="lb">岛屿</span><span class="vl">婚礼岛</span></div>
+          <div class="p-row"><span class="ic">&#128172;</span><span class="lb">性格</span><span class="vl">{{BRIDE_PERSONALITY}}</span></div>
+          <div class="p-row"><span class="ic">&#127800;</span><span class="lb">最爱</span><span class="vl">{{BRIDE_FAVOR}}</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="hint">&#128072; 头像与资料为游戏化设定，可改成你们的照片和真实信息</div>
+  </section>
+
+  <!-- ===== P3 对话框邀请 ===== -->
+  <section class="page" id="p3">
+    <div class="page-tag">VILLAGER'S LETTER</div>
+    <div class="speaker">
+      <div class="sp-av">{{BRIDE_AVATAR}}</div>
+      <div class="sp-nm">岛民 · {{BRIDE}}</div>
+    </div>
+    <div class="dialog"><span id="typeText"></span><span class="caret" id="caret" style="display:none"></span></div>
+    <button class="btn green small" id="goInfoBtn">&#9654; 继续对话</button>
+  </section>
+
+  <!-- ===== P4 婚礼信息 ===== -->
+  <section class="page" id="p4">
+    <div class="page-tag">WEDDING CEREMONY</div>
+    <div class="datecard fadeup">
+      <div class="dc-y">{{YEAR}}</div>
+      <div class="dc-d">{{MD}}</div>
+      <div class="dc-w">{{WEEKDAY}} · {{TIME_CN}} <span class="star">{{TIME_MARK}}</span></div>
+      <div class="countdown">
+        <div class="cd-box"><div class="cd-num" id="cdD">--</div><div class="cd-lb">天</div></div>
+        <div class="cd-box"><div class="cd-num" id="cdH">--</div><div class="cd-lb">时</div></div>
+        <div class="cd-box"><div class="cd-num" id="cdM">--</div><div class="cd-lb">分</div></div>
+        <div class="cd-box"><div class="cd-num" id="cdS">--</div><div class="cd-lb">秒</div></div>
+      </div>
+    </div>
+    <div class="venue fadeup">
+      <div class="v-nm">&#127976; {{VENUE_NAME}}</div>
+      <div class="v-ad">{{VENUE_ADDR}}</div>
+    </div>
+    <div class="map-box fadeup">
+      <svg viewBox="0 0 320 170" style="display:block;width:100%">
+        <rect width="320" height="170" fill="#A8DDF0"/>
+        <path d="M30 20 q8 6 0 12 M290 40 q8 6 0 12 M60 140 q8 6 0 12 M270 120 q8 6 0 12" stroke="#8CCBE8" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <path d="M160 12 C 235 20 262 62 250 100 C 240 140 190 162 150 158 C 100 154 58 136 60 96 C 62 56 95 6 160 12 Z" fill="#F4E7B0"/>
+        <path d="M160 20 C 226 28 252 64 242 98 C 233 132 188 152 152 149 C 108 145 68 130 70 96 C 72 60 102 14 160 20 Z" fill="#B9E49B"/>
+        <path d="M120 158 C 126 132 122 112 132 96 C 138 86 148 82 156 84" stroke="#8CCBE8" stroke-width="9" fill="none" stroke-linecap="round"/>
+        <path d="M40 150 C 80 138 92 116 118 106 L 150 96 L 176 70" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round" stroke-dasharray="2 9"/>
+        <text x="170" y="52" font-size="24">&#127968;</text>
+        <text x="176" y="30" font-size="11" fill="#6B4F35" font-weight="bold">婚礼岛</text>
+        <text x="156" y="88" font-size="18">&#128205;</text>
+        <text x="30" y="146" font-size="18">&#9875;&#65039;</text>
+        <text x="60" y="60" font-size="18">&#127795;</text>
+        <text x="230" y="128" font-size="18">&#127796;</text>
+        <text x="206" y="148" font-size="16">&#127793;</text>
+        <text x="88" y="80" font-size="16">&#127804;</text>
+      </svg>
+    </div>
+    <div class="btnrow">
+      <a class="btn small" id="mapBtn" href="javascript:void(0)">&#129517; 高德导航</a>
+      <button class="btn small" id="copyBtn">&#128203; 复制地址</button>
+    </div>
+    <div class="hint">{{TIME_HINT}}</div>
+  </section>
+
+  <!-- ===== P5 相册 ===== -->
+  <section class="page" id="p5">
+    <div class="page-tag">OUR ISLAND ALBUM</div>
+    <div class="album">
+      <div class="photo ph-spring">
+        <span class="petal" style="left:60%;animation-delay:0s">&#127800;</span>
+        <span class="petal" style="left:78%;animation-delay:1.8s">&#127800;</span>
+        <span class="petal" style="left:40%;animation-delay:3.2s">&#127800;</span>
+        <span class="tree">&#127795;</span>
+        <span class="cap">&#127800; 初遇 · 春</span>
+      </div>
+      <div class="photo ph-summer">
+        <span class="sun"></span><span class="sea"></span><span class="boat">&#9973;&#65039;</span>
+        <span class="cap">&#127774; 相恋 · 夏</span>
+      </div>
+      <div class="photo ph-autumn">
+        <span class="asun"></span><span class="aheart">&#128149;</span>
+        <span class="cap">&#127808; 余生 · 秋</span>
+      </div>
+    </div>
+    <div class="hint">&#128248; 这里预留了相册位：把文件里 .photo 区域换成你们的照片即可</div>
+  </section>
+
+  <!-- ===== P6 结尾 ===== -->
+  <section class="page" id="p6">
+    <div class="bigheart">&#128149;</div>
+    <h2>我们结婚啦！</h2>
+    <div class="fin">{{DATE_DOT}}&nbsp;&nbsp;{{WEEKDAY}}<br>{{VENUE_NAME}}<br><br><b style="font-size:20px">{{GROOM}} &#10084; {{BRIDE}}</b><br><br>诚挚邀请你，登岛见证 &#127958;&#65039;</div>
+    <div class="made">&#127807; MADE WITH LOVE &#127807;</div>
+  </section>
+
+  <!-- 固定 UI -->
+  <div id="musicBtn">&#127925;</div>
+  <div id="dots"></div>
+  <div id="nextBtn"><div class="arr">&#9650;</div>上滑翻页</div>
+  <div id="toast"></div>
+</div>
+
+<script>
+/* ============ 基础数据（可自行修改） ============ */
+var WEDDING = {
+  date: '{{DATE_ISO}}T{{TIME}}:00+08:00',
+  venueName: '{{VENUE_NAME}}',
+  venueAddr: '{{VENUE_ADDR}}',
+  mapKeyword: '{{MAP_KEYWORD}}'
+};
+
+var $ = function(s){ return document.querySelector(s); };
+var pages = [].slice.call(document.querySelectorAll('.page'));
+var cur = 0, animLock = false;
+
+/* ============ 音频：动森风 BGM（Web Audio 合成） ============ */
+var actx = null, master = null, musicTimer = null, slotIdx = 0, nextT = 0, muted = false;
+var EIGHTH = 60/108/2;
+
+var MELODY = [
+  76,79,84,79, 76,79, 0, 0,   81,76,72,76, 81, 0,79, 0,
+  77,81,84,81, 77,81, 0, 0,   79,83,86,83, 79, 0,76, 0,
+  76,79,84,79, 81,79,76,74,   72,76,81,79, 76,74,72, 0,
+  77,79,81,79, 83, 0,86, 0,   84, 0, 0, 0, 72,74,76,79
+];
+var BASS = [[48,55],[45,52],[41,48],[43,50],[48,55],[45,52],[41,48],[43,50]];
+
+function mf(m){ return 440*Math.pow(2,(m-69)/12); }
+function marimba(t, midi, vol){
+  var o = actx.createOscillator(), g = actx.createGain();
+  o.type='sine'; o.frequency.value = mf(midi);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(vol, t+0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.55);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+0.6);
+  var o2 = actx.createOscillator(), g2 = actx.createGain();
+  o2.type='sine'; o2.frequency.value = mf(midi)*3.01;
+  g2.gain.setValueAtTime(vol*0.13,t);
+  g2.gain.exponentialRampToValueAtTime(0.0001, t+0.12);
+  o2.connect(g2); g2.connect(master); o2.start(t); o2.stop(t+0.15);
+}
+function bassNote(t, midi){
+  var o = actx.createOscillator(), g = actx.createGain();
+  o.type='triangle'; o.frequency.value = mf(midi);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(0.13, t+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.5);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+0.55);
+}
+function hat(t){
+  var o = actx.createOscillator(), g = actx.createGain();
+  o.type='square'; o.frequency.value = 7200;
+  g.gain.setValueAtTime(0.016,t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.03);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+0.04);
+}
+function playSlot(i, t){
+  var bar = Math.floor(i/8), pos = i%8;
+  var m = MELODY[i]; if(m) marimba(t, m, 0.15);
+  if(pos===0) bassNote(t, BASS[bar][0]);
+  if(pos===4) bassNote(t, BASS[bar][1]);
+  if(pos%2===0) hat(t);
+}
+function scheduler(){
+  while(nextT < actx.currentTime + 0.12){
+    playSlot(slotIdx % 64, nextT);
+    nextT += EIGHTH; slotIdx++;
+  }
+}
+function startMusic(){
+  if(!actx) return;
+  if(musicTimer) return;
+  nextT = actx.currentTime + 0.08;
+  musicTimer = setInterval(scheduler, 30);
+}
+function stopMusic(){ clearInterval(musicTimer); musicTimer=null; }
+function initAudio(){
+  if(actx) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) return;
+  actx = new AC();
+  if(actx.resume) actx.resume();
+  master = actx.createGain(); master.gain.value = 0.9;
+  master.connect(actx.destination);
+  startMusic();
+  var mb = $('#musicBtn'); mb.className='on'; mb.innerHTML='&#127925;';
+}
+function blip(){
+  if(!actx || muted) return;
+  var t = actx.currentTime;
+  [[1046,0,0.05],[1568,0.055,0.09]].forEach(function(p){
+    var o=actx.createOscillator(),g=actx.createGain();
+    o.type='sine'; o.frequency.value=p[0];
+    g.gain.setValueAtTime(0.12,t+p[1]);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+p[1]+p[2]);
+    o.connect(g);g.connect(master);o.start(t+p[1]);o.stop(t+p[1]+p[2]+0.02);
+  });
+}
+$('#musicBtn').addEventListener('click', function(){
+  if(!actx){ initAudio(); return; }
+  muted = !muted;
+  if(muted){ stopMusic(); this.className='on mute'; this.innerHTML='&#128263;'; }
+  else { startMusic(); this.className='on'; this.innerHTML='&#127925;'; }
+});
+
+/* ============ 翻页 ============ */
+var dotsBox = $('#dots');
+pages.forEach(function(p,i){ var d=document.createElement('i'); d.onclick=function(){ go(i); }; dotsBox.appendChild(d); });
+function updateDots(){
+  [].forEach.call(dotsBox.children,function(d,i){ d.className = i===cur?'cur':''; });
+}
+function go(n){
+  if(n<0||n>=pages.length||n===cur||animLock) return;
+  animLock = true; setTimeout(function(){ animLock=false; }, 480);
+  pages[cur].classList.remove('active');
+  cur = n;
+  pages[cur].classList.add('active');
+  pages[cur].scrollTop = 0;
+  dotsBox.classList.add('show');
+  updateDots(); blip();
+  $('#nextBtn').className = (cur===0||cur===pages.length-1) ? '' : 'show';
+  if(cur===3) startTyping();
+}
+function scrollBlock(dyDown){
+  var p = pages[cur];
+  if(p.scrollHeight <= p.clientHeight + 4) return false;
+  var atTop = p.scrollTop <= 2, atBottom = p.scrollTop + p.clientHeight >= p.scrollHeight - 2;
+  return dyDown ? !atBottom : !atTop;
+}
+var ty=0, tx=0;
+document.addEventListener('touchstart', function(e){ ty=e.touches[0].clientY; tx=e.touches[0].clientX; }, {passive:true});
+document.addEventListener('touchend', function(e){
+  var dy = ty - e.changedTouches[0].clientY, dx = Math.abs(tx - e.changedTouches[0].clientX);
+  if(Math.abs(dy)>46 && Math.abs(dy)>dx*1.4){
+    if(scrollBlock(dy>0)) return;
+    go(cur + (dy>0?1:-1));
+  }
+}, {passive:true});
+var wheelLock=0;
+document.addEventListener('wheel', function(e){
+  var now=Date.now(); if(now-wheelLock<650) return;
+  if(Math.abs(e.deltaY)<18) return;
+  if(scrollBlock(e.deltaY>0)) return;
+  wheelLock=now; go(cur + (e.deltaY>0?1:-1));
+});
+document.addEventListener('keydown', function(e){
+  if(e.key==='ArrowDown'||e.key==='PageDown'||e.key===' ') go(cur+1);
+  if(e.key==='ArrowUp'||e.key==='PageUp') go(cur-1);
+});
+$('#startBtn').addEventListener('click', function(){ initAudio(); blip(); setTimeout(function(){ go(1); },120); });
+$('#goInfoBtn').addEventListener('click', function(){ go(cur+1); });
+$('#nextBtn').addEventListener('click', function(){ go(cur+1); });
+
+/* ============ 打字机 ============ */
+var LINES = {{DIALOG_JSON}};
+var fullText = LINES.join('\n');
+var typed = false, typeTimer = null;
+function startTyping(){
+  if(typed) return; typed = true;
+  $('#caret').style.display='inline-block';
+  var el = $('#typeText'), i = 0;
+  var tmp = document.createElement('div');
+  function step(){
+    if(i >= fullText.length){ el.innerHTML = tmp.innerHTML; $('#caret').style.display='none'; return; }
+    var rest = fullText.slice(i), m = rest.match(/^&[^;]{2,8};/);
+    if(m){ tmp.innerHTML += m[0]; i += m[0].length; }
+    else { tmp.innerHTML += rest[0]==='\n' ? '<br>' : rest[0]; i += 1; }
+    el.innerHTML = tmp.innerHTML;
+    var ch = fullText[i-1];
+    if(actx && !muted && i%3===0 && ch && ch!=='\n'){
+      var o=actx.createOscillator(),g=actx.createGain(),t=actx.currentTime;
+      o.type='sine'; o.frequency.value=1300;
+      g.gain.setValueAtTime(0.03,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.03);
+      o.connect(g);g.connect(master);o.start(t);o.stop(t+0.04);
+    }
+    setTimeout(step, (ch==='，'||ch==='！'||ch==='：') ? 260 : 62);
+  }
+  typeTimer = setTimeout(step, 350);
+  $('.dialog').addEventListener('click', function once(){
+    $('.dialog').removeEventListener('click', once);
+    clearTimeout(typeTimer);
+    tmp.innerHTML = fullText.replace(/\n/g,'<br>');
+    el.innerHTML = tmp.innerHTML;
+    $('#caret').style.display='none';
+  });
+}
+
+/* ============ 倒计时 ============ */
+var target = new Date(WEDDING.date).getTime();
+function pad(n){ return n<10?'0'+n:''+n; }
+setInterval(function(){
+  var s = Math.max(0, Math.floor((target - Date.now())/1000));
+  $('#cdD').textContent = Math.floor(s/86400);
+  $('#cdH').textContent = pad(Math.floor(s%86400/3600));
+  $('#cdM').textContent = pad(Math.floor(s%3600/60));
+  $('#cdS').textContent = pad(s%60);
+}, 1000);
+
+/* ============ 地图 / 复制 ============ */
+$('#mapBtn').href = 'https://uri.amap.com/search?keyword=' + encodeURIComponent(WEDDING.mapKeyword) + '&callnative=0';
+function toast(msg){
+  var t=$('#toast'); t.innerHTML=msg; t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 1800);
+}
+$('#copyBtn').addEventListener('click', function(){
+  var addr = WEDDING.venueAddr;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(addr).then(function(){ toast('&#128077; 地址已复制'); }, function(){ fallback(); });
+  } else fallback();
+  function fallback(){
+    var ta=document.createElement('textarea'); ta.value=addr; document.body.appendChild(ta);
+    ta.select(); try{ document.execCommand('copy'); toast('&#128077; 地址已复制：'+addr); }catch(e){ toast('&#128248; 请手动记录地址'); }
+    document.body.removeChild(ta);
+  }
+});
+
+/* ============ 花瓣飘落 ============ */
+(function(){
+  var icons = ['&#127800;','&#127807;','&#127804;'], n = 10;
+  for(var i=0;i<n;i++){
+    var s=document.createElement('span'); s.className='petal-fx';
+    s.innerHTML=icons[i%3];
+    s.style.left = (5 + Math.random()*88) + '%';
+    s.style.animationDuration = (6 + Math.random()*6) + 's';
+    s.style.animationDelay = (-Math.random()*10) + 's';
+    s.style.fontSize = (12 + Math.random()*10) + 'px';
+    $('#app').appendChild(s);
+  }
+})();
+updateDots();
+</script>
+</body>
+</html>

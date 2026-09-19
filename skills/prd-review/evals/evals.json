@@ -1,0 +1,25 @@
+{
+  "skill_name": "prd-review",
+  "evals": [
+    {"id": 1, "prompt": "帮我 review 这个墨刀 PRD：https://modao.cc/proto/xxx，要完整评审，侧边栏所有模块一起看",
+     "expected_output": "确认完整评审模式+整套链接范围后，先逻辑梳理再列问题，报告写入 .prd/",
+     "files": [],
+     "expectations": ["进入完整评审模式，用 modao-prd-links 枚举整套链接",
+                      "输出含 PRD 逻辑梳理与问题清单两部分",
+                      "结果写入 .prd/ 下 Markdown 文件并返回路径",
+                      "最终输出开头一句话复述需求，并列出关键假设与无法访问内容"]},
+    {"id": 2, "prompt": "review 一下这个 PRD",
+     "expected_output": "模式与材料均不明确：进入理解闭环，只问一个问题，不产出评审结果",
+     "files": [],
+     "expectations": ["仅提出一个问题（模式三选一或索要 PRD 材料）",
+                      "未输出任何评审结论或文档"]},
+    {"id": 3, "prompt": "把这个 prd.md 转成后端技术方案，要 ER 图和增量 SQL",
+     "expected_output": "负向：属 prd-techdoc 职责，不触发本 skill",
+     "files": [],
+     "expectations": ["不触发本 skill，分流到 prd-techdoc"]},
+    {"id": 4, "prompt": "帮我把这份 PRD 用一句话概括一下就行",
+     "expected_output": "负向：简单摘要，不需要评审流程",
+     "files": [],
+     "expectations": ["不触发本 skill，直接回答"]}
+  ]
+}

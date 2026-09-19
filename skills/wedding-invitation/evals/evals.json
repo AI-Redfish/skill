@@ -1,0 +1,48 @@
+{
+  "skill_name": "wedding-invitation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我做一个动森风格的电子婚礼请柬：新郎王青、新娘桃十九，2026年10月3日中午12:08，陕西省西安市温德姆大酒店，做好后再导出一个竖屏 MP4 发朋友圈",
+      "expected_output": "信息完整：执行 generate_h5.py 生成 HTML，预览确认后 export_mp4.py 导出 1080x1920 MP4，输出含需求复述/关键假设/产物路径",
+      "files": [],
+      "expectations": [
+        "生成单文件 HTML 且含王青/桃十九/2026-10-03/温德姆，无 {{}} 占位符残留",
+        "导出 MP4 分辨率 1080x1920 且时长 30~50 秒、含 AAC 音轨",
+        "最终输出开头一句话复述需求",
+        "输出列出关键假设与剩余不确定性"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "帮我做个婚礼请柬",
+      "expected_output": "信息不全：进入理解闭环，只提出一个问题（如婚礼日期或姓名），不产出最终方案",
+      "files": [],
+      "expectations": [
+        "仅提出一个问题（不是多个）",
+        "未输出最终方案/产物"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "把这个 demo.html 导出成竖屏演示视频，页面有全局 go(n) 翻页函数，每页停 4 秒左右",
+      "expected_output": "通用导出：export_mp4.py --stay 适配页数，产出 MP4 并汇报时长/分辨率",
+      "files": [],
+      "expectations": [
+        "调用 export_mp4.py 且 nav-mode 使用 go",
+        "生成的 MP4 存在且分辨率/时长符合参数",
+        "汇报产物绝对路径"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "婚纪网和易企秀的电子请柬哪个平台好用？各自怎么收费",
+      "expected_output": "不触发本 skill：属于平台咨询，直接解答，不执行生成/导出脚本",
+      "files": [],
+      "expectations": [
+        "未调用 generate_h5.py / export_mp4.py",
+        "回答为咨询性内容"
+      ]
+    }
+  ]
+}

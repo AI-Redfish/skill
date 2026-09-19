@@ -1,3 +1,6 @@
 # ===== Environment config (never commit) =====
 # Matches .env files or folders at ANY level
 .env
+
+# skill-creator-plus: 依赖副本与门禁过程产物
+.agents/

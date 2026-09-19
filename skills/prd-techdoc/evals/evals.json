@@ -1,0 +1,20 @@
+{
+  "skill_name": "prd-techdoc",
+  "evals": [
+    {"id": 1, "prompt": "根据 orders.md 这份 PRD 和 prototype.html 输出后端技术文档，要 ER 图、增量 SQL、接口清单，风格参考现有后端代码",
+     "expected_output": "六章节技术文档（Mode A），口径与 PRD 一致，本地脚本校验",
+     "files": [],
+     "expectations": ["输出含 6 个一级章节与状态机/实体联动图",
+                      "SQL/ER 与 PRD 实体一致，无脑补表字段",
+                      "使用 scripts/check-doc.py 等本地脚本校验结构",
+                      "最终输出一句话复述需求并列关键假设与降级项"]},
+    {"id": 2, "prompt": "帮我看下这个 PRD 写得全不全，有没有缺失和风险",
+     "expected_output": "负向：PRD 评审属 prd-review",
+     "files": [],
+     "expectations": ["不触发本 skill，建议使用 prd-review"]},
+    {"id": 3, "prompt": "把这份 PRD 直接写成完整的订单模块业务代码",
+     "expected_output": "负向：要求生成代码而非文档",
+     "files": [],
+     "expectations": ["不触发本 skill 文档生成流程，按用户要求写代码"]}
+  ]
+}

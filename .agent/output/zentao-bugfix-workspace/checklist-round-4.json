@@ -1,0 +1,174 @@
+{
+  "status": "pass",
+  "skill": "/tmp/skillcheck/zentao-bugfix",
+  "checked_at": "2026-09-19T20:32:01+0800",
+  "summary": {
+    "total": 23,
+    "passed": 23,
+    "warned": 0,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "id": "structure.skillmd",
+      "severity": "error",
+      "status": "pass",
+      "message": "SKILL.md 存在",
+      "hint": ""
+    },
+    {
+      "id": "frontmatter.parse",
+      "severity": "error",
+      "status": "pass",
+      "message": "frontmatter 可解析",
+      "hint": ""
+    },
+    {
+      "id": "frontmatter.name",
+      "severity": "error",
+      "status": "pass",
+      "message": "name 合法（zentao-bugfix）",
+      "hint": ""
+    },
+    {
+      "id": "frontmatter.name_dir_match",
+      "severity": "error",
+      "status": "pass",
+      "message": "name 与目录名一致",
+      "hint": ""
+    },
+    {
+      "id": "frontmatter.description",
+      "severity": "error",
+      "status": "pass",
+      "message": "description 合法（251 字符）",
+      "hint": ""
+    },
+    {
+      "id": "frontmatter.description_trigger",
+      "severity": "warn",
+      "status": "pass",
+      "message": "description 含功能+触发场景描述",
+      "hint": ""
+    },
+    {
+      "id": "body.not_for",
+      "severity": "warn",
+      "status": "pass",
+      "message": "正文声明了不适用场景",
+      "hint": ""
+    },
+    {
+      "id": "body.length",
+      "severity": "error",
+      "status": "pass",
+      "message": "正文 157 行（≤500）",
+      "hint": ""
+    },
+    {
+      "id": "body.structure",
+      "severity": "warn",
+      "status": "pass",
+      "message": "正文有 15 个标题，结构清晰",
+      "hint": ""
+    },
+    {
+      "id": "body.examples",
+      "severity": "warn",
+      "status": "pass",
+      "message": "正文含示例",
+      "hint": ""
+    },
+    {
+      "id": "body.loop_understanding",
+      "severity": "error",
+      "status": "pass",
+      "message": "理解闭环已内嵌",
+      "hint": ""
+    },
+    {
+      "id": "body.loop_output_review",
+      "severity": "error",
+      "status": "pass",
+      "message": "输出审查闭环已内嵌",
+      "hint": ""
+    },
+    {
+      "id": "scripts.pep723.bugfix.py",
+      "severity": "error",
+      "status": "pass",
+      "message": "scripts/bugfix.py 仅用标准库（无需 PEP 723）",
+      "hint": ""
+    },
+    {
+      "id": "scripts.no_input.bugfix.py",
+      "severity": "warn",
+      "status": "pass",
+      "message": "scripts/bugfix.py 无交互式输入",
+      "hint": ""
+    },
+    {
+      "id": "scripts.usable.bugfix.py",
+      "severity": "warn",
+      "status": "pass",
+      "message": "scripts/bugfix.py 有用法说明",
+      "hint": ""
+    },
+    {
+      "id": "scripts.pep723.dingtalk_listen.py",
+      "severity": "error",
+      "status": "pass",
+      "message": "scripts/dingtalk_listen.py 仅用标准库（无需 PEP 723）",
+      "hint": ""
+    },
+    {
+      "id": "scripts.no_input.dingtalk_listen.py",
+      "severity": "warn",
+      "status": "pass",
+      "message": "scripts/dingtalk_listen.py 无交互式输入",
+      "hint": ""
+    },
+    {
+      "id": "scripts.usable.dingtalk_listen.py",
+      "severity": "warn",
+      "status": "pass",
+      "message": "scripts/dingtalk_listen.py 有用法说明",
+      "hint": ""
+    },
+    {
+      "id": "security.secrets",
+      "severity": "error",
+      "status": "pass",
+      "message": "未发现硬编码密钥",
+      "hint": ""
+    },
+    {
+      "id": "security.env_location",
+      "severity": "error",
+      "status": "pass",
+      "message": "skill 目录内无 .env/.agent",
+      "hint": ""
+    },
+    {
+      "id": "security.env_gitignored",
+      "severity": "warn",
+      "status": "pass",
+      "message": "运行时 .agent/.env 尚不存在（测试阶段收取）",
+      "hint": ""
+    },
+    {
+      "id": "tests.present",
+      "severity": "warn",
+      "status": "pass",
+      "message": "存在 tests/ 或 evals/",
+      "hint": ""
+    },
+    {
+      "id": "metadata.version",
+      "severity": "warn",
+      "status": "pass",
+      "message": "metadata.version 已声明",
+      "hint": ""
+    }
+  ]
+}
