@@ -22,12 +22,15 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
     save-config KEY=VALUE... [--project DIR]      保存/合并写入 .env
     get-bug <bugId> [--project DIR]               拉取禅道 bug（详情+评论+截图）
     worktree <bugId> [baseBranch] [--project DIR] [--reuse]
-                                                  创建 bugfix worktree + 拷贝资料；该
-                                                  bugId 已有 worktree/修复分支时停止
-                                                  （返回码 4），--reuse 显式复用继续
+                                                  创建 bugfix worktree + 同步远端最新
+                                                  基准分支（fetch+merge 进 bugfix 分支）
+                                                  + 拷贝资料；该 bugId 已有 worktree/
+                                                  修复分支时停止（返回码 4），--reuse
+                                                  显式复用继续（复用时不同步远端）
     prepare <bugId> [baseBranch] [--project DIR] [--reuse] [--force]
                                                   一次完成：防重检查 + get-bug +
-                                                  worktree + 生成 analysis.md 分析骨架
+                                                  worktree（含远端同步）+ 生成
+                                                  analysis.md 分析骨架
     report <bugId> [--project DIR] [--force]      生成 fix-report.md（含未提交
                                                   变更清单）+ 输出汇报摘要；自动定位
                                                   该 bugId 既有 worktree（跨日期）
@@ -40,9 +43,17 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
     - 幂等防重：同一 bugId 重复 prepare/worktree 时，检测到已有 worktree/修复
       分支（不限日期）即停止并输出 EXISTS 摘要（返回码 4）；--reuse 可显式复用
       既有 worktree 继续处理；report 自动定位既有 worktree。
+    - 远端同步：**新建** worktree 后自动 fetch 远端基准分支并合并进 bugfix 分支
+      （git fetch <remote> <基准> + git merge <remote>/<基准>，在 worktree 内执行）；
+      仓库无远程 / fetch 失败 / 基准非分支 → 警告降级用本地快照并在输出标注
+      SYNCED=no；合并冲突 → 自动 git merge --abort 保持 worktree 干净后停止
+      （返回码 5，输出 SYNC_CONFLICT 块，人工决策）；不更新本地基准分支引用、
+      不碰主工作空间；--reuse 复用时不同步。
 
 返回码：0 成功；2 配置/参数错误；3 bug 获取或 worktree 创建失败；
-       4 该 bugId 已存在 worktree/修复分支（防重复处理，需人工决策）。
+       4 该 bugId 已存在 worktree/修复分支（防重复处理，需人工决策）；
+       5 远端基准分支合并失败/冲突（已自动 git merge --abort，worktree 保持
+       干净，人工决策后续）。
 """
 import argparse
 import html as html_mod
@@ -554,20 +565,122 @@ def info_from_worktree(project_dir, bug_id, wt_path, wt_branch=""):
                          repo_root, check=False)
     if rc == 0:
         head_short = out.strip()
-    return {
+    result = {
         "repo_root": repo_root, "parent_dir": os.path.dirname(repo_root),
         "base_branch": base_branch, "cur_branch": "", "head_short": head_short,
         "date": date, "branch": branch, "dir_name": dir_name,
         "wt_path": wt_path, "report_dir": report_dir, "reused": True,
     }
+    # 还原创建时的远端同步状态（旧版 meta 无此字段则缺省，报告标注未记录）
+    if meta:
+        for k in ("synced", "sync_reason", "sync_remote_branch"):
+            if meta.get(k) is not None:
+                result[k] = meta[k]
+    return result
+
+
+def pick_remote(repo_root):
+    """返回优先使用的远程名：优先 origin，否则第一个已配置远程；无远程返回 None。"""
+    _, out, _ = run_git(["remote"], repo_root, check=False)
+    remotes = [l.strip() for l in out.splitlines() if l.strip()]
+    if not remotes:
+        return None
+    return "origin" if "origin" in remotes else remotes[0]
+
+
+def sync_base_branch(info, bug_id):
+    """新建 worktree 后同步远端最新基准分支：fetch 远端基准并合并进 bugfix 分支。
+
+    策略（与 SKILL.md 约定一致）：
+    - 基准非分支（detached HEAD）、仓库无远程、fetch 失败、远端无该分支 →
+      警告降级：基于本地快照继续，返回 synced=False（输出标注 SYNCED=no）；
+    - 合并失败/冲突 → 自动 git merge --abort 保持 worktree 干净，
+      输出 SYNC_CONFLICT 块后 sys.exit(5)，由人工决策后续；
+    - 成功（含 Already up to date）→ synced=True，返回合并后 HEAD 短 hash；
+    - 只在 worktree 分支上合并，不更新本地基准分支引用、不碰主工作空间。
+
+    返回 {"synced", "sync_reason", "sync_remote_branch", "base_commit"}。
+    """
+    repo_root, wt_path = info["repo_root"], info["wt_path"]
+    base = info["base_branch"]
+
+    def _result(synced, reason, remote_branch="", commit=""):
+        return {"synced": synced, "sync_reason": reason,
+                "sync_remote_branch": remote_branch, "base_commit": commit}
+
+    def _degrade(reason, remote_branch=""):
+        log("[warn] 未同步远端: %s" % reason)
+        return _result(False, reason, remote_branch)
+
+    if base == "HEAD":
+        return _degrade("基准不是分支（detached HEAD/无当前分支），跳过远端同步")
+
+    remote = pick_remote(repo_root)
+    if not remote:
+        return _degrade("仓库未配置远程（git remote 为空）")
+
+    # 基准本身是远程跟踪形式（如 origin/dev）时直接使用，否则拼 <remote>/<基准>
+    if "/" in base and base.split("/", 1)[0] == remote:
+        remote_branch = base
+        fetch_branch = base.split("/", 1)[1]
+    else:
+        remote_branch = "%s/%s" % (remote, base)
+        fetch_branch = base
+
+    rc, _, err = run_git(["fetch", remote, fetch_branch], repo_root, check=False)
+    if rc != 0:
+        first = (err.strip().splitlines() or [""])[0][:120]
+        return _degrade("fetch %s %s 失败（%s），远端无该分支或网络不通" % (
+            remote, fetch_branch, first), remote_branch)
+
+    rc, _, _ = run_git(["rev-parse", "--verify", "--quiet",
+                        "refs/remotes/%s" % remote_branch], repo_root, check=False)
+    if rc != 0:
+        return _degrade("未找到远端跟踪分支 %s（fetch 未更新该引用）" % remote_branch,
+                        remote_branch)
+
+    # 在 worktree 内合并远端基准；失败（含冲突）→ 安全中止并停止（返回码 5）
+    rc, out, err = run_git(["merge", remote_branch], wt_path, check=False)
+    if rc != 0:
+        abort_rc, _, _ = run_git(["merge", "--abort"], wt_path, check=False)
+        detail = ((err or "").strip() or (out or "").strip()).splitlines()
+        detail = detail[0][:200] if detail else "未知原因"
+        print("SYNC_CONFLICT")
+        print("BUG_ID=%s" % bug_id)
+        print("BRANCH=%s" % info["branch"])
+        print("WORKTREE=%s" % wt_path)
+        print("WORKTREE_WIN=%s" % wt_win_path(wt_path))
+        print("REMOTE_BRANCH=%s" % remote_branch)
+        print("MERGE_ABORTED=%s" % ("yes" if abort_rc == 0 else "no"))
+        print("ACTION=stop（合并失败已自动 git merge --abort，worktree 保持干净；人工决策后继续）")
+        log("")
+        log("ERROR: 同步远端基准分支失败——合并 %s 到 %s 报错: %s" % (
+            remote_branch, info["branch"], detail))
+        log("原因: 远端基准分支与本地基准分支存在分叉，无法自动合并。")
+        log("后续二选一:")
+        log("  1. 手动解决: cd %s && git merge %s，解决冲突后继续修复流程（report %s）" % (
+            wt_path, remote_branch, bug_id))
+        log("  2. 清理重建: git worktree remove %s && git branch -D %s，"
+            "先在本地基准分支手动同步远端后重新 prepare" % (wt_path, info["branch"]))
+        sys.exit(5)
+
+    _, head, _ = run_git(["rev-parse", "--short", "HEAD"], wt_path, check=False)
+    head = head.strip()
+    if "Already up to date" in (out or ""):
+        reason = "本地基准已含远端最新代码（%s 无新提交）" % remote_branch
+    else:
+        reason = "已合并 %s 到 %s（HEAD=%s）" % (remote_branch, info["branch"], head)
+    log("[ok] 远端同步: %s" % reason)
+    return _result(True, reason, remote_branch, head)
 
 
 def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None):
     """创建/复用 worktree，返回 info dict。
 
     - reuse_target（由 check_existing 在 --reuse 时返回）：复用指定 worktree，
-      不创建、不改写 git 元数据；
-    - 否则新建今日 worktree（目录/分支冲突已由 check_existing 前置拦截）。
+      不创建、不改写 git 元数据、不同步远端（保持原样继续）；
+    - 否则新建今日 worktree（目录/分支冲突已由 check_existing 前置拦截），
+      并在创建后同步远端最新基准分支（fetch + merge，见 sync_base_branch）。
     """
     if reuse_target:
         info = info_from_worktree(project_dir, bug_id, reuse_target[0], reuse_target[1])
@@ -599,6 +712,15 @@ def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None)
         log("ERROR: worktree 不可用: %s（请人工修复或删除后重试）" % info["wt_path"])
         sys.exit(3)
 
+    # 同步远端最新基准分支（仅新建时执行；--reuse 复用不改动代码）
+    if not reuse_target:
+        sync = sync_base_branch(info, bug_id)
+        info["synced"] = sync["synced"]
+        info["sync_reason"] = sync["sync_reason"]
+        info["sync_remote_branch"] = sync["sync_remote_branch"]
+        if sync.get("base_commit"):
+            info["head_short"] = sync["base_commit"]
+
     # 拷贝 bug 资料
     report_dir = info["report_dir"]
     os.makedirs(report_dir, exist_ok=True)
@@ -615,14 +737,17 @@ def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None)
                 except OSError as e:
                     log("[warn] 拷贝 %s 失败: %s" % (name, e))
 
-    # 记录创建元数据（report 与后续复用据此还原实际分支/基准/日期）
+    # 记录创建元数据（report 与后续复用据此还原实际分支/基准/日期/同步状态）
     meta_path = os.path.join(report_dir, "meta.json")
     if not os.path.isfile(meta_path):
+        meta = {"bug_id": str(bug_id), "branch": info["branch"],
+                "base_branch": info["base_branch"], "date": info["date"],
+                "wt_path": info["wt_path"], "repo_root": info["repo_root"]}
+        for k in ("synced", "sync_reason", "sync_remote_branch"):
+            if k in info:
+                meta[k] = info[k]
         with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump({"bug_id": str(bug_id), "branch": info["branch"],
-                       "base_branch": info["base_branch"], "date": info["date"],
-                       "wt_path": info["wt_path"], "repo_root": info["repo_root"]},
-                      f, ensure_ascii=False, indent=2)
+            json.dump(meta, f, ensure_ascii=False, indent=2)
     return info
 
 
@@ -637,15 +762,32 @@ def wt_win_path(path):
     return path
 
 
+def sync_status_text(info):
+    """渲染分析基线的远端同步状态说明（analysis/fix-report/汇报共用）。"""
+    if info.get("synced") is True:
+        return "已同步远端 `%s`（基线提交 `%s`）" % (
+            info.get("sync_remote_branch") or "-", info.get("head_short") or "HEAD")
+    if info.get("synced") is False:
+        return "未同步远端（%s），基于本地快照分析" % (info.get("sync_reason") or "原因未记录")
+    return "未记录（旧版 worktree 或 --reuse 复用，未记录同步信息）"
+
+
 def print_kv(info, extra=None):
     lines = ["OK",
              "PROJECT=%s" % os.path.abspath(info.get("project", ".")),
              "REPO=%s" % info["repo_root"],
              "BASE_BRANCH=%s" % info["base_branch"],
+             "BASE_COMMIT=%s" % (info.get("head_short") or ""),
              "BRANCH=%s" % info["branch"],
              "WORKTREE=%s" % info["wt_path"],
              "WORKTREE_WIN=%s" % wt_win_path(info["wt_path"]),
              "REPORT_DIR=%s" % info["report_dir"]]
+    if "synced" in info and not info.get("reused"):   # 复用时不输出，避免误读为“刚同步”
+        lines.append("SYNCED=%s" % ("yes" if info["synced"] else "no"))
+        if info.get("sync_remote_branch"):
+            lines.append("SYNC_REMOTE_BRANCH=%s" % info["sync_remote_branch"])
+        if info.get("synced") is False and info.get("sync_reason"):
+            lines.append("SYNC_REASON=%s" % info["sync_reason"])
     if info.get("reused"):
         lines.append("REUSED=yes")
     if extra:
@@ -668,6 +810,7 @@ def scaffold_analysis(bug, actions, images, info, base_url, bug_id, force=False)
     lines.append("- **Bug 标题**: %s" % (bug.get("title") or "-"))
     lines.append("- **分析日期**: %s" % info["date"][:4] + "-" + info["date"][4:6] + "-" + info["date"][6:])
     lines.append("- **分析基线**: 分支 `%s` @ `%s`" % (info["base_branch"], info["head_short"] or "HEAD"))
+    lines.append("- **远端同步**: %s" % sync_status_text(info))
     lines.append("- **禅道链接**: %s/bug-view-%s.html" % (base_url, bug_id))
     lines.append("")
     lines.append("## 1. 问题描述")
@@ -751,7 +894,12 @@ def scaffold_fix_report(info, bug_id, title, diff_data, force=False):
     lines.append("# BUG #%s 修复报告" % bug_id)
     lines.append("")
     lines.append("- **Bug 标题**: %s" % (title or "-"))
-    lines.append("- **修复分支**: `%s`（基于 `%s`）" % (info["branch"], info["base_branch"]))
+    base_note = "基于 `%s`" % info["base_branch"]
+    if info.get("synced") is True:
+        base_note += "，已同步远端 `%s`" % (info.get("sync_remote_branch") or "-")
+    elif info.get("synced") is False:
+        base_note += "，未同步远端（%s）" % (info.get("sync_reason") or "原因未记录")
+    lines.append("- **修复分支**: `%s`（%s）" % (info["branch"], base_note))
     lines.append("- **修复日期**: %s-%s-%s" % (d[:4], d[4:6], d[6:]))
     lines.append("- **修复状态**: 已修复，待人工 review")
     lines.append("- **变更状态**: **未提交**——改动保留在 worktree 工作区，等待人工 review 后由人工提交")
@@ -896,6 +1044,12 @@ def cmd_report(args):
     print("BUG_TITLE=%s" % title)
     print("BRANCH=%s" % info["branch"])
     print("BASE_BRANCH=%s" % info["base_branch"])
+    if info.get("synced") is True:
+        print("BASE_SYNCED=yes（%s）" % info.get("sync_reason", ""))
+    elif info.get("synced") is False:
+        print("BASE_SYNCED=no（%s）" % (info.get("sync_reason") or "原因未记录"))
+    else:
+        print("BASE_SYNCED=unknown（旧版 worktree 或 --reuse，未记录同步信息）")
     print("WORKTREE=%s" % info["wt_path"])
     print("WORKTREE_WIN=%s" % wt_win_path(info["wt_path"]))
     print("REPORT_DIR=%s" % info["report_dir"])

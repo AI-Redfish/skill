@@ -14,18 +14,24 @@ DWS_LISTEN_USERS / DWS_LISTEN_BOTS（.env 名单）
 dingtalk_listen.py 主控（纯标准库 Python）
   ├─ reader/poll 线程 × N：事件归一化 → 去重 → 事件队列(串行)
   ├─ worker：Agent 无头提取意图(JSON) → 命中 → 同步禅道配置到仓库 → Agent 无头修复会话
-  └─ 守护管理：start(后台)/status/stop；日志与状态全在 skill 目录 .agents/logs/
+  └─ 守护管理：start(后台)/status/stop；日志与状态全在启动工作空间 .agents/logs/
 ```
 
-## 配置（skill 目录 `.agents/.env`）
+## 配置（启动工作空间 `.agents/.env`）
+
+配置与日志均锚定**启动时所在工作空间**（不写 skill 目录，避免 skill 安装在
+`<工作空间>/.agents/skills/` 下时产生嵌套 `.agents`）。旧版存于 skill 目录
+`.agents/.env` 的配置：只读兜底读取，首次 `save-config` 自动整体迁移到工作空间
+（config-status 的 `legacy_in_use` 字段可查看）。`start/status/stop` 需在同一
+工作空间目录执行（pid/state 锚定启动目录）。
 
 | 键 | 必填 | 说明 |
 |---|---|---|
-| `DWS_LISTEN_USERS` | ✅ | 监听人员姓名，逗号分隔（须能在通讯录精确唯一匹配） |
+| `DWS_LISTEN_USERS` | 人员/机器人**至少填一项** | 监听人员姓名，逗号分隔（须能在通讯录精确唯一匹配）；只监听机器人时可留空 |
 | `DWS_LISTEN_BOTS` | 可选 | 监听机器人名，逗号分隔（`dws chat bot find` 可查） |
 | `ZENTAO_BASE_URL` / `ZENTAO_ACCOUNT` / `ZENTAO_PASSWORD` | ✅ | 禅道配置（自动同步到目标仓库，不入 git） |
 | `LISTEN_MODE` | 可选 | 监听模式：`auto`（默认，stream 推送 + poll 拉取**双通道并行**，message_id 去重防重，推送故障时拉取自动兑底、恢复后自动回到毫秒级推送）/ `stream`（仅推送）/ `poll`（仅拉取，间隔 `POLL_INTERVAL=20s`） |
-| `BUGFIX_BASE_BRANCH` | 可选 | worktree 基准分支；**优先级：.env > 对话询问 > 仓库当前分支**（手动使用与监听自动触发一致） |
+| `BUGFIX_BASE_BRANCH` | 可选 | worktree 基准分支；**优先级：.env > 对话询问 > 仓库当前分支**（手动使用与监听自动触发一致）；prepare 新建 worktree 时会自动 fetch 并合并该分支的远端最新代码（无远程/fetch 失败降级本地快照；冲突返回码 5 人工决策） |
 | `TARGET_PROJECT_PATH` | 可选 | 目标仓库；**优先级高于启动目录** |
 | `AGENT_TYPE` | 可选 | `pi` / `codex` / `claude` / `custom` |
 | `AGENT_MODEL` | 可选 | pi 用 `provider/model`（如 `provider-x/model-y`）；codex/claude 用各自模型名 |
@@ -42,7 +48,7 @@ dingtalk_listen.py 主控（纯标准库 Python）
 | `config-status` | JSON：缺失必需键、现有配置（密码脱敏）、可选项说明 |
 | `save-config KEY=VALUE...` | 保存/合并写入 .env，回显仍缺项（AI 逐项向用户索取后写入） |
 | `start [--foreground] [--agent T] [--model M]` | 启动；默认后台守护（DETACHED，不阻塞当前会话），`--foreground` 前台调试；配置缺失退出码 2 |
-| `status` | JSON：pid、目标存活、最近事件时间、队列长度、修复统计 |
+| `status` | JSON：pid、目标存活、最近事件时间、队列长度、修复统计、`last_fix`（最近一次修复结果含失败原因） |
 | `stop` | 写 stop 标志 → 守护进程优雅退出（dws 子进程经 stdin EOF 自动退订清理）；超时 30s 强杀 |
 | `test-extract <文本>` | 不监听，直接跑一遍「Agent 意图提取」，验证 Agent 配置 |
 
@@ -62,15 +68,16 @@ save-config，再重新 start。
 `{"is_bugfix": bool, "bug_id": "数字|null", "reason": "..."}`；解析端容忍 markdown
 围栏与前后杂文。超时：提取 300s、修复 7200s。
 
-## 日志（skill 目录 `.agents/logs/`）
+## 日志（启动工作空间 `.agents/logs/`）
 
 | 文件 | 内容 |
 |---|---|
 | `daemon.out` | 后台守护进程 stdout/stderr |
+| `start.log` | **启动全过程追踪**：配置检查→Agent 解析→仓库/目标解析→守护拉起/前台主循环；任何一步失败（含配置缺失、dws 未登录、目标解析失败）都会在此留下原因 |
 | `events.log` | 每条监听到的消息事件（原始 JSON） |
-| `listener.log` | 运行日志（启动/命中/忽略/错误） |
-| `fix-<bugId>.log` | 每次自动修复会话的命令、耗时与输出末尾 40 行 |
-| `state.json` | status 数据源（5s 刷新） |
+| `listener.log` | 运行主日志（启动/命中/忽略/提取失败/拉取失败/错误，全量带时间戳落盘；即使 stdout 不可见也不丢） |
+| `fix-<bugId>.log` | 每次自动修复会话的命令、耗时、输出末尾 40 行，以及 **[VERIFY] 产物校验**（worktree/meta.json/报告是否真实存在） |
+| `state.json` | status 数据源（5s 刷新，含 stats.last_fix） |
 | `processed-ids.json` | message_id 去重（环形，最近 1000 条） |
 | `listener.pid` / `stop.flag` | 守护进程管理 |
 
@@ -95,8 +102,9 @@ save-config，再重新 start。
 
 | 现象 | 处理 |
 |---|---|
-| `status` 显示 running=false | 看 `daemon.out`；多为配置缺失（交互补齐）或 dws 未登录 |
+| `status` 显示 running=false | 看 `start.log`（启动卡在哪一步、失败原因）与 `daemon.out`；多为配置缺失（交互补齐）或 dws 未登录 |
 | 消息收到了但没触发修复 | 看 `events.log`（有无事件）→ `listener.log`（提取结果/失败原因）→ `test-extract` 复现 |
+| 触发了修复但没有 worktree | 看 `fix-<bugId>.log`：末尾有 `[VERIFY-FAIL]` 及 Agent 输出末尾 40 行。**无头会话退出码 0 ≠ 流程完成**——最常见是禅道密码失效，Agent 只能“向人提问后结束”；修正 `.env` 后等下一条消息或手动 `prepare` 验证登录 |
 | 提取总失败 | Agent CLI 未登录或模型名错误；`test-extract` 验证 |
 | 目标解析失败（重名/不存在） | `dws contact user search --query 名字` / `dws chat bot find --query 名字` 人工核对唯一性，改用精确姓名 |
 | 想立即停掉一切 | `stop` 后确认 `status` running=false；残留 dws 进程可 `taskkill /IM dws.exe /F`（Windows） |

@@ -4,9 +4,11 @@
 
 运行：python -m unittest discover -s tests -p "test_dingtalk_listen.py" -v
 """
+import atexit
 import importlib.util
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -14,9 +16,18 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "dingtalk_listen.py"
-spec = importlib.util.spec_from_file_location("dingtalk_listen", SCRIPT)
-dl = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(dl)
+# 模块常量（ENV_FILE/LOG_DIR）在 import 时锥定 cwd：测试进程先切到临时目录，
+# 避免从 skill 目录跑单测时把 .agents/logs 写进 skill 目录内
+TEST_CWD = tempfile.mkdtemp(prefix="dl_test_cwd_")
+atexit.register(shutil.rmtree, TEST_CWD, ignore_errors=True)
+_old_cwd = os.getcwd()
+os.chdir(TEST_CWD)
+try:
+    spec = importlib.util.spec_from_file_location("dingtalk_listen", SCRIPT)
+    dl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dl)
+finally:
+    os.chdir(_old_cwd)
 
 
 class TestJsonLoose(unittest.TestCase):
@@ -245,15 +256,126 @@ class TestResolveRepo(unittest.TestCase):
             self.assertEqual(got, repo.resolve())
 
 
+class TestEnvLocation(unittest.TestCase):
+    """配置/日志锥定启动工作空间，不锥 skill 目录；旧位置只读兑底 + 自动迁移。"""
+
+    def test_anchors_to_cwd_not_skill_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            old_cwd = os.getcwd()
+            os.chdir(td)
+            try:
+                spec2 = importlib.util.spec_from_file_location("dl_reload", SCRIPT)
+                dl2 = importlib.util.module_from_spec(spec2)
+                spec2.loader.exec_module(dl2)
+                base = Path(td).resolve()
+                self.assertEqual(dl2.ENV_FILE, base / ".agents" / ".env")
+                self.assertEqual(dl2.LOG_DIR, base / ".agents" / "logs")
+                # 不落在 skill 目录内（安装到 <工作空间>/.agents/skills/ 时会嵌套 .agents）
+                self.assertNotEqual(dl2.ENV_FILE, dl2.LEGACY_ENV_FILE)
+                self.assertFalse(str(dl2.ENV_FILE).startswith(
+                    str(dl2.SKILL_DIR / ".agents")))
+            finally:
+                os.chdir(old_cwd)
+
+    def test_legacy_readonly_fallback_and_migration(self):
+        with tempfile.TemporaryDirectory() as td:
+            old_env, old_legacy = dl.ENV_FILE, dl.LEGACY_ENV_FILE
+            try:
+                legacy = Path(td) / "legacy" / ".agents" / ".env"
+                legacy.parent.mkdir(parents=True)
+                legacy.write_text("A=1\n# 注释\n", encoding="utf-8")
+                dl.LEGACY_ENV_FILE = legacy
+                dl.ENV_FILE = Path(td) / "ws" / ".agents" / ".env"
+                # 新位置不存在 → 只读兑底读旧位置
+                self.assertEqual(dl.load_env(), {"A": "1"})
+                self.assertFalse(dl.ENV_FILE.is_file())
+                # 迁移：整体拷贝到工作空间，旧文件保留
+                dl.migrate_legacy_env()
+                self.assertTrue(dl.ENV_FILE.is_file())
+                self.assertIn("# 注释", dl.ENV_FILE.read_text(encoding="utf-8"))
+                self.assertTrue(legacy.is_file())
+                # 迁移后新位置生效，不再走兑底
+                dl.save_env(dl.ENV_FILE, {"B": "2"})
+                cfg = dl.load_env()
+                self.assertEqual(cfg, {"A": "1", "B": "2"})
+            finally:
+                dl.ENV_FILE, dl.LEGACY_ENV_FILE = old_env, old_legacy
+
+    def test_new_env_wins_over_legacy(self):
+        with tempfile.TemporaryDirectory() as td:
+            old_env, old_legacy = dl.ENV_FILE, dl.LEGACY_ENV_FILE
+            try:
+                legacy = Path(td) / "legacy.env"
+                legacy.write_text("OLD=1\n", encoding="utf-8")
+                new = Path(td) / ".agents" / ".env"
+                new.parent.mkdir(parents=True)
+                new.write_text("NEW=1\n", encoding="utf-8")
+                dl.LEGACY_ENV_FILE, dl.ENV_FILE = legacy, new
+                self.assertEqual(dl.load_env(), {"NEW": "1"})   # 新位置优先，不合并旧键
+                # 新位置已存在时迁移不覆盖
+                legacy.write_text("OLD=2\n", encoding="utf-8")
+                dl.migrate_legacy_env()
+                self.assertEqual(new.read_text(encoding="utf-8"), "NEW=1\n")
+            finally:
+                dl.ENV_FILE, dl.LEGACY_ENV_FILE = old_env, old_legacy
+
+
 class TestMissingAndMask(unittest.TestCase):
     def test_missing_keys(self):
         self.assertEqual(dl.missing_keys({"ZENTAO_BASE_URL": "x"},
                                          ["ZENTAO_BASE_URL", "DWS_LISTEN_USERS"]),
                          ["DWS_LISTEN_USERS"])
 
+    def test_bots_only_allowed(self):
+        """只监听机器人时 DWS_LISTEN_USERS 可留空（真实部署场景）。"""
+        cfg = {"ZENTAO_BASE_URL": "u", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "p",
+               "DWS_LISTEN_BOTS": "通知机器人"}
+        self.assertEqual(dl.missing_keys(cfg), [])
+
+    def test_no_targets_at_all(self):
+        cfg = {"ZENTAO_BASE_URL": "u", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "p"}
+        self.assertIn("DWS_LISTEN_USERS", dl.missing_keys(cfg))
+
     def test_mask(self):
         self.assertEqual(dl.mask("secret123"), "sec***")
         self.assertEqual(dl.mask(""), "")
+
+
+class TestVerifyFix(unittest.TestCase):
+    """修复产物校验：无头会话退出码 0 ≠ 流程完成，以文件证据为准。"""
+
+    def _mk_repo(self, td):
+        repo = Path(td) / "repo"
+        (repo / ".git").mkdir(parents=True)
+        return repo
+
+    def test_no_worktree(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = self._mk_repo(td)
+            v = dl.verify_fix("75042", repo)
+            self.assertFalse(v["ok"])
+            self.assertIsNone(v["worktree"])
+
+    def test_worktree_with_meta(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = self._mk_repo(td)
+            wt = repo.parent / "bugfix_75042_20260920"
+            rd = wt / ".agents" / "bugfix" / "75042"
+            rd.mkdir(parents=True)
+            (rd / "meta.json").write_text("{}", encoding="utf-8")
+            v = dl.verify_fix("75042", repo)
+            self.assertTrue(v["ok"])
+            self.assertEqual(v["worktree"], str(wt))
+            self.assertIsNone(v["report"])          # 尚无 fix-report.md
+            (rd / "fix-report.md").write_text("x", encoding="utf-8")
+            self.assertTrue(dl.verify_fix("75042", repo)["report"].endswith("fix-report.md"))
+
+    def test_worktree_without_meta_not_counted(self):
+        """同名目录但无 meta.json（残留/伪造）不算 prepare 成功。"""
+        with tempfile.TemporaryDirectory() as td:
+            repo = self._mk_repo(td)
+            (repo.parent / "bugfix_75042_20260920").mkdir()
+            self.assertFalse(dl.verify_fix("75042", repo)["ok"])
 
 
 class TestFixPrompt(unittest.TestCase):

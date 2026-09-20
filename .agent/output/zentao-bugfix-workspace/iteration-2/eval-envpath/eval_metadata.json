@@ -1,0 +1,12 @@
+{
+  "eval_id": "envpath",
+  "eval_name": "eval-envpath",
+  "prompt": "修复 skills 目录下所有 skill 的 .env 路径错误（应生成到工作空间/.agents/.env）",
+  "assertions": [
+    "config-status 的 env_file 锚定当前工作空间 <ws>/.agents/.env",
+    "save-config 写入 <ws>/.agents/.env，skill 目录零写入",
+    "旧版 skill 目录 .env 只读兜底（legacy_in_use=true）并提示迁移",
+    "save-config 自动整体迁移旧配置到工作空间（含注释/旧键，旧文件保留）",
+    "从 skill 目录跑单测不再产生 .agents 残留"
+  ]
+}

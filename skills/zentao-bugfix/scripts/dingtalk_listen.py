@@ -14,11 +14,13 @@
     → 消息交给本地 Agent（pi/codex/claude/custom）无头提取"是否修 bug + bugId"
     → 命中则自动执行 zentao-bugfix 全流程（bugfix.py prepare 拉取禅道 bug、
        建 worktree，再由同一 Agent 无头会话分析修复、生成报告）
-    → 全程结果只写本地日志（skill 目录 .agents/logs/），不发钉钉回执。
+    → 全程结果只写本地日志（启动工作空间 .agents/logs/），不发钉钉回执。
 
-配置（skill 目录 .agents/.env，KEY=VALUE；首次运行交互式收集并保存）：
+配置（**启动时所在工作空间**的 .agents/.env，KEY=VALUE；首次运行交互式收集并保存。
+旧版存于 skill 目录 .agents/.env，仅只读兜底，首次 save-config 自动迁移）：
     ZENTAO_BASE_URL / ZENTAO_ACCOUNT / ZENTAO_PASSWORD   禅道（自动修复必需）
-    DWS_LISTEN_USERS=李四,张三                            监听人员（逗号分隔）
+    DWS_LISTEN_USERS=李四,张三                            监听人员（逗号分隔；
+                                                          只监听机器人时可留空）
     DWS_LISTEN_BOTS=通知机器人                              监听机器人（可选）
     BUGFIX_BASE_BRANCH=dev/v6.0.6.3                     worktree 基准分支（可选）
     TARGET_PROJECT_PATH=D:\\path\\to\\repo                目标仓库（缺省=启动目录）
@@ -29,6 +31,8 @@
 
 Agent/模型选择优先级：命令行参数 > .env > 自动探测当前 pi 会话 > 交互询问。
 目标仓库优先级：.env 的 TARGET_PROJECT_PATH > 启动时所在项目目录。
+注意：配置/日志/守护状态均锚定启动时所在工作空间（.agents/），start/status/stop
+需在同一工作空间目录执行；不要在 skill 目录内运行，避免产生嵌套 .agents。
 
 子命令：
     start [--foreground] [--agent T] [--model M]      启动监听（默认后台守护；配置缺失退出码 2）
@@ -45,6 +49,11 @@ Agent/模型选择优先级：命令行参数 > .env > 自动探测当前 pi 会
 已知限制：dws 登录账号自己发出的消息不会进入事件流（钉钉官方过滤，非本脚本缺陷）。
 
 退出码：0 成功；2 配置/参数错误；3 运行环境错误（dws 未登录/未安装等）。
+
+排障日志（均在启动工作空间 .agents/logs/）：start.log 记录启动全过程与失败原因；
+listener.log 为运行主日志；events.log 为原始消息；fix-<bugId>.log 含修复会话输出末尾
+与 [VERIFY] 产物校验结果（无头会话退出码 0 不代表流程完成，以 worktree/meta.json
+等文件证据为准）；status 的 last_fix 字段展示最近一次修复结果。
 """
 import argparse
 import json
@@ -62,8 +71,13 @@ from collections import deque
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
-ENV_FILE = SKILL_DIR / ".agents" / ".env"
-LOG_DIR = SKILL_DIR / ".agents" / "logs"
+# 运行时基准 = 启动时所在工作空间：配置与日志一律写 <工作空间>/.agents/，
+# 不写 skill 目录（skill 安装在 <工作空间>/.agents/skills/ 下时避免嵌套 .agents）。
+# start/status/stop 需在同一工作空间目录执行（pid/state 锚定启动目录）。
+BASE_DIR = Path.cwd().resolve()
+ENV_FILE = BASE_DIR / ".agents" / ".env"
+LOG_DIR = BASE_DIR / ".agents" / "logs"
+LEGACY_ENV_FILE = SKILL_DIR / ".agents" / ".env"   # 旧版位置：只读兜底 + 迁移源
 STATE_FILE = LOG_DIR / "state.json"
 PID_FILE = LOG_DIR / "listener.pid"
 STOP_FILE = LOG_DIR / "stop.flag"
@@ -75,10 +89,10 @@ PROCESSED_MAX = 1000         # message_id 去重环形容量
 POLL_INTERVAL = 20           # 拉取兜底轮询间隔（秒）
 POLL_CATCHUP = 300           # 启动时回看的消息时间窗（秒），防旧消息重放
 
-REQUIRED_KEYS = ["ZENTAO_BASE_URL", "ZENTAO_ACCOUNT", "ZENTAO_PASSWORD",
-                 "DWS_LISTEN_USERS"]
+REQUIRED_KEYS = ["ZENTAO_BASE_URL", "ZENTAO_ACCOUNT", "ZENTAO_PASSWORD"]
 KEY_HELP = {
-    "DWS_LISTEN_USERS": "监听人员姓名，多个用英文逗号分隔（如：李四,张三）",
+    "DWS_LISTEN_USERS": "监听人员姓名，多个用英文逗号分隔（如：李四,张三）；"
+                        "只监听机器人时可留空（需配 DWS_LISTEN_BOTS）",
     "DWS_LISTEN_BOTS": "监听机器人名称，多个逗号分隔（可留空）",
     "ZENTAO_BASE_URL": "禅道站点根地址（如 http://host:port）",
     "ZENTAO_ACCOUNT": "禅道登录账号",
@@ -94,7 +108,14 @@ KEY_HELP = {
 
 def log(msg):
     line = "[%s] %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
-    print(line, flush=True)
+    try:
+        print(line, flush=True)            # pythonw/计划任务等无 stdout 环境下静默
+    except Exception:
+        pass
+    try:                                   # 运行日志同步落盘（会话关闭后仍可排查）
+        write_log("listener.log", line)
+    except OSError:
+        pass
 
 
 def write_log(name, text):
@@ -105,8 +126,7 @@ def write_log(name, text):
 
 # ---------------------------------------------------------------- 配置(.env)
 
-def load_env(path=None):
-    path = Path(path) if path else ENV_FILE
+def _parse_env_file(path):
     cfg = {}
     if path.is_file():
         with path.open(encoding="utf-8-sig") as f:
@@ -116,6 +136,30 @@ def load_env(path=None):
                     k, v = line.split("=", 1)
                     cfg[k.strip()] = v.strip()
     return cfg
+
+
+def load_env(path=None):
+    """读取配置：优先 <工作空间>/.agents/.env。
+
+    工作空间无 .env 而旧版位置（skill 目录 .agents/.env）存在时，只读兜底读取
+    并提示迁移（save-config 会自动整体迁移到工作空间）。显式传入 path 时只读该文件。
+    """
+    if path is not None:
+        return _parse_env_file(Path(path))
+    cfg = _parse_env_file(ENV_FILE)
+    if not cfg and LEGACY_ENV_FILE.is_file() and LEGACY_ENV_FILE != ENV_FILE:
+        cfg = _parse_env_file(LEGACY_ENV_FILE)
+        log("[warn] 使用旧版配置位置 %s（skill 目录内，只读兜底）；"
+            "运行 save-config 任意一项即可自动迁移到 %s" % (LEGACY_ENV_FILE, ENV_FILE))
+    return cfg
+
+
+def migrate_legacy_env():
+    """旧版配置迁移：skill 目录 .agents/.env 存在而工作空间 .env 不存在时整体拷贝。"""
+    if LEGACY_ENV_FILE.is_file() and not ENV_FILE.is_file() and LEGACY_ENV_FILE != ENV_FILE:
+        ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(LEGACY_ENV_FILE, ENV_FILE)
+        log("[info] 旧版配置已迁移到 %s（旧文件保留，可手动删除）" % ENV_FILE)
 
 
 def save_env(path, updates):
@@ -137,7 +181,12 @@ def save_env(path, updates):
 
 
 def missing_keys(cfg, required=REQUIRED_KEYS):
-    return [k for k in required if not cfg.get(k)]
+    miss = [k for k in required if not cfg.get(k)]
+    # 监听名单：人员与机器人至少其一（只监听机器人时 DWS_LISTEN_USERS 可留空）
+    if required is REQUIRED_KEYS and not miss \
+            and not (cfg.get("DWS_LISTEN_USERS") or cfg.get("DWS_LISTEN_BOTS")):
+        miss.append("DWS_LISTEN_USERS")
+    return miss
 
 
 def mask(v):
@@ -451,6 +500,24 @@ def build_fix_prompt(bug_id, base_branch=None):
                SKILL_DIR / "scripts" / "bugfix.py", bug_id, barg))
 
 
+def verify_fix(bug_id, repo):
+    """客观校验修复产物：prepare 成功的标志是 worktree 目录 + meta.json。
+
+    无头 Agent 会话退出码 0 ≠ 流程完成（可能中途需要向用户提问后正常退出，
+    例如禅道密码失效时只能“提问后结束”），必须以文件系统证据为准。
+    返回 {"ok": bool, "worktree": str|None, "report": str|None}。
+    """
+    parent = Path(repo).resolve().parent
+    for pat in ("bugfix_%s_*" % bug_id, "bugfix_%s" % bug_id):
+        for wt in sorted(parent.glob(pat)):
+            report_dir = wt / ".agents" / "bugfix" / str(bug_id)
+            if wt.is_dir() and (report_dir / "meta.json").is_file():
+                reports = sorted(p.name for p in report_dir.glob("fix-report*.md"))
+                return {"ok": True, "worktree": str(wt),
+                        "report": (str(report_dir / reports[0]) if reports else None)}
+    return {"ok": False, "worktree": None, "report": None}
+
+
 def run_auto_fix(adapter, bug_id, repo, base_branch=None):
     sync_zentao_env_to_repo(repo)
     prompt = build_fix_prompt(bug_id, base_branch)
@@ -460,14 +527,27 @@ def run_auto_fix(adapter, bug_id, repo, base_branch=None):
         out = run_agent_cmd(cmd, cwd=str(repo), timeout=FIX_TIMEOUT, stdin_text=stdin_text)
     except subprocess.TimeoutExpired:
         write_log("fix-%s.log" % bug_id, "[TIMEOUT] 修复会话超时(%ds)" % FIX_TIMEOUT)
-        return {"bug_id": bug_id, "ok": False, "error": "timeout"}
+        return {"bug_id": bug_id, "ok": False, "error": "timeout", "worktree": None}
     except RuntimeError as e:
         write_log("fix-%s.log" % bug_id, "[ERROR] %s" % e)
-        return {"bug_id": bug_id, "ok": False, "error": str(e)[:300]}
+        return {"bug_id": bug_id, "ok": False, "error": str(e)[:300], "worktree": None}
     tail = out.strip().splitlines()[-40:]
+    v = verify_fix(bug_id, repo)
     write_log("fix-%s.log" % bug_id,
-              "[cmd] %s\n[耗时] %.0fs\n[输出末尾]\n%s" % (" ".join(cmd[:6]), time.time() - t0, "\n".join(tail)))
-    return {"bug_id": bug_id, "ok": True, "elapsed": int(time.time() - t0)}
+              "[cmd] %s\n[耗时] %.0fs\n[输出末尾]\n%s" % (
+                  " ".join(cmd[:6]), time.time() - t0, "\n".join(tail)))
+    if v["ok"]:
+        write_log("fix-%s.log" % bug_id,
+                  "[VERIFY] OK worktree=%s report=%s" % (v["worktree"], v["report"]))
+        return {"bug_id": bug_id, "ok": True, "worktree": v["worktree"],
+                "report": v["report"], "elapsed": int(time.time() - t0)}
+    # 会话退出但无 worktree：prepare 未成功（常见：禅道密码失效/网络不通，
+    # 无头会话无法向人提问只能“提问后结束”）——完整原因看本日志[输出末尾]
+    write_log("fix-%s.log" % bug_id,
+              "[VERIFY-FAIL] Agent 会话已结束但未检测到 worktree/报告 —— prepare 未成功，"
+              "流程未完成。完整原因见上方[输出末尾]（常见：禅道密码失效，无头会话无法向人提问）")
+    return {"bug_id": bug_id, "ok": False, "error": "no-worktree(prepare 未成功)",
+            "worktree": None, "agent_exit": 0, "elapsed": int(time.time() - t0)}
 
 
 # ---------------------------------------------------------------- 目标解析
@@ -631,7 +711,7 @@ class Listener:
                          "target": name, "event": ev}, ensure_ascii=False))
                     self.queue.put((name, ev))
             except Exception as e:                          # 读流异常：记日志后重启
-                write_log("listener.log", "[%s] 读流异常: %s" % (name, e))
+                log("[%s] 读流异常: %s" % (name, e))
             if self.stop_flag.is_set():
                 try:
                     proc.stdin.close()   # 优雅退出：dws 收到 EOF 自动退订清理
@@ -666,7 +746,7 @@ class Listener:
             try:
                 msgs = poll_messages(oid)
             except Exception as e:
-                write_log("listener.log", "[%s] 拉取失败(下次重试): %s" % (name, str(e)[:200]))
+                log("[%s] 拉取失败(下次重试): %s" % (name, str(e)[:200]))
                 continue
             for m in pick_new_poll_messages(msgs, wm):
                 if m.get("senderId") != oid:        # 只处理目标发来的消息
@@ -704,26 +784,22 @@ class Listener:
             try:
                 intent = extract_bug_intent(self.adapter, sender, content)
             except Exception as e:                     # 提取失败不致命，记录后跳过
-                write_log("listener.log", "[%s] 提取失败: %s" % (name, e))
+                log("[%s] 提取失败: %s" % (name, e))
                 self.queue.task_done()
                 continue
             self.stats["processed"] += 1
             if not intent.get("is_bugfix") or not intent.get("bug_id"):
-                msg = "[%s] 非修bug消息(%s)，忽略" % (name, intent.get("reason", ""))
-                log(msg)
-                write_log("listener.log", msg)
+                log("[%s] 非修bug消息(%s)，忽略" % (name, intent.get("reason", "")))
                 self.queue.task_done()
                 continue
             bug_id = intent["bug_id"]
-            msg = ("[%s] 命中 bug %s，开始自动修复 (repo=%s, agent=%s/%s)"
-                   % (name, bug_id, self.repo, self.adapter.name, self.adapter.model))
-            log(msg)
-            write_log("listener.log", msg)
+            log("[%s] 命中 bug %s，开始自动修复 (repo=%s, agent=%s/%s)"
+                % (name, bug_id, self.repo, self.adapter.name, self.adapter.model))
             result = run_auto_fix(self.adapter, bug_id, self.repo, self.base_branch)
             self.stats["fix_ok" if result.get("ok") else "fix_fail"] += 1
-            msg = "[bug %s] 修复会话结束: %s" % (bug_id, result)
-            log(msg)
-            write_log("listener.log", msg)
+            self.stats["last_fix"] = dict(
+                result, ts=time.strftime("%Y-%m-%d %H:%M:%S"))   # status 可见最近一次结果
+            log("[bug %s] 修复会话结束: %s" % (bug_id, result))
             self.queue.task_done()
 
     def _save_state(self):
@@ -829,23 +905,46 @@ def resolve_repo(cfg):
 # ---------------------------------------------------------------- 子命令
 
 def cmd_start(args):
+    """启动监听。全阶段写入 .agents/logs/start.log：会话关闭后失败原因仍可排查。"""
+    write_log("start.log", "[start] 开始 (cwd=%s, pid=%d, foreground=%s)"
+              % (BASE_DIR, os.getpid(), bool(getattr(args, "foreground", False))))
+    try:
+        _cmd_start_impl(args)
+    except SystemExit as e:
+        write_log("start.log", "[start] 失败退出: %s" % (e.code if e.code is not None else 0))
+        raise
+    except Exception:
+        import traceback
+        write_log("start.log", "[start] 异常:\n%s" % traceback.format_exc())
+        raise
+
+
+def _cmd_start_impl(args):
     cfg = load_env()
+    missing = missing_keys(cfg)
+    write_log("start.log", "[start] 配置: %s"
+              % ("缺失 %s" % missing if missing else "OK（env=%s）" % ENV_FILE))
     if PID_FILE.is_file():
         pid = int(PID_FILE.read_text().strip() or 0)
         if pid and _pid_alive(pid):
+            write_log("start.log", "[start] 已在运行 (pid=%d)，拒绝重复启动" % pid)
             raise SystemExit("监听已在运行 (pid=%d)，可用 stop 子命令停止" % pid)
         PID_FILE.unlink(missing_ok=True)
-    missing = missing_keys(cfg)
     if missing:
         raise SystemExit("配置缺失: %s；请逐项向用户索取后 save-config 写入再重试"
                          % ", ".join(missing))
     adapter = build_adapter(cfg, args)
+    write_log("start.log", "[start] Agent 解析: %s/%s" % (adapter.name, adapter.model))
     repo = resolve_repo(cfg)
+    write_log("start.log", "[start] 目标仓库: %s" % repo)
     targets = resolve_targets(cfg.get("DWS_LISTEN_USERS", ""),
                               cfg.get("DWS_LISTEN_BOTS", ""))
+    write_log("start.log", "[start] 监听目标(%d): %s"
+              % (len(targets), ", ".join("%s(%s)" % (n, t) for n, _, t in targets)))
     if not args.foreground:
         _daemon_spawn(args, adapter)
         return
+    write_log("start.log", "[start] 进入前台监听主循环")
     Listener(targets, adapter, repo, cfg.get("BUGFIX_BASE_BRANCH"),
              cfg.get("LISTEN_MODE", "auto")).run()
 
@@ -887,6 +986,10 @@ def cmd_config_status(_args):
                 "AGENT_TYPE", "AGENT_MODEL", "AGENT_CUSTOM_CMD"]
     print(json.dumps({
         "env_file": str(ENV_FILE),
+        "legacy_env_file": str(LEGACY_ENV_FILE),
+        "legacy_in_use": bool(LEGACY_ENV_FILE.is_file()
+                              and not ENV_FILE.is_file()
+                              and LEGACY_ENV_FILE != ENV_FILE),
         "missing_required": missing_keys(cfg),
         "present": {k: (mask(v) if "PASSWORD" in k or "SECRET" in k else v)
                     for k, v in cfg.items()},
@@ -901,6 +1004,7 @@ def cmd_save_config(args):
             raise SystemExit("参数格式应为 KEY=VALUE: %s" % kv)
         k, v = kv.split("=", 1)
         updates[k.strip()] = v.strip()
+    migrate_legacy_env()          # 旧版 skill 目录配置自动迁移到工作空间
     save_env(ENV_FILE, updates)
     cfg = load_env()
     print(json.dumps({"saved": sorted(updates),

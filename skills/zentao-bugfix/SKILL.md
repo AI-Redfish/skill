@@ -6,7 +6,7 @@ compatibility:
   requirements: uv（推荐，脚本零第三方依赖仅做隔离运行，缺省可回退 python3）+ git；脚本位于本 skill 的 scripts/bugfix.py
 metadata:
   author: AI-Redfish
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # `zentao-bugfix`
@@ -14,7 +14,7 @@ metadata:
 端到端的禅道 bug 修复流程。**确定性步骤全部由脚本 `scripts/bugfix.py` 完成**，AI 只负责代码分析、修改和撰写报告内容，标准流程只需 2 次脚本调用：
 
 ```
-uv run scripts/bugfix.py prepare <bugId> [baseBranch]   ← 一次完成：防重校验 + 配置检查 + 拉取bug + 建worktree + 生成分析骨架
+uv run scripts/bugfix.py prepare <bugId> [baseBranch]   ← 一次完成：防重校验 + 配置检查 + 拉取bug + 建worktree + 同步远端基准分支 + 生成分析骨架
         ↓ （AI 在 worktree 中分析代码、修复、编译验证 —— 不 commit）
 uv run scripts/bugfix.py report <bugId>                  ← 一次完成：采集未提交变更 + 生成修复报告骨架 + 汇报摘要
         ↓ （AI 补全两份报告中（待填写）章节，向用户汇报）
@@ -52,7 +52,7 @@ uv run scripts/bugfix.py report <bugId>                  ← 一次完成：采�
 - **配置文件**：`<项目工作空间>/.agents/.env`（KEY=VALUE）：
   - `ZENTAO_BASE_URL`：禅道站点根地址，如 `http://zentao.example.com:port`
   - `ZENTAO_ACCOUNT` / `ZENTAO_PASSWORD`：登录账号/密码
-- **worktree**：与仓库根目录**同级**的新目录，分支 `bugfix/<bugId>_<YYYYMMDD>`，目录名 = 分支名中 `/` 替换为 `_`（如 `bugfix/12345_20260919` → `../bugfix_12345_20260919/`）。
+- **worktree**：与仓库根目录**同级**的新目录，分支 `bugfix/<bugId>_<YYYYMMDD>`，目录名 = 分支名中 `/` 替换为 `_`（如 `bugfix/12345_20260919` → `../bugfix_12345_20260919/`）。新建后自动同步远端最新基准分支（fetch + merge 进修复分支，详见下文）；`--reuse` 复用时不重新同步。
 - **报告目录**：`<worktree>/.agents/bugfix/<bugId>/`，含 `bug.md`（bug快照）、截图、`analysis.md`（分析报告）、`fix-report.md`（修复报告）。
 - worktree 的 git 元数据由脚本改写为相对路径，WSL git 与 Windows git 均可识别。
 
@@ -70,7 +70,7 @@ uv run --no-project scripts/bugfix.py <子命令>
 
 ## 工作流程
 
-用户输入通常是 bugId 或禅道 bug 链接（从 `bug-view-12345.html` 中提取数字）。**基准分支确定规则（优先级从高到低）**：① 用户在对话中明确指定；② `<项目工作空间>/.agents/.env` 或 skill 目录 `.agents/.env` 配置了 `BUGFIX_BASE_BRANCH`；③ 都没有时，按双闭环向用户询问一次（一次只问一个问题，用户可回复"用当前分支"）；④ 用户未作答才用当前工作空间所在分支。
+用户输入通常是 bugId 或禅道 bug 链接（从 `bug-view-12345.html` 中提取数字）。**基准分支确定规则（优先级从高到低）**：① 用户在对话中明确指定；② `<项目工作空间>/.agents/.env` 配置了 `BUGFIX_BASE_BRANCH`；③ 都没有时，按双闭环向用户询问一次（一次只问一个问题，用户可回复"用当前分支"）；④ 用户未作答才用当前工作空间所在分支。
 
 ### 第 1 步：prepare（一次脚本调用）
 
@@ -78,11 +78,19 @@ uv run --no-project scripts/bugfix.py <子命令>
 uv run --no-project scripts/bugfix.py prepare <bugId> [baseBranch] --project .
 ```
 
-脚本自动完成：**防重校验**（该 bugId 已有 worktree/修复分支则停止，返回码 4，见下）→ 配置检查 → 拉取 bug（详情+评论+截图，缓存到 `.agents/bugfix-work/<bugId>/`）→ 创建 worktree（`--reuse` 时复用既有）→ 拷贝资料 → 生成 `analysis.md` 骨架（bug 元数据、问题描述已自动填好）。stdout 依次输出：bug.md 全文 + `WORKTREE/BRANCH/REPORT_DIR` 等 KEY=VALUE 信息。
+脚本自动完成：**防重校验**（该 bugId 已有 worktree/修复分支则停止，返回码 4，见下）→ 配置检查 → 拉取 bug（详情+评论+截图，缓存到 `.agents/bugfix-work/<bugId>/`）→ 创建 worktree（`--reuse` 时复用既有）→ **同步远端基准分支**（`git fetch <remote> <基准分支>` 后把 `<remote>/<基准分支>` 合并进修复分支，确保基于远端最新代码修复）→ 拷贝资料 → 生成 `analysis.md` 骨架（bug 元数据、问题描述已自动填好）。stdout 依次输出：bug.md 全文 + `WORKTREE/BRANCH/REPORT_DIR/SYNCED` 等 KEY=VALUE 信息。
+
+远端同步规则（仅新建 worktree 时执行）：
+
+- 成功（含 Already up to date）→ 输出 `SYNCED=yes`，`analysis.md`/`meta.json` 记录同步结果与合并后基线提交；
+- 仓库无远程、fetch 失败、远端无该基准分支或基准非分支 → 警告降级：基于本地快照继续，输出 `SYNCED=no` + `SYNC_REASON=...`，报告中标注「未同步远端」；
+- 合并冲突 → 脚本自动 `git merge --abort` 保持 worktree 干净后停止，返回码 5（见下）；
+- 不更新本地基准分支引用、不碰主工作空间；`--reuse` 复用既有 worktree 时不执行同步。
 
 分支处理：
 
 - **返回码 4（防重停止，stdout 含 `EXISTS` 块）** → 该 bugId 已存在修复 worktree/修复分支，说明此 bug 此前已处理过（可能已修复待人工 review，或仍在处理中）。**停止执行，不要重复修复、不要动已有 worktree**；向用户说明并报告 `EXISTING_WORKTREE`、`EXISTING_REPORT_DIR` 及其中已有的 analysis.md / fix-report.md，由用户决定：加 `--reuse` 继续该工作区，或人工清理（`git worktree remove <path>`，必要时 `git branch -D <分支>`）后重新 prepare。
+- **返回码 5（同步冲突停止，stdout 含 `SYNC_CONFLICT` 块）** → 远端基准分支与本地基准分叉、合并冲突，脚本已自动 `git merge --abort`，worktree 保持干净未动。**停止执行，不要自行重试合并**；向用户报告冲突信息（`REMOTE_BRANCH`、`WORKTREE`），由用户决策：① 进 worktree 手动 `git merge <REMOTE_BRANCH>` 解决冲突后继续修复并正常 report；② 清理（`git worktree remove` + `git branch -D`）后先在本地基准分支手动同步远端再重新 prepare。
 - 返回码 2 且 stderr 提示配置缺失 → 用提问工具向用户逐项索取缺失项（地址/账号/密码，一次只问一个），保存后**重新执行 prepare**：
 
   ```bash
@@ -118,7 +126,7 @@ uv run --no-project scripts/bugfix.py prepare <bugId> [baseBranch] --project .
 uv run --no-project scripts/bugfix.py report <bugId> --project .
 ```
 
-脚本自动完成：定位该 bugId 既有的 worktree（不限创建日期）→ 采集未提交变更（`git status`/`diff --numstat`，含未跟踪文件）→ 生成 `fix-report.md`（变更清单表格、分支/日期等机械字段已自动填好）→ stdout 输出 SUMMARY 汇总块。已存在时不覆盖，`--force` 重新生成。
+脚本自动完成：定位该 bugId 既有的 worktree（不限创建日期）→ 采集未提交变更（`git status`/`diff --numstat`，含未跟踪文件）→ 生成 `fix-report.md`（变更清单表格、分支/远端同步状态/日期等机械字段已自动填好）→ stdout 输出 SUMMARY 汇总块（含 `BASE_SYNCED`）。已存在时不覆盖，`--force` 重新生成。
 
 ### 第 4 步：补全报告并汇报（AI 的工作）
 
@@ -143,7 +151,8 @@ uv run --no-project scripts/dingtalk_listen.py test-extract 帮我修一下 bug 
 脚本全非交互：配置缺失时退出码 2 并列出缺失键，由 AI 按双闭环逐项向用户索取后
 save-config 写入再重试（与 bugfix.py 的配置模式一致）。
 
-- 配置存 skill 目录 `.agents/.env`：`ZENTAO_*`、`DWS_LISTEN_USERS`/`DWS_LISTEN_BOTS`（逗号分隔名单）、`BUGFIX_BASE_BRANCH`（可选，worktree 基准分支，优先于启动目录当前分支）、`LISTEN_MODE`（可选，默认 auto：stream 推送 + 拉取双通道互为兜底，message_id 去重防重）、`TARGET_PROJECT_PATH`（可选，优先于启动目录）、`AGENT_TYPE`/`AGENT_MODEL`（可选，优先于自动探测当前 pi 会话）、`AGENT_CUSTOM_CMD`（custom 适配器模板，供 DeepSeek Harness 等）。
+- 配置存**启动时所在工作空间**的 `.agents/.env`（旧版存 skill 目录，检测到时只读兜底，首次 save-config 自动迁移）：`ZENTAO_*`、`DWS_LISTEN_USERS`/`DWS_LISTEN_BOTS`（逗号分隔名单，人员/机器人**至少填一项**，只监听机器人时 `DWS_LISTEN_USERS` 可留空）、`BUGFIX_BASE_BRANCH`（可选，worktree 基准分支，优先于启动目录当前分支）、`LISTEN_MODE`（可选，默认 auto：stream 推送 + 拉取双通道互为兜底，message_id 去重防重）、`TARGET_PROJECT_PATH`（可选，优先于启动目录）、`AGENT_TYPE`/`AGENT_MODEL`（可选，优先于自动探测当前 pi 会话）、`AGENT_CUSTOM_CMD`（custom 适配器模板，供 DeepSeek Harness 等）。启动与修复全过程落盘 `.agents/logs/`（`start.log`/`listener.log`/`events.log`/`fix-<bugId>.log`；修复结果以 worktree/meta.json 产物校验为准——无头会话退出码 0 不代表流程完成，`status.last_fix` 展示最近一次结果）。
+- 日志与守护状态存启动工作空间 `.agents/logs/`；**start/status/stop 需在同一工作空间目录执行**，不要在 skill 目录内运行（避免产生嵌套 `.agents`）。
 - 前置：dws 已安装并 `dws auth login`；所选 Agent CLI 已登录。dws 登录账号自发消息收不到（官方过滤）。
 - 修复串行排队；禅道配置自动同步到目标仓库 `.agents/.env` 并防入 git。
 
@@ -159,6 +168,7 @@ save-config 写入再重试（与 bugfix.py 的配置模式一致）。
 ## 边界与注意
 
 - **不 commit、不 push**（保留工作区改动等待人工 review）、不自动改禅道状态、不动主工作空间代码。
+- **新建 worktree 自动同步远端基准分支**（fetch + merge 进修复分支）；不更新本地基准分支引用、不碰主工作空间；无远程/fetch 失败降级本地快照并标注；合并冲突自动中止（返回码 5）交人工决策；`--reuse` 复用不同步。
 - 一个 bugId 对应一个 worktree；prepare/worktree 检测到已有 worktree/修复分支（不限日期）即停止（返回码 4），不重复处理；`--reuse` 显式复用继续；`report` 自动定位既有 worktree。
 - 覆盖旧报告前先告知用户。
 - 报告中对生产地址、账号密码等敏感信息脱敏。

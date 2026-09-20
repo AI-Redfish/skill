@@ -22,3 +22,30 @@
 | 12 | worktree 基准分支如何确定？ | 用户通过对话提供；.env 有说明则以 .env 为准 | 新增可选配置 BUGFIX_BASE_BRANCH；优先级：.env > 对话提供（AI 启动监听时询问/手动使用时 prepare 前询问）> 仓库当前分支兜底；两条路径（手动/监听）一致适用 |
 
 | 13 | Agent 修复会话弹黑窗？ | 不要任何黑窗口，后台默认执行 | 全部子进程 spawn 点加 CREATE_NO_WINDOW（Windows）；守护本身 DETACHED；两条路径一致 |
+
+## 需求变更记录（round-3：worktree 同步远端最新代码）
+| # | 问题 | 用户回答 | 结论 |
+|---|------|---------|------|
+| 14 | 合并来源？ | A | 远程最新：git fetch <remote> <基准分支> 后将 <remote>/<基准分支> 合并进 bugfix 分支 |
+| 15 | 合并冲突处理？ | A | 安全中止：git merge --abort 保持 worktree 干净，报错停止（新返回码），人工决策后续 |
+| 16 | --reuse 复用时是否同步？ | B | 仅新建 worktree 时同步；--reuse 复用不动代码 |
+| 17 | fetch 失败（网络/无远程）？ | B | 警告降级：基于本地快照继续，输出标注「未同步远端」 |
+
+关键假设（已获用户「确认无误」）：
+1. 仓库无远程或远程无该基准分支，均按 fetch 失败降级处理（警告+本地快照）
+2. 只在新 worktree 分支上合并远端基准，不更新本地基准分支引用、不碰主工作空间
+3. 冲突时 git merge --abort 后保留 worktree（干净状态），新增返回码 5，报错说明人工选项
+4. prepare/worktree 输出新增同步状态字段（SYNCED/SYNC_REASON 等）；analysis.md 骨架与 meta.json 记录同步结果；fix-report 注明基线同步状态
+5. 新建即同步为默认行为，无 --no-sync 开关（失败自动降级）
+6. SKILL.md/evals/单测同步更新；--reuse 路径完全不变
+
+## 需求变更记录（round-4：.env 路径修复）
+| # | 问题 | 用户回答 | 结论 |
+|---|------|---------|------|
+| 18 | .env 生成位置错误（嵌套到 skill 目录） | 用户报告：应生成到 当前工作空间/.agents/.env | 修复所有 skill：.env 与运行时产物锚定工作空间，不写 skill 目录 |
+
+关键假设（已在回复中列明，用户需求明确未再追问）：
+1. 监听器日志/状态文件（LOG_DIR 同源问题）一并迁到 <启动工作空间>/.agents/logs/
+2. 旧版 skill 目录 .env 保留只读兜底，首次 save-config 自动整体迁移（旧文件保留）
+3. start/status/stop 需在同一工作空间目录执行（pid/state 锚定启动目录）
+4. 其余 5 个 skill（photos2mp4/prd-review/prd-techdoc/skill-creator-plus/wedding-invitation）核查无此问题，不动

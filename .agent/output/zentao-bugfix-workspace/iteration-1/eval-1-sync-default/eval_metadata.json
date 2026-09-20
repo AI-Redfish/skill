@@ -1,0 +1,11 @@
+{
+  "eval_id": 1,
+  "eval_name": "eval-1-sync-default",
+  "prompt": "修复禅道 bug 777（默认当前分支）/ 基于 release/2.3 分支修 bug 22233，一定要拿远端最新代码修",
+  "assertions": [
+    "SYNCED 输出与降级标注",
+    "冲突 exit5+中止",
+    "reuse 不同步",
+    "报告注明同步状态"
+  ]
+}

@@ -5,8 +5,9 @@
      "expected_output": "prepare → worktree 内分析修复 → report → 补全报告，全程不 commit",
      "files": [],
      "expectations": ["调用 bugfix.py prepare 创建 bugfix/12345_日期 分支的 worktree",
+                      "新建 worktree 后自动 fetch 并合并远端基准分支（输出 SYNCED 字段；无远程/fetch 失败时降级并标注 SYNCED=no）",
                       "改动只发生在 worktree，主工作空间无变化",
-                      "生成并补全 analysis.md 与 fix-report.md（不编造结论）",
+                      "生成并补全 analysis.md 与 fix-report.md（不编造结论，报告含远端同步状态）",
                       "最终汇报含根因一句话、worktree 路径、未提交提示、测试建议"]},
     {"id": 2, "prompt": "禅道里这个 bug 帮我修一下（.agents/.env 未配置账号）",
      "expected_output": "配置缺失：理解闭环逐项索取（一次只问一个），不脑补凭据",
@@ -32,6 +33,13 @@
      "expected_output": "stop 子命令优雅停止（stdin EOF 让 dws 自动退订）；status 输出 JSON",
      "files": ["scripts/dingtalk_listen.py"],
      "expectations": ["stop 后 status 显示 running=false，残留进程被清理",
-                      "status 能给出各目标存活/最近事件时间/队列与修复统计"]}
+                      "status 能给出各目标存活/最近事件时间/队列与修复统计"]},
+    {"id": 7, "prompt": "基于 release/2.3 分支修禅道 bug 22233，一定要拿远端最新代码修",
+     "expected_output": "prepare 22233 release/2.3：worktree 创建后 fetch 远端 release/2.3 并合并进 bugfix/22233_日期，基于远端最新代码分析修复",
+     "files": [],
+     "expectations": ["prepare 显式携带基准分支 release/2.3（用户指定优先）",
+                      "worktree 新建后输出 SYNCED=yes（或降级时 SYNCED=no + 原因，并向用户如实说明）",
+                      "分析基线为合并后的最新提交，主工作空间与本地基准分支引用未被改动",
+                      "若发生合并冲突（返回码 5）：停止并报告 SYNC_CONFLICT 信息，不自行重试合并"]}
   ]
 }
