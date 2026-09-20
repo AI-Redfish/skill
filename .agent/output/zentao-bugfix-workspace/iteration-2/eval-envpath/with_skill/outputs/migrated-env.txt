@@ -1,2 +1,0 @@
-ZENTAO_BASE_URL=http://old
-DWS_LISTEN_USERS=李四
