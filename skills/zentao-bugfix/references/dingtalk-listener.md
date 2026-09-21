@@ -8,14 +8,33 @@
 ```
 DWS_LISTEN_USERS / DWS_LISTEN_BOTS（.env 名单）
         │ stream: 每目标一个 dws 子进程(+listen-im, stdin 常开, stderr 落盘 dws-<名>.log)
-        │ poll:   每目标一个拉取线程(每 20s 拉 dws chat +chat-messages, 水印增量)
-        │ auto 模式下两通道并行, message_id 去重(DedupStore)天然防重
+        │ poll:   每目标一个拉取线程(每 POLL_INTERVAL_SECONDS 秒(默认20)重扫
+        │         「过去 POLL_LOOKBACK_MINUTES 分钟(默认10)」窗口, dws +chat-messages
+        │         --start 服务端过滤, message_id 去重(DedupStore)防重)
+        │ auto 模式下两通道并行, 推送丢的消息由轮询窗口自愈补拉
         ▼
 dingtalk_listen.py 主控（纯标准库 Python）
   ├─ reader/poll 线程 × N：事件归一化 → 去重 → 事件队列(串行)
   ├─ worker：Agent 无头提取意图(JSON) → 命中 → 同步禅道配置到仓库 → Agent 无头修复会话
   └─ 守护管理：start(后台)/status/stop；日志与状态全在启动工作空间 .agents/logs/
 ```
+
+## 拉取兜底（poll）工作原理
+
+每 POLL_INTERVAL_SECONDS 秒（默认 20）对每个监听目标执行一轮：
+
+1. 计算窗口下界 = `min(持久化水位, now - POLL_LOOKBACK_MINUTES)`，再被
+   `now - POLL_MAX_CATCHUP_MINUTES` 托底（水位正常时窗口就是过去 X 分钟；
+   停机后前探到水位补漏；首次部署/长期停机最多回看 60 分钟防远古重放）；
+2. `dws chat +chat-messages --open-dingtalk-id <目标> --start <下界> --order asc`
+   服务端时间窗过滤（旧版 dws 不支持 `--start` 时自动降级为 limit 拉取）；
+3. 窗口内消息经「目标发送者过滤 → message_id 去重（DedupStore）」后进同一处理队列。
+
+关键设计是**窗口重扫而非水位增量**：窗口内消息每轮都会被重新捞到，水位损坏、
+进程重启、单轮拉取失败都不会永久漏消息（最多延迟一个轮询间隔）；重复处理由
+message_id 去重拦截。水位（`poll-state.json`，多目标读-改-写合并）只用于停机后
+把窗口向前延伸。推送流（stream）稳定运行 10 分钟后重置重启退避计数，避免长稳
+后偶发抖动累计到放弃。
 
 ## 配置（启动工作空间 `.agents/.env`）
 
@@ -30,7 +49,10 @@ dingtalk_listen.py 主控（纯标准库 Python）
 | `DWS_LISTEN_USERS` | 人员/机器人**至少填一项** | 监听人员姓名，逗号分隔（须能在通讯录精确唯一匹配）；只监听机器人时可留空 |
 | `DWS_LISTEN_BOTS` | 可选 | 监听机器人名，逗号分隔（`dws chat bot find` 可查） |
 | `ZENTAO_BASE_URL` / `ZENTAO_ACCOUNT` / `ZENTAO_PASSWORD` | ✅ | 禅道配置（自动同步到目标仓库，不入 git） |
-| `LISTEN_MODE` | 可选 | 监听模式：`auto`（默认，stream 推送 + poll 拉取**双通道并行**，message_id 去重防重，推送故障时拉取自动兑底、恢复后自动回到毫秒级推送）/ `stream`（仅推送）/ `poll`（仅拉取，间隔 `POLL_INTERVAL=20s`） |
+| `LISTEN_MODE` | 可选 | 监听模式：`auto`（默认，stream 推送 + poll 拉取**双通道并行**，message_id 去重防重，推送故障时拉取自动兜底）/ `stream`（仅推送）/ `poll`（仅拉取） |
+| `POLL_INTERVAL_SECONDS` | 可选 | 拉取兜底轮询间隔秒数（默认 20） |
+| `POLL_LOOKBACK_MINUTES` | 可选 | 兜底每轮重扫的「过去 X 分钟」窗口（默认 10；调大更抗丢消息，代价是每轮拉取量略增） |
+| `POLL_MAX_CATCHUP_MINUTES` | 可选 | 停机/水位过旧时兜底最多回看的分钟数（默认 60，防远古消息重放） |
 | `BUGFIX_BASE_BRANCH` | 可选 | worktree 基准分支；**优先级：.env > 对话询问 > 仓库当前分支**（手动使用与监听自动触发一致）；prepare 新建 worktree 时会自动 fetch 并合并该分支的远端最新代码（无远程/fetch 失败降级本地快照；冲突返回码 5 人工决策） |
 | `TARGET_PROJECT_PATH` | 可选 | 目标仓库；**优先级高于启动目录** |
 | `AGENT_TYPE` | 可选 | `pi` / `codex` / `claude` / `custom` |
@@ -79,6 +101,7 @@ save-config，再重新 start。
 | `fix-<bugId>.log` | 每次自动修复会话的命令、耗时、输出末尾 40 行，以及 **[VERIFY] 产物校验**（worktree/meta.json/报告是否真实存在） |
 | `state.json` | status 数据源（5s 刷新，含 stats.last_fix） |
 | `processed-ids.json` | message_id 去重（环形，最近 1000 条） |
+| `poll-state.json` | 拉取兜底各目标水位（停机后窗口前探用） |
 | `listener.pid` / `stop.flag` | 守护进程管理 |
 
 ## Windows 无黑窗说明
@@ -90,7 +113,9 @@ save-config，再重新 start。
 ## 前置条件与已知限制
 
 - `dws` 已安装（PATH 或 `DWS_PATH` 环境变量指定路径）且 `dws auth login` 已登录；
-  token 过期时监听子进程会异常退出并按 5/15/60/300s 退避重启，连续失败 4 次放弃该目标。
+  token 过期时监听子进程会异常退出并按 5/15/60/300s 退避重启，连续失败 4 次放弃该目标
+  （稳定运行 10 分钟后计数重置；auto/poll 模式下拉取通道仍持续兜底）。拉取通道对
+  旧版 dws 不支持 `--start` 时自动降级为 limit 拉取 + 客户端窗口过滤。
 - 所选 Agent CLI（pi/codex/claude/custom）已安装并登录对应模型服务。
 - **dws 登录账号自己发出的消息不会进入事件流**（钉钉官方 self-loop 过滤）——测试必须
   用名单内其他账号/机器人发消息。
@@ -103,7 +128,8 @@ save-config，再重新 start。
 | 现象 | 处理 |
 |---|---|
 | `status` 显示 running=false | 看 `start.log`（启动卡在哪一步、失败原因）与 `daemon.out`；多为配置缺失（交互补齐）或 dws 未登录 |
-| 消息收到了但没触发修复 | 看 `events.log`（有无事件）→ `listener.log`（提取结果/失败原因）→ `test-extract` 复现 |
+| 消息收到了但没触发修复 | 看 `events.log`（有无事件）→ `listener.log`（提取结果/失败原因，轮询命中会有「拉取兜底命中消息」行）→ `test-extract` 复现 |
+| 推送流总丢消息/停机后漏消息 | 确认 `LISTEN_MODE=auto`（默认）；兜底每 20s 重扫过去 10 分钟，可调大 `POLL_LOOKBACK_MINUTES`；停机漏收最多回看 `POLL_MAX_CATCHUP_MINUTES`（默认 60 分钟） |
 | 触发了修复但没有 worktree | 看 `fix-<bugId>.log`：末尾有 `[VERIFY-FAIL]` 及 Agent 输出末尾 40 行。**无头会话退出码 0 ≠ 流程完成**——最常见是禅道密码失效，Agent 只能“向人提问后结束”；修正 `.env` 后等下一条消息或手动 `prepare` 验证登录 |
 | 提取总失败 | Agent CLI 未登录或模型名错误；`test-extract` 验证 |
 | 目标解析失败（重名/不存在） | `dws contact user search --query 名字` / `dws chat bot find --query 名字` 人工核对唯一性，改用精确姓名 |

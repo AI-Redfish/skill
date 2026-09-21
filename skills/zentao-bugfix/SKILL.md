@@ -6,7 +6,7 @@ compatibility:
   requirements: uv（推荐，脚本零第三方依赖仅做隔离运行，缺省可回退 python3）+ git；脚本位于本 skill 的 scripts/bugfix.py
 metadata:
   author: AI-Redfish
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # `zentao-bugfix`
@@ -151,7 +151,7 @@ uv run --no-project scripts/dingtalk_listen.py test-extract 帮我修一下 bug 
 脚本全非交互：配置缺失时退出码 2 并列出缺失键，由 AI 按双闭环逐项向用户索取后
 save-config 写入再重试（与 bugfix.py 的配置模式一致）。
 
-- 配置存**启动时所在工作空间**的 `.agents/.env`（旧版存 skill 目录，检测到时只读兜底，首次 save-config 自动迁移）：`ZENTAO_*`、`DWS_LISTEN_USERS`/`DWS_LISTEN_BOTS`（逗号分隔名单，人员/机器人**至少填一项**，只监听机器人时 `DWS_LISTEN_USERS` 可留空）、`BUGFIX_BASE_BRANCH`（可选，worktree 基准分支，优先于启动目录当前分支）、`LISTEN_MODE`（可选，默认 auto：stream 推送 + 拉取双通道互为兜底，message_id 去重防重）、`TARGET_PROJECT_PATH`（可选，优先于启动目录）、`AGENT_TYPE`/`AGENT_MODEL`（可选，优先于自动探测当前 pi 会话）、`AGENT_CUSTOM_CMD`（custom 适配器模板，供 DeepSeek Harness 等）。启动与修复全过程落盘 `.agents/logs/`（`start.log`/`listener.log`/`events.log`/`fix-<bugId>.log`；修复结果以 worktree/meta.json 产物校验为准——无头会话退出码 0 不代表流程完成，`status.last_fix` 展示最近一次结果）。
+- 配置存**启动时所在工作空间**的 `.agents/.env`（旧版存 skill 目录，检测到时只读兜底，首次 save-config 自动迁移）：`ZENTAO_*`、`DWS_LISTEN_USERS`/`DWS_LISTEN_BOTS`（逗号分隔名单，人员/机器人**至少填一项**，只监听机器人时 `DWS_LISTEN_USERS` 可留空）、`BUGFIX_BASE_BRANCH`（可选，worktree 基准分支，优先于启动目录当前分支）、`LISTEN_MODE`（可选，默认 auto：stream 推送 + 拉取双通道互为兜底，message_id 去重防重；拉取通道每 `POLL_INTERVAL_SECONDS` 秒（默认 20）重扫过去 `POLL_LOOKBACK_MINUTES` 分钟（默认 10）的消息，停机回看上限 `POLL_MAX_CATCHUP_MINUTES` 分钟（默认 60））、`TARGET_PROJECT_PATH`（可选，优先于启动目录）、`AGENT_TYPE`/`AGENT_MODEL`（可选，优先于自动探测当前 pi 会话）、`AGENT_CUSTOM_CMD`（custom 适配器模板，供 DeepSeek Harness 等）。启动与修复全过程落盘 `.agents/logs/`（`start.log`/`listener.log`/`events.log`/`fix-<bugId>.log`；修复结果以 worktree/meta.json 产物校验为准——无头会话退出码 0 不代表流程完成，`status.last_fix` 展示最近一次结果）。
 - 日志与守护状态存启动工作空间 `.agents/logs/`；**start/status/stop 需在同一工作空间目录执行**，不要在 skill 目录内运行（避免产生嵌套 `.agents`）。
 - 前置：dws 已安装并 `dws auth login`；所选 Agent CLI 已登录。dws 登录账号自发消息收不到（官方过滤）。
 - 修复串行排队；禅道配置自动同步到目标仓库 `.agents/.env` 并防入 git。

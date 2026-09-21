@@ -407,12 +407,85 @@ class TestPollFallback(unittest.TestCase):
         self.assertEqual(ev["sender_open_dingtalk_id"], "oid-1")
         self.assertEqual(ev["source"], "poll")
 
-    def test_pick_new_by_watermark(self):
+    def test_norm_ts_formats(self):
+        """时间归一化：空格/ISO/毫秒/时区/epoch 均可比较；垃圾输入返回空。"""
+        self.assertEqual(dl._norm_ts("2026-09-19 21:00:00"), "20260919210000000000")
+        self.assertEqual(dl._norm_ts("2026-09-19T21:00:00.5Z"), "20260919210000500000")
+        self.assertEqual(dl._norm_ts("2026-09-19T21:00:00.123+08:00"), "20260919210000123000")
+        self.assertEqual(dl._norm_ts(""), "")
+        self.assertEqual(dl._norm_ts(None), "")
+        self.assertEqual(dl._norm_ts("不是时间"), "")
+        self.assertEqual(dl._norm_ts("1760000000123"),
+                         dl._epoch_to_norm(1760000000))          # epoch 毫秒
+
+    def test_pick_new_by_cutoff_window(self):
+        """窗口重扫语义：≥cutoff 的都返回（去重由 DedupStore 负责），正序排列。"""
         msgs = [{"createTime": "2026-09-19 20:47:16", "messageId": "a"},
-                {"createTime": "2026-09-19 21:05:00", "messageId": "b"},
-                {"createTime": "2026-09-19 21:10:00", "messageId": "c"}]
-        fresh = dl.pick_new_poll_messages(msgs, "2026-09-19 21:00:00")
-        self.assertEqual([m["messageId"] for m in fresh], ["b", "c"])   # 严格大于+正序
+                {"createTime": "2026-09-19T21:05:00.250+08:00", "messageId": "b"},
+                {"createTime": "2026-09-19 21:10:00", "messageId": "c"},
+                {"createTime": "", "messageId": "d"}]
+        cutoff = dl._epoch_to_norm(dl._norm_to_epoch("20260919210000000000"))
+        fresh = dl.pick_new_poll_messages(msgs, cutoff)
+        self.assertEqual([m["messageId"] for m in fresh], ["b", "c"])   # ≥cutoff+正序，格式混用也可比
+
+    def test_cutoff_epoch_clamping(self):
+        now = 1760000000
+        # 无水位：窗口 = 过去 lookback
+        self.assertEqual(dl.poll_cutoff_epoch("", now=now, lookback_sec=600, max_catchup_sec=3600),
+                         now - 600)
+        # 水位在 lookback 与 max_catchup 之间：窗口前探到水位（停机补漏）
+        wm = dl._epoch_to_norm(now - 1200)
+        self.assertEqual(dl.poll_cutoff_epoch(wm, now=now, lookback_sec=600, max_catchup_sec=3600),
+                         now - 1200)
+        # 水位过旧：被 max_catchup 托底，防远古消息重放
+        wm_old = dl._epoch_to_norm(now - 86400)
+        self.assertEqual(dl.poll_cutoff_epoch(wm_old, now=now, lookback_sec=600, max_catchup_sec=3600),
+                         now - 3600)
+        # 坏水位容忍：当作无水位
+        self.assertEqual(dl.poll_cutoff_epoch("garbage", now=now, lookback_sec=600,
+                                              max_catchup_sec=3600), now - 600)
+
+    def test_rfc3339_local_whole_seconds(self):
+        """--start 参数必须是本地时区 RFC3339 整秒（dws 只接受整秒边界）。"""
+        s = dl._fmt_local_rfc3339(1760000000)
+        self.assertRegex(s, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$")
+
+    def test_poll_messages_window_args_and_fallback(self):
+        """带时间窗时用 --start/--order asc；旧版 dws 报错可降级；信封兼容两种形态。"""
+        calls = []
+        orig = dl.run_dws
+
+        def fake(args, timeout=60):
+            calls.append(list(args))
+            if "--start" in args:
+                raise RuntimeError("unknown flag: --start")
+            return json.dumps({"result": {"messages": [
+                {"messageId": "m1", "text": "x", "createTime": "2026-09-19 21:00:00"}]}})
+        try:
+            dl.run_dws = fake
+            with self.assertRaises(RuntimeError):
+                dl.poll_messages("oid-1", start_epoch=1760000000)   # 现代路径失败即抛，由调用方降级
+            msgs = dl.poll_messages("oid-1")                        # 降级路径（无时间窗）
+            self.assertEqual(msgs[0]["messageId"], "m1")
+            self.assertIn("--start", calls[0])
+            self.assertIn("asc", calls[0])
+            self.assertNotIn("--start", calls[1])
+        finally:
+            dl.run_dws = orig
+
+    def test_poll_state_merge(self):
+        """多目标水位读-改-写合并不互相关覆盖。"""
+        old = dl.POLL_STATE_FILE
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                dl.POLL_STATE_FILE = Path(td) / "poll-state.json"
+                dl._save_poll_state("甲", "20260919210000000000")
+                dl._save_poll_state("乙", "20260919220000000000")
+                st = dl._load_poll_states()
+                self.assertEqual(st["甲"], "20260919210000000000")
+                self.assertEqual(st["乙"], "20260919220000000000")
+        finally:
+            dl.POLL_STATE_FILE = old
 
     def test_mode_validation(self):
         with tempfile.TemporaryDirectory() as td:
@@ -421,6 +494,22 @@ class TestPollFallback(unittest.TestCase):
             import importlib
             with self.assertRaises(SystemExit):
                 dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo, None, "bad-mode")
+
+    def test_poll_params_validation(self):
+        """轮询参数：缺省用默认值，非法值报配置错（退出码 2 路径）。"""
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "r"
+            (repo / ".git").mkdir(parents=True)
+            li = dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo)
+            self.assertEqual(li.poll_lookback_min, dl.POLL_LOOKBACK_MIN)
+            self.assertEqual(li.poll_max_catchup_min, dl.POLL_MAX_CATCHUP_MIN)
+            self.assertEqual(li.poll_interval, dl.POLL_INTERVAL)
+            with self.assertRaises(SystemExit):
+                dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo,
+                            None, "auto", None, "abc", None)
+            with self.assertRaises(SystemExit):
+                dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo,
+                            None, "auto", None, "0", None)
 
 
 if __name__ == "__main__":

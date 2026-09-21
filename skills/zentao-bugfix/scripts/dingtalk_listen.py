@@ -10,7 +10,8 @@
 推荐 uv 隔离运行：uv run --no-project scripts/dingtalk_listen.py <子命令>
 
 功能链路：
-    监听多个指定人员/机器人的钉钉单聊消息（dws Stream 长连接）
+    监听多个指定人员/机器人的钉钉单聊消息（dws Stream 长连接 + 定时轮询
+    「过去X分钟」消息的拉取兜底，message_id 去重，两通道互为冗余）
     → 消息交给本地 Agent（pi/codex/claude/custom）无头提取"是否修 bug + bugId"
     → 命中则自动执行 zentao-bugfix 全流程（bugfix.py prepare 拉取禅道 bug、
        建 worktree，再由同一 Agent 无头会话分析修复、生成报告）
@@ -28,6 +29,9 @@
     AGENT_MODEL=provider-x/model-y                     Agent 模型（provider/model 或模型名）
     AGENT_CUSTOM_CMD=dsh -p --model {model} {prompt}      custom 适配器命令模板（可选）
     LISTEN_MODE=auto                                     auto=推送+拉取双通道(默认)/stream/poll
+    POLL_INTERVAL_SECONDS=20                             拉取兜底轮询间隔（可选，默认20秒）
+    POLL_LOOKBACK_MINUTES=10                             兜底每轮重扫「过去X分钟」窗口（默认10）
+    POLL_MAX_CATCHUP_MINUTES=60                          停机后兜底最多回看分钟数（默认60）
 
 Agent/模型选择优先级：命令行参数 > .env > 自动探测当前 pi 会话 > 交互询问。
 目标仓库优先级：.env 的 TARGET_PROJECT_PATH > 启动时所在项目目录。
@@ -86,8 +90,10 @@ EXTRACT_TIMEOUT = 300        # 意图提取超时（秒）
 FIX_TIMEOUT = 7200           # 自动修复会话超时（秒）
 RESTART_BACKOFF = (5, 15, 60, 300)   # dws 子进程退出后的重启退避（秒）
 PROCESSED_MAX = 1000         # message_id 去重环形容量
-POLL_INTERVAL = 20           # 拉取兜底轮询间隔（秒）
-POLL_CATCHUP = 300           # 启动时回看的消息时间窗（秒），防旧消息重放
+POLL_INTERVAL = 20           # 拉取兜底轮询间隔（秒，可用 POLL_INTERVAL_SECONDS 覆盖）
+POLL_LOOKBACK_MIN = 10       # 兜底每轮重扫「过去X分钟」窗口（自愈：不依赖水位正确性）
+POLL_MAX_CATCHUP_MIN = 60    # 水位过旧（停机等）时最多回看上限（分钟）
+STREAM_STABLE_SEC = 600      # 推送流稳定运行超过该时长后重置重启退避计数
 
 REQUIRED_KEYS = ["ZENTAO_BASE_URL", "ZENTAO_ACCOUNT", "ZENTAO_PASSWORD"]
 KEY_HELP = {
@@ -103,6 +109,9 @@ KEY_HELP = {
     "AGENT_CUSTOM_CMD": "custom 适配器命令模板，占位符 {model} {prompt}",
     "BUGFIX_BASE_BRANCH": "worktree 基准分支（可选；优先级：.env > 对话询问 > 仓库当前分支）",
     "LISTEN_MODE": "监听模式 auto/stream/poll（默认 auto：推送+拉取双通道，自动互为兜底）",
+    "POLL_INTERVAL_SECONDS": "拉取兜底轮询间隔秒数（默认 20）",
+    "POLL_LOOKBACK_MINUTES": "兜底每轮重扫的「过去X分钟」窗口（默认 10；调大更抗丢消息）",
+    "POLL_MAX_CATCHUP_MINUTES": "停机/水位过旧时兜底最多回看的分钟数（默认 60）",
 }
 
 
@@ -191,6 +200,20 @@ def missing_keys(cfg, required=REQUIRED_KEYS):
 
 def mask(v):
     return (v[:3] + "***") if v and len(v) > 3 else ("***" if v else "")
+
+
+def _positive_int(val, name, default):
+    """解析正整数配置（空/None 用默认值；非正数报配置错，退出码 2）。"""
+    s = str(val).strip() if val is not None else ""
+    if not s:
+        return default
+    try:
+        n = int(float(s))
+    except ValueError:
+        raise SystemExit("%s 需为正整数，当前: %s" % (name, s))
+    if n <= 0:
+        raise SystemExit("%s 需为正整数，当前: %s" % (name, s))
+    return n
 
 
 # ---------------------------------------------------------------- 工具函数
@@ -615,12 +638,107 @@ class DedupStore:
 
 # ---------------------------------------------------------------- 拉取兜底(poll)
 
-def poll_messages(oid, limit=10):
-    """拉取与指定 openDingTalkId 的单聊最近消息（拉取通道与推送流独立，互为冗余）。"""
-    out = run_dws(["chat", "+chat-messages", "--open-dingtalk-id", oid,
-                   "--limit", str(limit), "-f", "json"], timeout=60)
+_POLL_STATE_LOCK = threading.Lock()
+POLL_STATE_FILE = LOG_DIR / "poll-state.json"
+
+
+def _load_poll_states():
+    """读取各目标的拉取水位（canonical 归一化格式；损坏时视为空，自愈重建）。"""
+    with _POLL_STATE_LOCK:
+        try:
+            return json.loads(POLL_STATE_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+
+def _save_poll_state(name, wm):
+    """读-改-写合并单个目标水位（多拉取线程并发写同一文件，锁内整体重读）。"""
+    with _POLL_STATE_LOCK:
+        try:
+            states = json.loads(POLL_STATE_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            states = {}
+        states[name] = wm
+        try:
+            POLL_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            POLL_STATE_FILE.write_text(json.dumps(states), encoding="utf-8")
+        except OSError:
+            pass
+
+
+def _norm_ts(v):
+    """时间归一化为可字典序比较的定长数字串 YYYYmmddHHMMSSffffff；无法解析返回 ''。
+
+    兼容常见格式：'2026-09-19 21:00:00'、ISO8601（'T'/毫秒/时区后缀，时区按同一
+    墙钟忽略）、epoch 毫秒/秒（纯数字）。定长保证不同来源可直接比较。
+    """
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if not s:
+        return ""
+    if s.isdigit() and len(s) in (10, 13):
+        ep = int(s) / (1000.0 if len(s) == 13 else 1.0)
+        return time.strftime("%Y%m%d%H%M%S", time.localtime(ep)) + "000000"
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?", s)
+    if not m:
+        return ""
+    frac = (m.group(7) or "")[:6].ljust(6, "0")
+    return "".join(m.groups()[:6]) + frac
+
+
+def _epoch_to_norm(ep):
+    """epoch 秒 → canonical 归一化串（本地时区）。"""
+    return time.strftime("%Y%m%d%H%M%S", time.localtime(ep)) + "000000"
+
+
+def _norm_to_epoch(norm):
+    """canonical 串 → epoch 秒（本地时区）；坏值抛 ValueError 由调用方容忍。"""
+    return time.mktime(time.strptime(norm[:14], "%Y%m%d%H%M%S"))
+
+
+def _fmt_local_rfc3339(epoch):
+    """epoch 秒 → 本地时区 RFC3339 整秒串（dws --start/--end 只接受整秒）。"""
+    lt = time.localtime(epoch)
+    off = -time.altzone if (lt.tm_isdst and time.daylight) else -time.timezone
+    return "%s%+03d:%02d" % (time.strftime("%Y-%m-%dT%H:%M:%S", lt),
+                             int(off / 3600), abs(off) % 3600 // 60)
+
+
+def poll_cutoff_epoch(wm, now=None, lookback_sec=None, max_catchup_sec=None):
+    """计算本轮拉取窗口下界（epoch 秒）：min(水位, now-回看窗)，再被最大回看上限托底。
+
+    - 水位正常时窗口 = 过去 X 分钟（自愈重扫，不依赖水位正确性）；
+    - 停机后水位较旧 → 窗口前探到水位（补停机期间漏收的消息）；
+    - 水位过旧（首次部署/长期停机）→ 最多回看 max_catchup，防远古消息重放。
+    """
+    now = time.time() if now is None else now
+    lookback_sec = POLL_LOOKBACK_MIN * 60 if lookback_sec is None else lookback_sec
+    max_catchup_sec = POLL_MAX_CATCHUP_MIN * 60 if max_catchup_sec is None else max_catchup_sec
+    lower = now - lookback_sec
+    if wm:
+        try:
+            lower = min(lower, _norm_to_epoch(wm))
+        except (ValueError, OverflowError, OSError):
+            pass
+    return max(lower, now - max_catchup_sec)
+
+
+def poll_messages(oid, start_epoch=None, limit=50):
+    """拉取与指定 openDingTalkId 的单聊消息（拉取通道与推送流独立，互为冗余）。
+
+    start_epoch 非空时用服务端时间窗（--start/--order asc，区间 [start, now)），
+    避免依赖 limit 截断；旧版 dws 不认识该参数会报错，由调用方降级重试。
+    兼容 result 包裹与裸信封两种输出形态。
+    """
+    args = ["chat", "+chat-messages", "--open-dingtalk-id", oid,
+            "--limit", str(limit), "-f", "json"]
+    if start_epoch is not None:
+        args += ["--start", _fmt_local_rfc3339(start_epoch), "--order", "asc"]
+    out = run_dws(args, timeout=60)
     data = parse_json_loose(out)
-    return ((data.get("result") or {}).get("messages")) or []
+    env = data.get("result") if isinstance(data.get("result"), dict) else data
+    return env.get("messages") or []
 
 
 def normalize_poll_message(m):
@@ -629,6 +747,7 @@ def normalize_poll_message(m):
         "type": "poll_message",
         "sender": m.get("sender") or "",
         "sender_open_dingtalk_id": m.get("senderId") or "",
+        "sender_type": m.get("senderType") or "",
         "content": m.get("text") or "",
         "message_id": m.get("messageId") or "",
         "conversation_id": m.get("conversationId") or "",
@@ -637,11 +756,20 @@ def normalize_poll_message(m):
     }
 
 
-def pick_new_poll_messages(msgs, watermark):
-    """筛出水印之后的新消息；按时间正序返回。createTime 格式可字典序比较。"""
-    fresh = [m for m in msgs if (m.get("createTime") or "") > watermark]
-    fresh.sort(key=lambda m: m.get("createTime") or "")
-    return fresh
+def pick_new_poll_messages(msgs, cutoff):
+    """筛出时间窗内（归一化 createTime ≥ cutoff）的消息，按时间正序返回。
+
+    语义是「窗口重扫」而非「水位增量」：窗口内已处理过的消息由调用方的
+    DedupStore（message_id）去重，这样水位损坏/进程重启也不会永久漏消息。
+    无法解析时间的消息保守丢弃（防重放）。
+    """
+    got = []
+    for m in msgs:
+        mn = _norm_ts(m.get("createTime"))
+        if mn and mn >= cutoff:
+            got.append((mn, m))
+    got.sort(key=lambda t: t[0])
+    return [m for _mn, m in got]
 
 
 # ---------------------------------------------------------------- 监听核心
@@ -649,7 +777,8 @@ def pick_new_poll_messages(msgs, watermark):
 class Listener:
     """多目标 dws 监听 + 串行修复队列。"""
 
-    def __init__(self, targets, adapter, repo, base_branch=None, mode="auto"):
+    def __init__(self, targets, adapter, repo, base_branch=None, mode="auto",
+                 poll_interval=None, poll_lookback_min=None, poll_max_catchup_min=None):
         self.targets = targets
         self.adapter = adapter
         self.repo = repo
@@ -657,6 +786,11 @@ class Listener:
         self.mode = (mode or "auto").strip().lower()
         if self.mode not in ("auto", "stream", "poll"):
             raise SystemExit("LISTEN_MODE 必须是 auto/stream/poll: %s" % mode)
+        # 拉取兜底参数（X 分钟窗口/同隔/停机回看上限，均可 .env 覆盖）
+        self.poll_interval = _positive_int(poll_interval, "POLL_INTERVAL_SECONDS", POLL_INTERVAL)
+        self.poll_lookback_min = _positive_int(poll_lookback_min, "POLL_LOOKBACK_MINUTES", POLL_LOOKBACK_MIN)
+        self.poll_max_catchup_min = _positive_int(
+            poll_max_catchup_min, "POLL_MAX_CATCHUP_MINUTES", POLL_MAX_CATCHUP_MIN)
         self.dedup = DedupStore()
         self.queue = queue_mod.Queue()
         self.procs = {}          # name -> {"proc", "restarts", "last_event"}
@@ -683,6 +817,7 @@ class Listener:
     def _reader(self, name, oid):
         restarts = 0
         while not self.stop_flag.is_set():
+            t0 = time.time()
             info = self.procs.get(name) or {}
             proc = self._spawn(name, oid)
             with self.state_lock:
@@ -719,6 +854,8 @@ class Listener:
                 except Exception:
                     proc.kill()
                 return
+            if time.time() - t0 >= STREAM_STABLE_SEC:
+                restarts = 0        # 稳定运行过一段时间的属于新故障：重置退避，避免累计放弃
             restarts += 1
             if restarts > len(RESTART_BACKOFF):
                 log("[%s] 重启次数过多，放弃该目标" % name)
@@ -728,35 +865,55 @@ class Listener:
                 % (name, proc.returncode, wait, restarts))
             self.stop_flag.wait(wait)
 
-    def _poll_reader(self, name, oid):
-        """拉取兜底：定期拉会话消息，水印增量，新消息进同一队列（去重防重）。"""
-        wm_file = LOG_DIR / "poll-state.json"
-        states = {}
-        try:
-            states = json.loads(wm_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-        wm = states.get(name)
-        if not wm or wm < time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 3600)):
-            wm = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - POLL_CATCHUP))
+    def _poll_reader(self, name, oid, ttype="user"):
+        """拉取兜底：每 poll_interval 秒重扫「过去 X 分钟」窗口，补推送流丢的消息。
+
+        自愈设计：不依赖单一水位的正确性——每轮都重扫时间窗（X 分钟），窗口内
+        漏掉的消息（水位跳过/进程重启/限流截断）下一轮仍会被重新捞到；重复处理
+        由 DedupStore 的 message_id 去重拦截。持久化水位只用于停机后把窗口
+        向前延伸（上限 max_catchup 分钟，防首次部署/长期停机重放远古消息）。
+        旧版 dws 不支持 --start 时自动降级为纯 limit 拉取 + 客户端窗口过滤。
+        """
+        wm = _norm_ts(_load_poll_states().get(name))    # 兼容旧版水位格式
+        legacy = False
+        lookback = self.poll_lookback_min * 60
+        max_catchup = self.poll_max_catchup_min * 60
         while not self.stop_flag.is_set():
-            self.stop_flag.wait(POLL_INTERVAL)
+            self.stop_flag.wait(self.poll_interval)
             if self.stop_flag.is_set():
                 return
+            lower = poll_cutoff_epoch(wm, lookback_sec=lookback, max_catchup_sec=max_catchup)
+            cutoff = _epoch_to_norm(lower)
             try:
-                msgs = poll_messages(oid)
-            except Exception as e:
-                log("[%s] 拉取失败(下次重试): %s" % (name, str(e)[:200]))
-                continue
-            for m in pick_new_poll_messages(msgs, wm):
-                if m.get("senderId") != oid:        # 只处理目标发来的消息
+                msgs = poll_messages(oid, None if legacy else lower - 1)
+            except Exception as e1:
+                if legacy:
+                    log("[%s] 拉取失败(下次重试): %s" % (name, str(e1)[:200]))
+                    continue
+                legacy = True
+                log("[%s] 带时间窗拉取失败，降级为 limit 拉取: %s" % (name, str(e1)[:200]))
+                try:
+                    msgs = poll_messages(oid)
+                except Exception as e2:
+                    log("[%s] 拉取失败(下次重试): %s" % (name, str(e2)[:200]))
+                    continue
+            newest = wm
+            for m in pick_new_poll_messages(msgs, cutoff):
+                mn = _norm_ts(m.get("createTime"))
+                if mn and mn > newest:
+                    newest = mn
+                sid = str(m.get("senderId") or "").strip()
+                stype = str(m.get("senderType") or "").lower()
+                # 只处理目标发来的消息（单聊里非目标即为自己发出的）；senderId 缺失
+                # 或机器人类型标记时放行，交给去重与意图提取兜底，防字段形态差异漏拉
+                if sid and sid != oid and not (ttype == "bot"
+                                               and ("bot" in stype or "app" in stype)):
                     continue
                 mid = m.get("messageId")
                 if mid and self.dedup.seen(mid):
                     continue
                 if mid:
                     self.dedup.add(mid)
-                wm = m.get("createTime") or wm
                 ev = normalize_poll_message(m)
                 write_log("events.log", json.dumps(
                     {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -764,13 +921,11 @@ class Listener:
                 with self.state_lock:
                     if name in self.procs:
                         self.procs[name]["last_event"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                log("[%s] 拉取兜底命中消息 mid=%s" % (name, mid or "?"))
                 self.queue.put((name, ev))
-            states[name] = wm
-            try:
-                wm_file.parent.mkdir(parents=True, exist_ok=True)
-                wm_file.write_text(json.dumps(states), encoding="utf-8")
-            except OSError:
-                pass
+            if newest != wm:
+                wm = newest
+                _save_poll_state(name, wm)
 
     # ---- 串行处理 ----
     def _worker(self):
@@ -781,6 +936,10 @@ class Listener:
                 continue
             sender = ev.get("sender") or name
             content = str(ev.get("content") or "")
+            if not content.strip():                     # 图片/文件等无文本消息：不可能含 bugId
+                log("[%s] 消息无文本内容，跳过" % name)
+                self.queue.task_done()
+                continue
             try:
                 intent = extract_bug_intent(self.adapter, sender, content)
             except Exception as e:                     # 提取失败不致命，记录后跳过
@@ -812,6 +971,9 @@ class Listener:
             "pid": os.getpid(), "started": self.started, "agent": self.adapter.name,
             "model": self.adapter.model, "repo": str(self.repo), "base_branch": self.base_branch,
             "targets": targets, "mode": self.mode, "queue": self.queue.qsize(),
+            "poll": {"interval_s": self.poll_interval,
+                     "lookback_min": self.poll_lookback_min,
+                     "max_catchup_min": self.poll_max_catchup_min},
             "stats": self.stats, "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
         }, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -825,13 +987,19 @@ class Listener:
             if self.mode in ("auto", "stream"):
                 threads.append(threading.Thread(target=self._reader, args=(n, i), daemon=True))
             if self.mode in ("auto", "poll"):
-                threads.append(threading.Thread(target=self._poll_reader, args=(n, i), daemon=True))
+                threads.append(threading.Thread(
+                    target=self._poll_reader, args=(n, i, _t), daemon=True))
         threads.append(threading.Thread(target=self._worker, daemon=True))
         for t in threads:
             t.start()
+        note = {"auto": "（stream推送+poll拉取双通道：每%ds重扫过去%dmin，message_id去重）"
+                % (self.poll_interval, self.poll_lookback_min),
+                "poll": "（仅poll拉取：每%ds重扫过去%dmin，停机回看上限%dmin）"
+                % (self.poll_interval, self.poll_lookback_min, self.poll_max_catchup_min),
+                "stream": ""}[self.mode]
         log("监听就绪：%d 个目标 | agent=%s/%s | repo=%s | mode=%s%s"
             % (len(self.targets), self.adapter.name, self.adapter.model, self.repo,
-               self.mode, "（stream推送+poll拉取双通道, message_id去重）" if self.mode == "auto" else ""))
+               self.mode, note))
         try:
             while not STOP_FILE.is_file():
                 alive = sum(1 for t in threads if t.is_alive())
@@ -946,7 +1114,10 @@ def _cmd_start_impl(args):
         return
     write_log("start.log", "[start] 进入前台监听主循环")
     Listener(targets, adapter, repo, cfg.get("BUGFIX_BASE_BRANCH"),
-             cfg.get("LISTEN_MODE", "auto")).run()
+             cfg.get("LISTEN_MODE", "auto"),
+             cfg.get("POLL_INTERVAL_SECONDS"),
+             cfg.get("POLL_LOOKBACK_MINUTES"),
+             cfg.get("POLL_MAX_CATCHUP_MINUTES")).run()
 
 
 def cmd_status(_args):
@@ -983,7 +1154,9 @@ def cmd_stop(_args):
 def cmd_config_status(_args):
     cfg = load_env()
     optional = ["DWS_LISTEN_BOTS", "BUGFIX_BASE_BRANCH", "TARGET_PROJECT_PATH",
-                "AGENT_TYPE", "AGENT_MODEL", "AGENT_CUSTOM_CMD"]
+                "AGENT_TYPE", "AGENT_MODEL", "AGENT_CUSTOM_CMD", "LISTEN_MODE",
+                "POLL_INTERVAL_SECONDS", "POLL_LOOKBACK_MINUTES",
+                "POLL_MAX_CATCHUP_MINUTES"]
     print(json.dumps({
         "env_file": str(ENV_FILE),
         "legacy_env_file": str(LEGACY_ENV_FILE),
