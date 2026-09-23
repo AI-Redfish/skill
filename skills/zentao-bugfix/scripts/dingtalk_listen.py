@@ -14,7 +14,7 @@
     「过去X分钟」消息的拉取兜底，message_id 去重，两通道互为冗余）
     → 消息交给本地 Agent（pi/codex/claude/custom）无头提取"是否修 bug + bugId"
     → 命中则自动执行 zentao-bugfix 全流程（bugfix.py prepare 拉取禅道 bug、
-       建 worktree，再由同一 Agent 无头会话分析修复、生成报告）
+       建 worktree，再由同一 Agent 无头会话先输出分析报告再修复、生成报告）
     → 全程结果只写本地日志（启动工作空间 .agents/logs/），不发钉钉回执。
 
 配置（**启动时所在工作空间**的 .agents/.env，KEY=VALUE；首次运行交互式收集并保存。
@@ -56,7 +56,8 @@ Agent/模型选择优先级：命令行参数 > .env > 自动探测当前 pi 会
 
 排障日志（均在启动工作空间 .agents/logs/）：start.log 记录启动全过程与失败原因；
 listener.log 为运行主日志；events.log 为原始消息；fix-<bugId>.log 含修复会话输出末尾
-与 [VERIFY] 产物校验结果（无头会话退出码 0 不代表流程完成，以 worktree/meta.json
+与 [VERIFY] 产物校验结果（含 analysis_complete 分析先行校验；无头会话退出码 0 不代表
+流程完成，以 worktree/meta.json
 等文件证据为准）；status 的 last_fix 字段展示最近一次修复结果。
 """
 import argparse
@@ -516,8 +517,10 @@ def build_fix_prompt(bug_id, base_branch=None):
             "skill 目录：%s（先读其中 SKILL.md 了解完整流程）。\n"
             "%s\n"
             "步骤：1) 运行 `python %s prepare %s%s --project .`（或 uv run --no-project 同命令）；"
-            "2) 按 SKILL.md 在 worktree 中分析根因并修复（禁止 commit/push）；"
-            "3) 运行 report 子命令生成修复报告并补全（待填写）章节。"
+            "2) 按 SKILL.md 先在 worktree 中只读分析代码，补全 analysis.md 输出完整分析报告"
+            "（落盘在 worktree 的 .agents 下；此阶段禁止修改任何代码文件）；"
+            "3) 依据分析报告中的修复方案实施修复（禁止 commit/push）；"
+            "4) 运行 report 子命令生成修复报告并补全（待填写）章节。"
             "全程遵守 SKILL.md 的边界约束，完成后输出根因一句话与报告路径。\n"
             % (bug_id, SKILL_DIR, branch_note,
                SKILL_DIR / "scripts" / "bugfix.py", bug_id, barg))
@@ -528,7 +531,9 @@ def verify_fix(bug_id, repo):
 
     无头 Agent 会话退出码 0 ≠ 流程完成（可能中途需要向用户提问后正常退出，
     例如禅道密码失效时只能“提问后结束”），必须以文件系统证据为准。
-    返回 {"ok": bool, "worktree": str|None, "report": str|None}。
+    返回 {"ok": bool, "worktree": str|None, "report": str|None,
+    "analysis_complete": bool, "analysis_state": "no"|"yes"|"missing"}。
+    analysis_state 校验分析先行流程：analysis.md 应在修复前已补全（无（待填写））。
     """
     parent = Path(repo).resolve().parent
     for pat in ("bugfix_%s_*" % bug_id, "bugfix_%s" % bug_id):
@@ -536,9 +541,18 @@ def verify_fix(bug_id, repo):
             report_dir = wt / ".agents" / "bugfix" / str(bug_id)
             if wt.is_dir() and (report_dir / "meta.json").is_file():
                 reports = sorted(p.name for p in report_dir.glob("fix-report*.md"))
+                analysis_md = report_dir / "analysis.md"
+                analysis_state = "missing"
+                if analysis_md.is_file():
+                    analysis_state = ("yes" if "（待填写" in
+                                      analysis_md.read_text(encoding="utf-8",
+                                                            errors="replace") else "no")
                 return {"ok": True, "worktree": str(wt),
-                        "report": (str(report_dir / reports[0]) if reports else None)}
-    return {"ok": False, "worktree": None, "report": None}
+                        "report": (str(report_dir / reports[0]) if reports else None),
+                        "analysis_complete": analysis_state == "no",
+                        "analysis_state": analysis_state}
+    return {"ok": False, "worktree": None, "report": None,
+            "analysis_complete": False, "analysis_state": "missing"}
 
 
 def run_auto_fix(adapter, bug_id, repo, base_branch=None):
@@ -561,9 +575,16 @@ def run_auto_fix(adapter, bug_id, repo, base_branch=None):
                   " ".join(cmd[:6]), time.time() - t0, "\n".join(tail)))
     if v["ok"]:
         write_log("fix-%s.log" % bug_id,
-                  "[VERIFY] OK worktree=%s report=%s" % (v["worktree"], v["report"]))
+                  "[VERIFY] OK worktree=%s report=%s analysis_complete=%s" % (
+                      v["worktree"], v["report"], v.get("analysis_complete")))
+        if not v.get("analysis_complete"):
+            write_log("fix-%s.log" % bug_id,
+                      "[VERIFY-WARN] analysis.md 未在修复前完整落盘（state=%s）——"
+                      "偏离分析先行流程" % v.get("analysis_state"))
         return {"bug_id": bug_id, "ok": True, "worktree": v["worktree"],
-                "report": v["report"], "elapsed": int(time.time() - t0)}
+                "report": v["report"],
+                "analysis_complete": v.get("analysis_complete"),
+                "elapsed": int(time.time() - t0)}
     # 会话退出但无 worktree：prepare 未成功（常见：禅道密码失效/网络不通，
     # 无头会话无法向人提问只能“提问后结束”）——完整原因看本日志[输出末尾]
     write_log("fix-%s.log" % bug_id,

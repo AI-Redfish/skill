@@ -377,6 +377,27 @@ class TestVerifyFix(unittest.TestCase):
             (repo.parent / "bugfix_75042_20260920").mkdir()
             self.assertFalse(dl.verify_fix("75042", repo)["ok"])
 
+    def test_analysis_first_states(self):
+        """分析先行校验：analysis.md 缺失/未补全/已完整三种状态。"""
+        with tempfile.TemporaryDirectory() as td:
+            repo = self._mk_repo(td)
+            wt = repo.parent / "bugfix_75043_20260920"
+            rd = wt / ".agents" / "bugfix" / "75043"
+            rd.mkdir(parents=True)
+            (rd / "meta.json").write_text("{}", encoding="utf-8")
+            v = dl.verify_fix("75043", repo)
+            self.assertTrue(v["ok"])
+            self.assertFalse(v["analysis_complete"])          # missing
+            self.assertEqual(v["analysis_state"], "missing")
+            (rd / "analysis.md").write_text("（待填写）", encoding="utf-8")
+            v = dl.verify_fix("75043", repo)
+            self.assertFalse(v["analysis_complete"])          # 仍有待填写
+            self.assertEqual(v["analysis_state"], "yes")
+            (rd / "analysis.md").write_text("根因：xxx（文件:行号）", encoding="utf-8")
+            v = dl.verify_fix("75043", repo)
+            self.assertTrue(v["analysis_complete"])
+            self.assertEqual(v["analysis_state"], "no")
+
 
 class TestFixPrompt(unittest.TestCase):
     def test_with_base_branch(self):
@@ -389,6 +410,17 @@ class TestFixPrompt(unittest.TestCase):
         self.assertIn("使用当前仓库所在分支", p)
         self.assertIn("prepare 12345 --project .", p)
         self.assertNotIn("基准分支必须", p)
+
+    def test_analysis_first_ordering(self):
+        """分析先行：提示词必须先补全 analysis.md（不改代码）再实施修复。"""
+        p = dl.build_fix_prompt("12345")
+        self.assertIn("补全 analysis.md", p)
+        self.assertIn("禁止修改任何代码文件", p)
+        self.assertIn("依据分析报告", p)
+        # 顺序：补全 analysis.md 的步骤先于实施修复的步骤
+        self.assertLess(p.index("补全 analysis.md"), p.index("实施修复"))
+        # 分析报告落盘位置指向 worktree 的 .agents
+        self.assertIn(".agents", p)
 
 
 class TestCreationFlags(unittest.TestCase):

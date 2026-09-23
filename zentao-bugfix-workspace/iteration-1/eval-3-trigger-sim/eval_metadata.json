@@ -1,0 +1,1 @@
+{"eval_id": "eval", "eval_name": "eval-3-trigger-sim", "prompt": "触发模拟：8 条 query（4 正 4 负近邻）对照 description/不适用场景", "assertions": []}

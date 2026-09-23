@@ -33,13 +33,19 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
                                                   analysis.md 分析骨架
     report <bugId> [--project DIR] [--force]      生成 fix-report.md（含未提交
                                                   变更清单）+ 输出汇报摘要；自动定位
-                                                  该 bugId 既有 worktree（跨日期）
+                                                  该 bugId 既有 worktree（跨日期）；
+                                                  校验 analysis.md 完成度并输出
+                                                  ANALYSIS_INCOMPLETE 字段
     download-image <url> <dest> [--cookie SID]    内部使用：下载附件图片
 
 关键策略：
     - 所有 git 操作通过 subprocess 调用系统 git；
     - worktree 的 git 元数据改写为相对路径，WSL git 与 Windows git 均可识别；
     - 全程不做 git commit（保留工作区改动等待人工 review）；
+    - 分析先行：analysis.md（完整分析报告）必须在实施任何代码修复之前由 AI 补全；
+      prepare 的 NEXT 提示与 report 的 ANALYSIS_INCOMPLETE 字段（no=已完整 /
+      yes=仍有（待填写）章节 / missing=文件不存在）负责校验提醒，不硬失败，
+      保持流程可恢复。
     - 幂等防重：同一 bugId 重复 prepare/worktree 时，检测到已有 worktree/修复
       分支（不限日期）即停止并输出 EXISTS 摘要（返回码 4）；--reuse 可显式复用
       既有 worktree 继续处理；report 自动定位既有 worktree。
@@ -813,6 +819,9 @@ def scaffold_analysis(bug, actions, images, info, base_url, bug_id, force=False)
     lines.append("- **远端同步**: %s" % sync_status_text(info))
     lines.append("- **禅道链接**: %s/bug-view-%s.html" % (base_url, bug_id))
     lines.append("")
+    lines.append("> **流程要求（分析先行）**：本报告必须在实施任何代码修复**之前**补全——"
+                 "先针对 bug 与代码理解输出完整分析报告，再按第 5 节修复方案改代码。")
+    lines.append("")
     lines.append("## 1. 问题描述")
     lines.append("")
     lines.append("- **状态**: %s    **严重程度**: %s    **优先级**: %s    **类型**: %s"
@@ -1007,11 +1016,25 @@ def cmd_prepare(args):
     print_kv(info, extra=[
         "BUG_TITLE=%s" % (bug.get("title") or ""),
         "ANALYSIS_MD=%s" % analysis_path,
-        "NEXT=在 WORKTREE 中分析并修复代码；完成后运行: report %s" % args.bug_id,
+        "NEXT=先在 WORKTREE 中只读分析代码并补全 analysis.md（输出完整分析报告，"
+        "此阶段不改任何代码），再按报告实施修复；完成后运行: report %s" % args.bug_id,
     ])
     log("")
     log("[ok] bug 资料与 analysis.md 骨架已就绪: %s" % info["report_dir"])
     return 0
+
+
+def analysis_complete_status(report_dir):
+    """校验 analysis.md 完成度（分析先行流程）。
+
+    返回 "no"=已完整（无（待填写）标记）；"yes"=仍有（待填写）章节；
+    "missing"=analysis.md 不存在。
+    """
+    path = os.path.join(report_dir, "analysis.md")
+    if not os.path.isfile(path):
+        return "missing"
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return "yes" if "（待填写" in f.read() else "no"
 
 
 def cmd_report(args):
@@ -1054,12 +1077,25 @@ def cmd_report(args):
     print("WORKTREE_WIN=%s" % wt_win_path(info["wt_path"]))
     print("REPORT_DIR=%s" % info["report_dir"])
     print("FIX_REPORT=%s" % path)
+    astat = analysis_complete_status(info["report_dir"])
+    print("ANALYSIS_MD=%s" % os.path.join(info["report_dir"], "analysis.md"))
+    if astat == "no":
+        print("ANALYSIS_INCOMPLETE=no（分析报告已完整，符合分析先行要求）")
+    elif astat == "yes":
+        print("ANALYSIS_INCOMPLETE=yes（analysis.md 仍有（待填写）章节——流程要求分析报告"
+              "先于修复完成，请立即补全 analysis.md，再补全 fix-report.md，并在汇报中说明偏离）")
+    else:
+        print("ANALYSIS_INCOMPLETE=missing（analysis.md 不存在，请立即补建并补全，"
+              "并在汇报中说明偏离）")
     print("CHANGED_FILES=%d" % len(files))
     print("COMMITTED=no（改动保留在工作区，等待人工 review，不要自动 commit）")
     if per_file:
         print("---- 变更明细 ----")
         print(per_file)
-    print("NEXT=补全 %s 与 fix-report.md 中（待填写）章节后向用户汇报" % os.path.join(info["report_dir"], "analysis.md"))
+    next_hint = "NEXT=补全 fix-report.md 中（待填写）章节后向用户汇报"
+    if astat != "no":
+        next_hint += "；⚠ 先补全 analysis.md（分析先行偏离：%s）" % astat
+    print(next_hint)
     return 0
 
 

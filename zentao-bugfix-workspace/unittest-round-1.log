@@ -1,0 +1,108 @@
+test_complete (test_analysis_first.TestAnalysisCompleteStatus.test_complete) ... ok
+test_incomplete (test_analysis_first.TestAnalysisCompleteStatus.test_incomplete) ... ok
+test_missing (test_analysis_first.TestAnalysisCompleteStatus.test_missing) ... ok
+test_existing_not_overwritten (test_analysis_first.TestScaffoldAnalysis.test_existing_not_overwritten) ... [info] analysis.md 已存在，不覆盖: /tmp/tmp7wb8r2gm/.agents/bugfix/123/analysis.md
+ok
+test_skeleton_has_analysis_first_note_and_markers (test_analysis_first.TestScaffoldAnalysis.test_skeleton_has_analysis_first_note_and_markers) ... ok
+test_reuse_does_not_sync (test_bugfix_sync.TestReuseNoSync.test_reuse_does_not_sync) ... Preparing worktree (new branch 'bugfix/444_20260923')
+HEAD is now at c86195f init
+[ok] 远端同步: 已合并 origin/main 到 bugfix/444_20260923（HEAD=d1e68ed）
+[info] 复用已存在 worktree: /tmp/tmpebwvjry0/bugfix_444_20260923
+[info] 复用已存在 worktree: /tmp/tmpebwvjry0/bugfix_444_20260923
+ok
+test_conflict_aborts_and_exits_5 (test_bugfix_sync.TestSyncConflict.test_conflict_aborts_and_exits_5) ... Preparing worktree (new branch 'bugfix/333_20260923')
+HEAD is now at 75d258a local change
+
+ERROR: 同步远端基准分支失败——合并 origin/main 到 bugfix/333_20260923 报错: Auto-merging f.txt
+原因: 远端基准分支与本地基准分支存在分叉，无法自动合并。
+后续二选一:
+  1. 手动解决: cd /tmp/tmpu186cs6i/bugfix_333_20260923 && git merge origin/main，解决冲突后继续修复流程（report 333）
+  2. 清理重建: git worktree remove /tmp/tmpu186cs6i/bugfix_333_20260923 && git branch -D bugfix/333_20260923，先在本地基准分支手动同步远端后重新 prepare
+ok
+test_already_up_to_date (test_bugfix_sync.TestSyncNewWorktree.test_already_up_to_date) ... Preparing worktree (new branch 'bugfix/112_20260923')
+HEAD is now at c86195f init
+[ok] 远端同步: 本地基准已含远端最新代码（origin/main 无新提交）
+ok
+test_degrade_detached_base (test_bugfix_sync.TestSyncNewWorktree.test_degrade_detached_base) ... Preparing worktree (new branch 'bugfix/115_20260101')
+HEAD is now at c86195f init
+[warn] 未同步远端: 基准不是分支（detached HEAD/无当前分支），跳过远端同步
+ok
+test_degrade_fetch_failure (test_bugfix_sync.TestSyncNewWorktree.test_degrade_fetch_failure) ... Preparing worktree (new branch 'bugfix/114_20260923')
+HEAD is now at c86195f init
+[warn] 未同步远端: fetch origin main 失败（fatal: '/tmp/tmp8cptg4lx/not-exist.git' does not appear to be a git repository），远端无该分支或网络不通
+ok
+test_degrade_no_remote (test_bugfix_sync.TestSyncNewWorktree.test_degrade_no_remote) ... Preparing worktree (new branch 'bugfix/113_20260923')
+HEAD is now at 06b66b1 init
+[warn] 未同步远端: 仓库未配置远程（git remote 为空）
+ok
+test_remote_ahead_fast_forward (test_bugfix_sync.TestSyncNewWorktree.test_remote_ahead_fast_forward) ... Preparing worktree (new branch 'bugfix/111_20260923')
+HEAD is now at c86195f init
+[ok] 远端同步: 已合并 origin/main 到 bugfix/111_20260923（HEAD=d1e68ed）
+ok
+test_render (test_bugfix_sync.TestSyncStatusText.test_render) ... ok
+test_claude (test_dingtalk_listen.TestAdapters.test_claude) ... ok
+test_codex (test_dingtalk_listen.TestAdapters.test_codex) ... ok
+test_custom_missing_template (test_dingtalk_listen.TestAdapters.test_custom_missing_template) ... ok
+test_custom_template (test_dingtalk_listen.TestAdapters.test_custom_template) ... ok
+test_pi_extract_and_fix (test_dingtalk_listen.TestAdapters.test_pi_extract_and_fix) ... ok
+test_no_window_flag (test_dingtalk_listen.TestCreationFlags.test_no_window_flag)
+Windows 下必须返回 CREATE_NO_WINDOW(不弹黑窗)，其他平台为 0。 ... ok
+test_default_path_instantiation (test_dingtalk_listen.TestDedup.test_default_path_instantiation)
+不传 path 时应回退到模块常量（曾经的真实 bug：默认参数 None 崩溃）。 ... ok
+test_seen_add_persist (test_dingtalk_listen.TestDedup.test_seen_add_persist) ... ok
+test_anchors_to_cwd_not_skill_dir (test_dingtalk_listen.TestEnvLocation.test_anchors_to_cwd_not_skill_dir) ... ok
+test_legacy_readonly_fallback_and_migration (test_dingtalk_listen.TestEnvLocation.test_legacy_readonly_fallback_and_migration) ... [2026-09-23 18:10:13] [warn] 使用旧版配置位置 /tmp/tmpnvqxz8p6/legacy/.agents/.env（skill 目录内，只读兜底）；运行 save-config 任意一项即可自动迁移到 /tmp/tmpnvqxz8p6/ws/.agents/.env
+[2026-09-23 18:10:13] [info] 旧版配置已迁移到 /tmp/tmpnvqxz8p6/ws/.agents/.env（旧文件保留，可手动删除）
+ok
+test_new_env_wins_over_legacy (test_dingtalk_listen.TestEnvLocation.test_new_env_wins_over_legacy) ... ok
+test_comments_preserved (test_dingtalk_listen.TestEnvRoundtrip.test_comments_preserved) ... ok
+test_save_and_load (test_dingtalk_listen.TestEnvRoundtrip.test_save_and_load) ... ok
+test_agent_output_invalid (test_dingtalk_listen.TestExtractIntent.test_agent_output_invalid) ... ok
+test_alias_fields (test_dingtalk_listen.TestExtractIntent.test_alias_fields) ... ok
+test_bug_message (test_dingtalk_listen.TestExtractIntent.test_bug_message) ... ok
+test_chat_message (test_dingtalk_listen.TestExtractIntent.test_chat_message) ... ok
+test_prompt_contract (test_dingtalk_listen.TestExtractIntent.test_prompt_contract) ... ok
+test_analysis_first_ordering (test_dingtalk_listen.TestFixPrompt.test_analysis_first_ordering)
+分析先行：提示词必须先补全 analysis.md（不改代码）再实施修复。 ... ok
+test_with_base_branch (test_dingtalk_listen.TestFixPrompt.test_with_base_branch) ... ok
+test_without_base_branch (test_dingtalk_listen.TestFixPrompt.test_without_base_branch) ... ok
+test_fenced (test_dingtalk_listen.TestJsonLoose.test_fenced) ... ok
+test_invalid_raises (test_dingtalk_listen.TestJsonLoose.test_invalid_raises) ... ok
+test_noisy_prefix_and_suffix (test_dingtalk_listen.TestJsonLoose.test_noisy_prefix_and_suffix) ... ok
+test_plain (test_dingtalk_listen.TestJsonLoose.test_plain) ... ok
+test_bots_only_allowed (test_dingtalk_listen.TestMissingAndMask.test_bots_only_allowed)
+只监听机器人时 DWS_LISTEN_USERS 可留空（真实部署场景）。 ... ok
+test_mask (test_dingtalk_listen.TestMissingAndMask.test_mask) ... ok
+test_missing_keys (test_dingtalk_listen.TestMissingAndMask.test_missing_keys) ... ok
+test_no_targets_at_all (test_dingtalk_listen.TestMissingAndMask.test_no_targets_at_all) ... ok
+test_match_and_miss (test_dingtalk_listen.TestPiSessionDetect.test_match_and_miss) ... ok
+test_cutoff_epoch_clamping (test_dingtalk_listen.TestPollFallback.test_cutoff_epoch_clamping) ... ok
+test_mode_validation (test_dingtalk_listen.TestPollFallback.test_mode_validation) ... ok
+test_norm_ts_formats (test_dingtalk_listen.TestPollFallback.test_norm_ts_formats)
+时间归一化：空格/ISO/毫秒/时区/epoch 均可比较；垃圾输入返回空。 ... ok
+test_normalize (test_dingtalk_listen.TestPollFallback.test_normalize) ... ok
+test_pick_new_by_cutoff_window (test_dingtalk_listen.TestPollFallback.test_pick_new_by_cutoff_window)
+窗口重扫语义：≥cutoff 的都返回（去重由 DedupStore 负责），正序排列。 ... ok
+test_poll_messages_window_args_and_fallback (test_dingtalk_listen.TestPollFallback.test_poll_messages_window_args_and_fallback)
+带时间窗时用 --start/--order asc；旧版 dws 报错可降级；信封兼容两种形态。 ... ok
+test_poll_params_validation (test_dingtalk_listen.TestPollFallback.test_poll_params_validation)
+轮询参数：缺省用默认值，非法值报配置错（退出码 2 路径）。 ... ok
+test_poll_state_merge (test_dingtalk_listen.TestPollFallback.test_poll_state_merge)
+多目标水位读-改-写合并不互相关覆盖。 ... ok
+test_rfc3339_local_whole_seconds (test_dingtalk_listen.TestPollFallback.test_rfc3339_local_whole_seconds)
+--start 参数必须是本地时区 RFC3339 整秒（dws 只接受整秒边界）。 ... ok
+test_which_hit_and_fallback (test_dingtalk_listen.TestResolveExe.test_which_hit_and_fallback) ... ok
+test_env_priority_over_cwd (test_dingtalk_listen.TestResolveRepo.test_env_priority_over_cwd) ... ok
+test_sync_and_gitignore (test_dingtalk_listen.TestSyncZentaoEnv.test_sync_and_gitignore) ... [2026-09-23 18:10:13] 已将 .agents/.env 追加到 /tmp/tmpjj8hkuct/repo/.gitignore（防止密钥入库）
+ok
+test_analysis_first_states (test_dingtalk_listen.TestVerifyFix.test_analysis_first_states)
+分析先行校验：analysis.md 缺失/未补全/已完整三种状态。 ... ok
+test_no_worktree (test_dingtalk_listen.TestVerifyFix.test_no_worktree) ... ok
+test_worktree_with_meta (test_dingtalk_listen.TestVerifyFix.test_worktree_with_meta) ... ok
+test_worktree_without_meta_not_counted (test_dingtalk_listen.TestVerifyFix.test_worktree_without_meta_not_counted)
+同名目录但无 meta.json（残留/伪造）不算 prepare 成功。 ... ok
+
+----------------------------------------------------------------------
+Ran 59 tests in 0.720s
+
+OK

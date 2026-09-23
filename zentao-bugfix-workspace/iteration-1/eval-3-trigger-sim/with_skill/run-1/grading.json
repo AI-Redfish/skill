@@ -1,0 +1,22 @@
+{
+  "summary": {"pass_rate": 1.0, "passed": 8, "failed": 0, "total": 8},
+  "expectations": [
+    {"text": "正向1「修复禅道 bug 12345，当前项目就是出问题的仓库」应触发", "passed": true,
+     "evidence": "description 含「用户提供禅道 bug 单号…要求修 bug」；对应 SKILL.md 工作流程入口"},
+    {"text": "正向2「zentao .../bug-view-88888.html 这个bug帮我修一下」应触发", "passed": true,
+     "evidence": "description 含「bug 链接」触发词；SKILL.md 支持从链接提取 bugId"},
+    {"text": "正向3「帮我定位下禅道 bug 777 的原因，最好顺手修了」应触发", "passed": true,
+     "evidence": "description 含「定位 bug、分析 bug 原因」触发说法"},
+    {"text": "正向4「把钉钉监听起起来，有人发bug消息就自动修」应触发", "passed": true,
+     "evidence": "description 含「启动钉钉消息监听…自动从钉钉消息提取 bugId」"},
+    {"text": "负向1「帮我修一下 GitHub 上的 issue #123」不应触发（近邻：也是修问题单）", "passed": true,
+     "evidence": "不适用场景第 1 条：bug 来源不是禅道→不适用"},
+    {"text": "负向2「禅道的过滤器怎么配置？」不应触发（近邻：含禅道关键词）", "passed": true,
+     "evidence": "不适用场景第 2 条：禅道使用咨询→直接解答"},
+    {"text": "负向3「Jira 上这个 bug 分给谁处理？」不应触发（近邻：含 bug 字样）", "passed": true,
+     "evidence": "不适用场景第 1 条：非禅道来源；且无修复委托"},
+    {"text": "负向4「把这个分支的改动直接 push 到主干」不应触发", "passed": true,
+     "evidence": "不适用场景第 4 条：要求直接 commit/push→本 skill 禁止自动提交"}
+  ],
+  "note": "人工模拟触发判定（环境无 claude CLI / 官方 run_eval 不可用，按 testing-guide §4 降级）；判定依据为 description 与不适用场景条款逐条对照"
+}

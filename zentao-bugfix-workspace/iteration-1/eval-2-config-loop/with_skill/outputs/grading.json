@@ -1,0 +1,30 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 4,
+    "failed": 0,
+    "total": 4
+  },
+  "expectations": [
+    {
+      "text": "无配置项目 config-status 退出码 2（触发理解闭环：AI 逐项索取，不脑补凭据）",
+      "passed": true,
+      "evidence": "OK: exit=2 missing=['ZENTAO_BASE_URL', 'ZENTAO_ACCOUNT', 'ZENTAO_PASSWORD']"
+    },
+    {
+      "text": "缺失键清单完整（ZENTAO_BASE_URL/ACCOUNT/PASSWORD）",
+      "passed": true,
+      "evidence": "OK"
+    },
+    {
+      "text": "无头修复提示词：先补全 analysis.md 输出分析报告，再实施修复（顺序正确）",
+      "passed": true,
+      "evidence": "OK: 顺序正确"
+    },
+    {
+      "text": "无头修复提示词：分析阶段明确禁止修改任何代码文件",
+      "passed": true,
+      "evidence": "OK"
+    }
+  ]
+}

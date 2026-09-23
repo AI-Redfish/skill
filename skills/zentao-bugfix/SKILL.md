@@ -1,23 +1,22 @@
 ---
 name: zentao-bugfix
-description: 禅道Bug自动修复助手。给定禅道 bugId，自动读取 bug 详情（含评论、截图），在当前工作空间仓库的同级目录创建 bugfix worktree（分支 bugfix/bugID_日期），分析代码定位根因，在 worktree 中完成修复，并输出问题分析报告与修复报告。当用户提供禅道 bug 单号或 bug 链接并要求修 bug、定位 bug、分析 bug 原因时使用；也支持启动钉钉消息监听（scripts/dingtalk_listen.py）自动从钉钉消息提取 bugId 触发上述全流程。
-compatibility:
-  tools: [Bash, Read, Edit, Write]
-  requirements: uv（推荐，脚本零第三方依赖仅做隔离运行，缺省可回退 python3）+ git；脚本位于本 skill 的 scripts/bugfix.py
+description: 禅道Bug自动修复助手。给定禅道 bugId，自动读取 bug 详情（含评论、截图），在当前工作空间仓库的同级目录创建 bugfix worktree（分支 bugfix/bugID_日期），先分析代码定位根因并输出完整分析报告（analysis.md 落盘到新 worktree 的 .agents 目录），之后才实施修复，并输出修复报告。当用户提供禅道 bug 单号或 bug 链接并要求修 bug、定位 bug、分析 bug 原因时使用；也支持启动钉钉消息监听（scripts/dingtalk_listen.py）自动从钉钉消息提取 bugId 触发上述全流程。
+compatibility: 需 uv（推荐，脚本零第三方依赖仅做隔离运行，缺省可回退 python3）与 git；工具依赖 Bash/Read/Edit/Write；脚本位于本 skill 的 scripts/bugfix.py
 metadata:
   author: AI-Redfish
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # `zentao-bugfix`
 
-端到端的禅道 bug 修复流程。**确定性步骤全部由脚本 `scripts/bugfix.py` 完成**，AI 只负责代码分析、修改和撰写报告内容，标准流程只需 2 次脚本调用：
+端到端的禅道 bug 修复流程。**确定性步骤全部由脚本 `scripts/bugfix.py` 完成**，AI 只负责代码分析（先输出分析报告）、实施修复和撰写修复报告，标准流程只需 2 次脚本调用：
 
 ```
 uv run scripts/bugfix.py prepare <bugId> [baseBranch]   ← 一次完成：防重校验 + 配置检查 + 拉取bug + 建worktree + 同步远端基准分支 + 生成分析骨架
-        ↓ （AI 在 worktree 中分析代码、修复、编译验证 —— 不 commit）
-uv run scripts/bugfix.py report <bugId>                  ← 一次完成：采集未提交变更 + 生成修复报告骨架 + 汇报摘要
-        ↓ （AI 补全两份报告中（待填写）章节，向用户汇报）
+        ↓ （AI 第2步：在 worktree 中只读分析代码，先补全 analysis.md 输出完整分析报告 —— 不改任何代码）
+        ↓ （AI 第3步：依据分析报告实施修复 + 编译验证 —— 不 commit）
+uv run scripts/bugfix.py report <bugId>                  ← 一次完成：分析先行校验 + 采集未提交变更 + 生成修复报告骨架 + 汇报摘要
+        ↓ （AI 补全 fix-report.md 中（待填写）章节，向用户汇报）
 ```
 
 ## 双闭环流程（最高优先级，优先于其他默认行为）
@@ -34,15 +33,16 @@ uv run scripts/bugfix.py report <bugId>                  ← 一次完成：采�
 
 ### 第二闭环：输出审查闭环
 1. 形成答案后不直接输出，先自查：根因是否有代码证据（文件:行号）？
-   推断是否已标注？修复是否只动 worktree？报告是否脱敏？
+   推断是否已标注？analysis.md 是否在改动代码之前已完整落盘
+   （无（待填写）残留）？修复是否只动 worktree？报告是否脱敏？
    是否存在事实错误、逻辑漏洞、歧义、不可执行之处？
 2. 发现问题→自行修正→再次审查，重复“审查—修正—再审查”，
    直到对输出结果至少有 95% 的准确性信心
 
 ### 最终输出要求
 1. 先一句话复述用户真实需求（bugId + 诉求）
-2. 再给出最终方案：根因一句话、修复内容、worktree 与分支、报告路径、
-   改动未提交待人工 review、测试建议
+2. 再给出最终方案：根因一句话、修复内容、worktree 与分支、两份报告路径
+   （analysis.md 已于修复前完成、fix-report.md）、改动未提交待人工 review、测试建议
 3. 说明关键假设（推断的根因）、剩余不确定性，以及为什么已达到 95% 信心；
    不确定处明确标注，不编造结论
 
@@ -102,13 +102,26 @@ uv run --no-project scripts/bugfix.py prepare <bugId> [baseBranch] --project .
 - 若当前模型支持图片，用 read 查看 `REPORT_DIR` 下的截图辅助理解；不支持则基于文字分析。
 - analysis.md 已存在时不覆盖（`--force` 可重新生成骨架）；worktree 已存在时的处理见上述"返回码 4"。
 
-### 第 2 步：分析并修复（AI 的工作，只在 worktree 中改动）
+### 第 2 步：分析并输出分析报告（AI 的工作，**只读分析，禁止改代码**）
 
 1. 从 prepare 输出的 bug.md 提取业务场景、涉及接口、报错日志、关键字。
 2. 在 worktree 中检索定位相关 Controller/Service/Mapper/前端页面；结合 `git -C <worktree> log --oneline --since=... -- <相关目录>` 判断是否为近期回归；参考项目 CODING_STANDARDS.md 与近期同类 fix 提交的既有修复模式。
 3. 形成有证据支撑的根因结论（文件:行号），区分：确认的根因 / 排除的猜测 / 存疑待验证。bug 里没有完整堆栈时允许代码推理，但报告中必须注明"推断"。
-4. 实施修复：**只在 worktree 内改动，严禁碰主工作空间文件**。
-5. 编译验证（可行时），Maven 项目示例：
+4. **立即用 Edit 补全 `REPORT_DIR/analysis.md` 的全部（待填写）章节**（中文书写，
+   模板结构见 `references/report-template.md`）——这就是针对 bug 与代码理解的
+   **分析报告**，落盘在新 worktree 的 `.agents` 目录下（`<worktree>/.agents/bugfix/<bugId>/analysis.md`）：
+   - **硬性要求：analysis.md 补全之前，禁止修改任何代码文件**（分析先行：
+     报告先于修复产出，供追溯与人工 review）；
+   - 无法确认的事项写入"遗留问题/待确认"，不编造结论；
+   - 若判断无法在当前仓库修复（需前端/配置/数据配合），在 analysis.md 写清根因
+     与所需配合，第 3 步不强行改代码。
+5. 报告落盘后**直接进入第 3 步，不暂停等用户确认**（改动本就不 commit，
+   人工可随时基于报告与 diff review）。
+
+### 第 3 步：实施修复（AI 的工作，只在 worktree 中改动）
+
+1. 严格按 analysis.md 中选定的修复方案实施；**只在 worktree 内改动，严禁碰主工作空间文件**。
+2. 编译验证（可行时），Maven 项目示例：
 
    ```bash
    cd <worktree> && mvn -q -pl <涉及模块> -am compile -DskipTests
@@ -117,27 +130,28 @@ uv run --no-project scripts/bugfix.py prepare <bugId> [baseBranch] --project .
    - WSL 内无 JDK/Maven 时可借 Windows 工具链：`cmd.exe /c "mvn -q -o -pl <模块> -am compile -DskipTests"`；
    - 该项目 git-commit-id-plugin 在任何 worktree 下都会报错（项目自身限制），加 `-Dmaven.gitcommitid.skip=true` 跳过；
    - 无法编译时如实说明，用严格静态走查弥补。
+3. **禁止自动 commit / push**：改动保留在 worktree 工作区等待人工 review；也不要改禅道 bug 状态（除非用户明确要求提交/更新状态）。
 
-6. **禁止自动 commit / push**：改动保留在 worktree 工作区等待人工 review；也不要改禅道 bug 状态（除非用户明确要求提交/更新状态）。
-
-### 第 3 步：report（一次脚本调用）
+### 第 4 步：report（一次脚本调用）
 
 ```bash
 uv run --no-project scripts/bugfix.py report <bugId> --project .
 ```
 
-脚本自动完成：定位该 bugId 既有的 worktree（不限创建日期）→ 采集未提交变更（`git status`/`diff --numstat`，含未跟踪文件）→ 生成 `fix-report.md`（变更清单表格、分支/远端同步状态/日期等机械字段已自动填好）→ stdout 输出 SUMMARY 汇总块（含 `BASE_SYNCED`）。已存在时不覆盖，`--force` 重新生成。
+脚本自动完成：定位该 bugId 既有的 worktree（不限创建日期）→ **分析先行校验**（analysis.md 仍含（待填写）章节或缺失时，SUMMARY 输出 `ANALYSIS_INCOMPLETE=yes/missing` 并在 NEXT 提示先补全）→ 采集未提交变更（`git status`/`diff --numstat`，含未跟踪文件）→ 生成 `fix-report.md`（变更清单表格、分支/远端同步状态/日期等机械字段已自动填好）→ stdout 输出 SUMMARY 汇总块（含 `BASE_SYNCED`、`ANALYSIS_INCOMPLETE`）。已存在时不覆盖，`--force` 重新生成。
 
-### 第 4 步：补全报告并汇报（AI 的工作）
+### 第 5 步：补全修复报告并汇报（AI 的工作）
 
-- 用 Edit 补全 `REPORT_DIR` 下 `analysis.md` 与 `fix-report.md` 中所有（待填写）章节，中文书写，报告模板结构见 `references/report-template.md`；
+- analysis.md 已于第 2 步（修复前）完成；若 report 输出 `ANALYSIS_INCOMPLETE` 非 no，须**先补全 analysis.md**，再补全 `fix-report.md`，并在汇报中如实说明偏离原因；
+- 用 Edit 补全 `REPORT_DIR` 下 `fix-report.md` 中所有（待填写）章节，中文书写，报告模板结构见 `references/report-template.md`；
 - 内容硬性要求：变更清单给出文件路径与增删行数（脚本已生成，AI 补充"为什么改"）；无法确认的事项写入"遗留问题/待确认"，**不编造结论**；
 - 若判断无法在当前仓库修复（需前端/配置/数据配合），不强行改代码：analysis.md 写清根因与所需配合，fix-report.md 写明"未实施代码修复"；
-- 最后向用户汇报（中文）：根因一句话、修复内容、worktree 与分支（Windows 路径）、报告路径、**改动未提交待人工 review**、测试建议。
+- 最后向用户汇报（中文）：根因一句话、修复内容、worktree 与分支（Windows 路径）、两份报告路径
+  （分析报告 analysis.md 已在修复前完成）、**改动未提交待人工 review**、测试建议。
 
 ## 钉钉消息自动触发（可选，scripts/dingtalk_listen.py）
 
-监听多个指定人员/机器人的钉钉单聊消息 → 本地 Agent（pi/codex/claude/custom）无头提取 bugId → 自动执行上文完整流程（prepare → 分析修复 → report），结果只写 `.agents/logs/`。详细用法见 [references/dingtalk-listener.md](references/dingtalk-listener.md)。
+监听多个指定人员/机器人的钉钉单聊消息 → 本地 Agent（pi/codex/claude/custom）无头提取 bugId → 自动执行上文完整流程（prepare → 先输出分析报告 → 实施修复 → report），结果只写 `.agents/logs/`。详细用法见 [references/dingtalk-listener.md](references/dingtalk-listener.md)。
 
 ```bash
 uv run --no-project scripts/dingtalk_listen.py config-status   # 检查配置（JSON，密码脱敏）
@@ -167,6 +181,9 @@ save-config 写入再重试（与 bugfix.py 的配置模式一致）。
 
 ## 边界与注意
 
+- **分析先行**：analysis.md（完整分析报告）必须在实施任何代码修复之前补全并落盘在新
+  worktree 的 `.agents` 目录下；不暂停等用户确认，报告供追溯与人工 review；`report`
+  的 `ANALYSIS_INCOMPLETE` 字段与钉钉无头链路的 `analysis_complete` 校验会警示偏离。
 - **不 commit、不 push**（保留工作区改动等待人工 review）、不自动改禅道状态、不动主工作空间代码。
 - **新建 worktree 自动同步远端基准分支**（fetch + merge 进修复分支）；不更新本地基准分支引用、不碰主工作空间；无远程/fetch 失败降级本地快照并标注；合并冲突自动中止（返回码 5）交人工决策；`--reuse` 复用不同步。
 - 一个 bugId 对应一个 worktree；prepare/worktree 检测到已有 worktree/修复分支（不限日期）即停止（返回码 4），不重复处理；`--reuse` 显式复用继续；`report` 自动定位既有 worktree。

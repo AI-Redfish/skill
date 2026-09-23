@@ -1,0 +1,1 @@
+{"eval_id": "eval", "eval_name": "eval-1-analysis-first", "prompt": "修复禅道 bug 12345，当前项目就是出问题的仓库（离线脚本级验证：prepare 骨架→report 校验→补全→复检流转）", "assertions": []}

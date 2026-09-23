@@ -1,0 +1,40 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 6,
+    "failed": 0,
+    "total": 6
+  },
+  "expectations": [
+    {
+      "text": "prepare 生成的 analysis.md 骨架位于 worktree .agents 目录（report_dir 下）",
+      "passed": true,
+      "evidence": "OK: /tmp/tmp_2k0kwvs/.agents/bugfix/99901/analysis.md"
+    },
+    {
+      "text": "骨架含「分析先行」流程要求提示（先补全报告再改代码）",
+      "passed": true,
+      "evidence": "OK: 提示存在"
+    },
+    {
+      "text": "骨架分析章节留（待填写）标记（供完成度检测）",
+      "passed": true,
+      "evidence": "OK: 5 处"
+    },
+    {
+      "text": "report 校验：analysis.md 未补全 → ANALYSIS_INCOMPLETE=yes",
+      "passed": true,
+      "evidence": "OK: yes"
+    },
+    {
+      "text": "AI 补全后 → ANALYSIS_INCOMPLETE=no（分析报告已完整，先于代码修复落盘）",
+      "passed": true,
+      "evidence": "OK: no"
+    },
+    {
+      "text": "错误路径：analysis.md 缺失 → ANALYSIS_INCOMPLETE=missing",
+      "passed": true,
+      "evidence": "OK: missing"
+    }
+  ]
+}

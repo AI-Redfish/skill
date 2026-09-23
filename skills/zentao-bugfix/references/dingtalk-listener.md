@@ -1,6 +1,6 @@
 # 钉钉消息监听器（dingtalk_listen.py）使用指南
 
-全自动链路：**钉钉消息 → Agent 提取 bugId → bugfix.py prepare → 同一 Agent 无头修复 → 报告**。
+全自动链路：**钉钉消息 → Agent 提取 bugId → bugfix.py prepare → 同一 Agent 无头会话先输出分析报告（补全 analysis.md，不改代码）→ 实施修复 → 报告**。
 本文是 `scripts/dingtalk_listen.py` 的完整参考；速览见 SKILL.md「钉钉消息自动触发」。
 
 ## 架构
@@ -98,7 +98,7 @@ save-config，再重新 start。
 | `start.log` | **启动全过程追踪**：配置检查→Agent 解析→仓库/目标解析→守护拉起/前台主循环；任何一步失败（含配置缺失、dws 未登录、目标解析失败）都会在此留下原因 |
 | `events.log` | 每条监听到的消息事件（原始 JSON） |
 | `listener.log` | 运行主日志（启动/命中/忽略/提取失败/拉取失败/错误，全量带时间戳落盘；即使 stdout 不可见也不丢） |
-| `fix-<bugId>.log` | 每次自动修复会话的命令、耗时、输出末尾 40 行，以及 **[VERIFY] 产物校验**（worktree/meta.json/报告是否真实存在） |
+| `fix-<bugId>.log` | 每次自动修复会话的命令、耗时、输出末尾 40 行，以及 **[VERIFY] 产物校验**（worktree/meta.json/报告是否真实存在，含 `analysis_complete` 分析先行校验） |
 | `state.json` | status 数据源（5s 刷新，含 stats.last_fix） |
 | `processed-ids.json` | message_id 去重（环形，最近 1000 条） |
 | `poll-state.json` | 拉取兜底各目标水位（停机后窗口前探用） |
