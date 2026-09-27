@@ -1,7 +1,7 @@
 ---
 name: photos2mp4
-description: 将批量图片与背景音乐合成为 MP4 幻灯片视频：图片按自然排序一图一页组装成 PPTX（40 种切换效果、每页停留时长、contain/cover/stretch 适配、跨页循环背景音乐），再调用本机 PowerPoint 导出 MP4。当用户想把照片/图片做成视频、生成相册视频、幻灯片视频、图片轮播视频，或要求给已有 PPTX 设置/修改切换效果、自动换片时间、导出 MP4 时使用。注意：导出 MP4 需 Windows + Microsoft PowerPoint 2010+（WPS 不支持）；仅生成 PPTX 无此限制。
-compatibility: 用 uv 运行（uv run，脚本头部 PEP 723 声明依赖：python-pptx + pywin32(仅 Windows) + mutagen）；export / list-transitions 实测需 Windows + Microsoft PowerPoint 2010+；无 uv 且已装齐依赖时也可直接 python 运行。
+description: 将批量图片与背景音乐合成为 MP4 幻灯片视频：图片一图一页组装成 PPTX（40 种切换效果、每页停留时长、contain/cover/stretch 适配、跨页循环背景音乐、可选内容感知智能排序让照片切换衔接自然不突兀），再调用本机 PowerPoint 导出 MP4。当用户想把照片/图片做成视频、生成相册视频、幻灯片视频、图片轮播视频，要求对照片智能排序/按内容编排顺序，或要求给已有 PPTX 设置/修改切换效果、自动换片时间、导出 MP4 时使用。注意：导出 MP4 需 Windows + Microsoft PowerPoint 2010+（WPS 不支持）；仅生成 PPTX 无此限制。
+compatibility: 用 uv 运行（uv run，脚本头部 PEP 723 声明依赖：python-pptx + pywin32(仅 Windows) + mutagen；photo_order.py 仅需 Pillow）；export / list-transitions 实测需 Windows + Microsoft PowerPoint 2010+；无 uv 且已装齐依赖时也可直接 python 运行。
 metadata:
   author: AI-Redfish
   version: "1.0.0"
@@ -89,12 +89,15 @@ uv run <skill_dir>/pptx_video_builder.py selftest --json
 
 1. **自检**：`selftest`（见上）
 2. **确认用户需求**（见 §2 参数决策），缺关键信息先问再动手
-3. **（可选）探测可用效果**：仅当用户对切换效果有讲究、或 build 后 PowerPoint 打不开时：
+3. **（推荐）内容感知智能排序**：用户在意照片衔接性/不想按文件名排序时，用 `photo_order.py`
+   分析拍摄时间、色彩、画面相似度生成优美顺序（见 §3.5）；产出暂存目录后把它作为
+   `--images` 输入即可精确控序
+4. **（可选）探测可用效果**：仅当用户对切换效果有讲究、或 build 后 PowerPoint 打不开时：
    ```bash
    uv run <skill_dir>/pptx_video_builder.py list-transitions --json
    ```
    退出码 3 = 本机无 PowerPoint，跳过实测改用理论目录（`--no-verify`）
-4. **生成视频**（`--output` 可省略，默认写入 `<桌面>/photos2mp4_output/`）：
+5. **生成视频**（`--output` 可省略，默认写入 `<桌面>/photos2mp4_output/`）：
    ```bash
    uv run <skill_dir>/pptx_video_builder.py all \
        --images <图片目录/文件...> \
@@ -102,7 +105,7 @@ uv run <skill_dir>/pptx_video_builder.py selftest --json
    ```
    需要逐页不同效果/节奏时，先写 transitions JSON 文件再加
    `--transitions-json <file>`（格式见 [references/transitions.md](references/transitions.md)）
-5. **按退出码汇报结果**（见 §4），成功时向用户报告 MP4 与 PPTX 路径、页数、时长
+6. **按退出码汇报结果**（见 §4），成功时向用户报告 MP4 与 PPTX 路径、页数、时长
 
 ### 修改已有 PPTX（不是从图片开始）
 
@@ -119,7 +122,8 @@ uv run <skill_dir>/pptx_video_builder.py selftest --json
 
 | 决策点 | 默认 | 说明 |
 |--------|------|------|
-| 图片来源 | 必填 | 文件/目录/通配符可混用；目录默认不递归（`--recursive` 开启）；按文件名自然排序（img2 < img10）；`.webp` 会被跳过（先转 png/jpg） |
+| 图片来源 | 必填 | 文件/目录/通配符可混用；目录默认不递归（`--recursive` 开启）；**按文件名自然排序（img2 < img10）**，需要按内容衔接的优美顺序时先用 `photo_order.py` 生成暂存目录（§3.5）；`.webp` 会被跳过（先转 png/jpg） |
+| 照片排序 | 文件名自然排序 | 用户要求“衔接性/不突兀/按内容排序/最优顺序”时，走 §3.5 智能排序：时间聚场 → 色彩/哈希串联场景 → 暂存目录保序；有音乐审美/叙事要求时结合 `--contact-sheet-dir` 拼版人工/AI 复核微调后用 `--from-order` 回放 |
 | 输出位置 | `<桌面>/photos2mp4_output/` | 不问用户，直接用默认目录；**禁止写进 skill 所在仓库**（脚本会拦截）。用户明确指定路径时才另存 |
 | 每页秒数 `--advance` | 问用户或 5.0 | **视频节奏的唯一来源**。有音乐时可按 `总时长/页数` 估算，或用 `--auto-fit-music` 自动均分 |
 | 切换效果 `--transition` | `fade` | 拿不准就用 fade；用户要"动感"选 push/wipe/zoom，要"炫"选 glitter/wheel/ripple。全表见 references/transitions.md |
@@ -150,6 +154,36 @@ uv run <skill_dir>/pptx_video_builder.py selftest --json
 `slide` 为 1 起始页码，省略时按数组顺序对应；字段均可选，未指定页沿用命令行全局值。
 注意：某页显式指定了 `transition` 但未写 `direction` 时，**不会**继承全局
 `--direction`（各效果方向取值互不兼容，避免拼出非法组合）。
+
+## 3.5 内容感知智能排序（photo_order.py）
+
+`pptx_video_builder.py` 对图片**强制自然文件名排序**，文件名顺序≠最优观看顺序。
+`photo_order.py` 分析照片内容，生成“切换衔接自然”的顺序：
+
+- **特征**：EXIF 拍摄时间、12 桶 HSV 色相分布、亮度、饱和度、dHash 感知哈希、横竖构图
+- **算法**：① 按拍摄时间聚成“场景”（间隔 > `--time-gap` 秒切分，连拍组内保持时间顺序）；
+  ② 场景间按视觉距离（色相差+亮度差+dHash 汉明距离+构图跳变惩罚）贪心最近邻串联；
+  ③ 以“开场分”（亮度×饱和度）选起始场景
+- **机制**：产出 `NNN_前缀` 硬链接/副本**暂存目录**，把该目录传给 `pptx_video_builder.py`
+  的 `--images` 即可精确按此顺序构建
+- 自动排序是启发式（只能看色彩/哈希，看不懂内容）；讲究叙事时务必加
+  `--contact-sheet-dir` 生成带顺序编号的缩略图拼版，由人工/AI 看图复核微调，
+  再用 `--from-order` 应用微调后的顺序
+
+```bash
+# 一键自动排序 + 生成暂存目录与拼版
+uv run <skill_dir>/photo_order.py --images <照片目录> \
+    --staging-dir <暂存目录> --contact-sheet-dir <拼版目录> --json
+# 人工/AI 复核拼版后微调顺序文件，再回放（顺序文件 = JSON 数组或含 order 字段）
+uv run <skill_dir>/photo_order.py --images <照片目录> \
+    --from-order <顺序.json> --staging-dir <暂存目录> --json
+# 用暂存目录构建（顺序即排序结果）
+uv run <skill_dir>/pptx_video_builder.py all --images <暂存目录> --music <音乐> --json
+```
+
+典型叙事编排经验（结合拼版人工微调时参考）：开场选最“海报感”的亮色全身照；
+按场景色彩流动编排（如 奶油白纱 → 暗色深情 → 黑白点缀 → 明亮俏皮 → 暖色热烈 →
+户外绿意 → 金色黄昏 → 蓝调夜色收尾）；场景内保持时间顺序；结尾选有“离去感/故事感”的横幅照。
 
 ## 4. 退出码与错误处理
 

@@ -7,6 +7,7 @@
 - 三个脚本头部均带 PEP 723 内联依赖声明：
   - `pptx_video_builder.py` / `tests/run_tests.py`：
     `python-pptx` + `pywin32(仅 sys_platform=='win32')` + `mutagen`
+  - `photo_order.py`：`pillow`（智能排序，零 PowerPoint 依赖，全平台可用）
   - `make_test_assets.py`：零依赖
 - **统一用 `uv run <脚本> ...`**：uv 自动解析依赖、构建缓存环境（存于 uv 全局
   缓存，不在 skill 目录建 venv/pyproject），首次稍慢、之后秒级启动
@@ -140,6 +141,38 @@ uv run <skill_dir>/tests/run_tests.py [--full] [--keep] [-k 关键词]
 仓库守卫** / set-transitions / list-transitions / 100 图性能 / export（无
 PowerPoint 环境自动 SKIP）。临时文件走系统 temp，产物走 `PHOTOS2MP4_OUT_DIR`，
 均不落仓库。退出码 0 = 全部通过。
+
+## 9. `photo_order.py` — 内容感知智能排序
+
+```bash
+uv run <skill_dir>/photo_order.py --images <照片目录> [选项]
+```
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `--images <路径>` | 必填 | 照片目录或单个文件（jpg/png） |
+| `--time-gap <秒>` | 300 | 场景切分阈值：拍摄间隔超过该值即视为新场景 |
+| `--staging-dir <目录>` | 无 | 生成 `001_<原名>.jpg` 式硬链接/副本目录；把它传给 builder 的 `--images` 即可精确控序（builder 本身强制自然排序） |
+| `--contact-sheet-dir <目录>` | 无 | 输出带最终顺序编号的缩略图拼版，供人工/AI 看图复核 |
+| `--from-order <文件>` | 无 | 跳过自动分析，按给定顺序文件回放（JSON 数组，或含 `order` 字段的对象） |
+| `--json` | 关 | stdout 输出 JSON：`count / scenes / order / staging_dir / contact_sheet_dir` |
+
+- 分析维度：EXIF 拍摄时间、12 桶 HSV 色相分布、亮度、饱和度、dHash、横竖构图
+- 编排策略：时间聚场（连拍组内保持时间顺序）→ 场景间视觉距离贪心最近邻串联 →
+  以“开场分”（亮度×饱和度）选起始场景
+- 排序质量靠自动+复核双保险：先 `--contact-sheet-dir` 出拼版，人工/AI 微调顺序后用
+  `--from-order` 回放再生成暂存目录
+- 退出码：0 成功 / 1 一般错误 / 2 参数或路径错误；不指定输出目录时不写任何文件
+
+```bash
+# 典型三步流
+uv run <skill_dir>/photo_order.py --images <照片目录> \
+    --staging-dir <暂存> --contact-sheet-dir <拼版> --json
+# ……看拼版微调出顺序.json……
+uv run <skill_dir>/photo_order.py --images <照片目录> \
+    --from-order 顺序.json --staging-dir <暂存> --json
+uv run <skill_dir>/pptx_video_builder.py all --images <暂存> --music <音乐> --json
+```
 
 ## 退出码
 
