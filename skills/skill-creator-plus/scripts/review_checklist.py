@@ -11,6 +11,7 @@
 输出：JSON 到 stdout（status: pass|fail；checks 明细，含 message/hint；summary 统计）。
 退出码：0 = 无 error 级问题（warning 需人工确认）；1 = 存在 error；2 = 输入错误。
 纯标准库，Python 3.9+（stdlib 识别在 3.10+ 用 sys.stdlib_module_names，低版本退化为内置清单）。
+提示词工程检查项（输出格式/防幻觉/关键指令位置）依据 references/prompt-engineering.md。
 """
 
 from __future__ import annotations
@@ -200,6 +201,26 @@ def check(skill: Path, workdir: Path) -> dict:
     c.add("body.examples", "warn", bool(has_example),
           "正文含示例 | 正文缺少示例（Few-shot 触发示例能显著提升稳定性）",
           "加“触发示例”小节：3~5 句用户真实说法")
+
+    # --- 提示词工程写法（依据 references/prompt-engineering.md）---
+    has_output_format = re.search(r"(?i)(输出规范|输出格式|output format|输出模板)", body)
+    c.add("body.output_format", "warn", bool(has_output_format),
+          "正文约定了输出格式 | 正文缺少输出格式约定（模板优先，字段/类型/排他约束明确），AI 执行时输出易漂移",
+          "加“输出规范”小节：给占位符模板或逐字段描述，并声明排他约束（如“只输出 JSON”）")
+    has_anti_hallucination = re.search(r"(?i)(不确定|我不知道|资料不足|不要编造|不要猜测|不假装确定)", body)
+    c.add("body.anti_hallucination", "warn", bool(has_anti_hallucination),
+          "正文含防幻觉条款（允许不确定） | 正文未允许 AI 说“不确定”，易逼出编造内容",
+          "加防幻觉条款：不确定时明确说明，不编造；关键结论给出处；高风险领域加“仅供参考”声明")
+    first_priority = min(
+        [i for i in (body.find("双闭环"), body.find("最高优先级"), body.find("最高优先")) if i >= 0],
+        default=-1)
+    # 短文档（约一页以内）不存在“迷失在中间”问题；长文档要求关键规则在前 40% 内，
+    # 且绝对位置不超过 400 字符（约几百 token）
+    pos_limit = max(len(body) * 0.4, 400)
+    early = first_priority >= 0 and first_priority <= pos_limit
+    c.add("body.key_position", "warn", early,
+          "最高优先级规则位于正文前部（防“迷失在中间”） | 关键规则未出现在正文前 40%，长上下文中易被模型忽视",
+          "把双闭环等最高优先级章节紧随标题放置；其他硬性禁止放开头或章节结尾")
 
     # --- 双闭环内嵌（强制：生成的 skill 执行时也须遵循双闭环） ---
     loop1 = ("理解闭环" in body) and ("95%" in body) and \

@@ -13,7 +13,7 @@
 | 评审 | 人工 + 可选子代理 | 机器清单（`review_checklist.py`）+ AI 双评审 + **95% 置信度放行** |
 | 测试 | 交互式 eval 循环 | 统一 workspace 落盘（官方 schema），失败自动退回评审 |
 | 报告 | 手工调多个脚本 | `gen_test_report.py` 一键调官方脚本出 benchmark + HTML 评审页 + 汇总 |
-| 产出规范 | 通用建议 | 硬规范：Python 优先、uv (PEP 723)、重复操作脚本化、环境信息集中 `.agents/.env` |
+| 产出规范 | 通用建议 | 硬规范：Python 优先、uv (PEP 723)、重复操作脚本化、环境信息集中 `.agents/.env`、SKILL.md 按提示词工程规范编写（五段式/清晰指令/标签分离/输出模板/少样本/防幻觉） |
 | 依赖 | 手工安装 | 每次触发自动检查/安装；副本 ≥14 天自动静默更新（可 `--update` 强制 / `--no-auto-update` 跳过；外部副本不动） |
 
 ## 使用
@@ -32,7 +32,7 @@
 |---|---|
 | `scripts/ensure_dependency.py` | 检查/安装官方 skill-creator，输出能力表（兼容新旧版本） |
 | `scripts/gate.py` | 门禁状态机（评审/测试/报告的流转与强制校验） |
-| `scripts/review_checklist.py` | 机器评审：结构/frontmatter/触发描述/PEP 723/密钥扫描/.env 卫生 |
+| `scripts/review_checklist.py` | 机器评审：结构/frontmatter/触发描述/PEP 723/密钥扫描/.env 卫生/提示词工程（输出格式·防幻觉·关键指令位置） |
 | `scripts/env_utils.py` | `<workdir>/.agents/.env` 的 list/get/set/missing/ensure-gitignore |
 | `scripts/gen_test_report.py` | 调官方 aggregate_benchmark + generate_review 生成测试报告 |
 
@@ -45,6 +45,7 @@ skill-creator-plus/
 └── references/
     ├── dependency.md         # 依赖安装策略、版本差异与降级
     ├── authoring-standards.md# 被创建 skill 的编写规范（模板/PEP 723/.env/脚本化判定）
+    ├── prompt-engineering.md # 提示词工程规范（五段式/清晰指令/标签分离/防幻觉等）
     ├── review-guide.md       # 评审清单与 95% 置信判据
     └── testing-guide.md      # 测试层次、workspace 布局、grading.json 格式
 ```

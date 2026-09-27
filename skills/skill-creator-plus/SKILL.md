@@ -4,7 +4,7 @@ description: 基于 anthropics skill-creator 的增强版 Skill 创建器（元�
 compatibility: 脚本为 Python 3.9+ 纯标准库（python 直跑或 uv run 均可）；首次使用需网络安装依赖 skill（git clone 优先，备选 stdlib 下载 zip、npx skills add），安装到 <工作目录>/.agents/skills/skill-creator；可选环境变量 SKILL_CREATOR_PLUS_DEP_PATH 指定本地已有副本实现离线。
 metadata:
   author: AI-Redfish
-  version: "1.1.0"
+  version: "1.2.0"
   depends-on: anthropics/skills 的 skill-creator
 ---
 
@@ -19,8 +19,9 @@ anthropics skill-creator 的增强层，不是替代品：
 | 评审助手（grader/analyzer）、触发评估 run_eval、描述优化 run_loop | 官方 skill-creator | 测试与优化阶段复用 |
 | 测试报告 benchmark / 评审页 | 官方 aggregate_benchmark + generate_review | 由 `gen_test_report.py` 统一调用 |
 | **强制门禁流程**（评审不过不测试、测试不过回评审） | 本 skill | `gate.py` 状态机，防止跳步 |
-| **机器评审清单**（结构/规范/密钥扫描） | 本 skill | `review_checklist.py` |
+| **机器评审清单**（结构/规范/密钥扫描/提示词工程） | 本 skill | `review_checklist.py` |
 | **产出规范**（Python + uv、.agents/.env、脚本化重复操作） | 本 skill | [references/authoring-standards.md](references/authoring-standards.md) |
+| **提示词工程规范**（五段式/清晰指令/标签分离/输出模板/少样本/防幻觉） | 本 skill | [references/prompt-engineering.md](references/prompt-engineering.md) |
 
 路径约定：`<skill_dir>` = 本 SKILL.md 所在目录；`<workdir>` = 用户当前工作目录；
 `<target>` = 被创建/修改的 skill 目录；`<workspace>` = `<workdir>/<skill-name>-workspace`。
@@ -127,7 +128,7 @@ uv run <skill_dir>/scripts/gate.py show                              # 随时查
 
 骨架：依赖能力表有 `init`（旧版官方脚本）则调用；否则直接按
 [references/authoring-standards.md](references/authoring-standards.md) 的目录模板与
-SKILL.md 模板创建。**五条硬规范**（评审门会检查）：
+SKILL.md 模板创建。**六条硬规范**（评审门会检查）：
 
 1. **双闭环内嵌**：SKILL.md 正文靠前位置必须包含双闭环规则章节（先提问/每次只问一个/
    十要素/双 95%/最终输出格式），缺失为 error 级问题；不得与 skill 自身默认值矛盾
@@ -138,6 +139,10 @@ SKILL.md 模板创建。**五条硬规范**（评审门会检查）：
    `<workdir>/.agents/.env` 读取（键名清单在需求澄清时确定），由 `env_utils.py` 统一读写
 5. **重复操作脚本化**：同一逻辑预计出现 ≥2 次、固定多步序列、可客观验证的转换 → 写成脚本，
    AI 只负责调用与解释，不做重复搬运
+6. **提示词工程写法**：SKILL.md 按五段式架构组织（角色/背景/规则/格式/示例），
+   指令清晰可判定、数据与指令用语义化标签分离、输出格式模板化、示例格式统一、
+   含防幻觉条款（允许“不确定”）、关键指令放开头或章节结尾；
+   细则见 [references/prompt-engineering.md](references/prompt-engineering.md)
 
 SKILL.md 正文 ≤500 行（>300 行时把细节外置到 `references/`）。写完执行
 `gate.py init`（若未初始化），进入评审门。
@@ -156,7 +161,8 @@ uv run <skill_dir>/scripts/review_checklist.py --skill <target> --workdir <workd
 退出码 0 = 无 error 级问题（warning 需逐条确认可接受或修复）；1 = 存在 error，先修复再重跑。
 
 **4.2 AI 双评审**：按 [references/review-guide.md](references/review-guide.md) 完成
-设计评审（触发/边界/渐进式披露）与实现评审（正确性/容错/安全），意见写入
+设计评审（触发/边界/渐进式披露/提示词工程写法）与实现评审（正确性/容错/安全/注入隔离），
+意见写入
 `<workspace>/review-round-N.md`；可参考官方 `agents/grader.md`、`agents/analyzer.md`。
 
 **4.3 置信度判定（≥95% 才放行）**：对照 review-guide.md 的置信度判据逐条自评，

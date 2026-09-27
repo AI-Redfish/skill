@@ -32,6 +32,17 @@
 - 翻页：上滑/点击箭头/键盘；内容超高页面滚动到底/顶才翻页（防误触）
 - 复制地址：clipboard API + execCommand 降级
 
+## 变体开关（generate_h5.py --fx / --music / --emit-all）
+
+模板通过占位符 `{{BODY_CLASS}} / {{VARIANT_CSS}} / {{MUSIC_FLAG}} / {{SOUND_HINT}}`
+注入变体差异，内容与版式在所有变体中完全一致：
+
+| 变体 | 命令 | 实现 |
+|---|---|---|
+| 无切换效果 | `--fx none` | body 注入 `no-fx` class：`.page` 翻页 transition 关闭（瞬切），`.fadeup` 浮现动效关闭；叶子 bob/票券 sway/花瓣飘落等常驻装饰动效保留（不属于切换效果） |
+| 无背景音乐 | `--music off` | `MUSIC_ON=false` + 隐藏 `#musicBtn`：initAudio 直通返回，翻页哔声/打字 tick 音随之静默，启动页提示改为「静音版」 |
+| 三变体一次全出 | `--emit-all` | 产出 PPT1-无切换无音乐 / PPT2-渐现无音乐 / PPT3-渐现带音乐 三个文件（视频生成四步法的第 1~3 步产物） |
+
 ## 文案模板（P3 打字机，generate_h5.py 自动填充）
 
 > 亲爱的岛民：/ 攒了好久的里数，/ 终于换到两张婚礼门票啦 ✈️ /

@@ -177,6 +177,8 @@
   #musicBtn.mute{animation:none;}
   #dots{position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:40;display:none;flex-direction:column;gap:9px;}
   #dots.show{display:flex;}
+  /* ==== 版本变体（generate_h5.py --fx/--music 注入，见 VARIANT_CSS） ==== */
+  {{VARIANT_CSS}}
   #dots i{width:8px;height:8px;border-radius:50%;background:#D8C79E;transition:.3s;cursor:pointer;}
   #dots i.cur{background:#E8912D;transform:scale(1.5);box-shadow:0 0 0 3px rgba(232,145,45,.25);}
   #nextBtn{
@@ -207,7 +209,7 @@
   @keyframes fadeup{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
 </style>
 </head>
-<body>
+<body class="{{BODY_CLASS}}">
 <div id="app">
 
   <!-- ===== P0 启动页 ===== -->
@@ -221,7 +223,7 @@
     <h1>{{GROOM}} <span class="heart">&#10084;</span> {{BRIDE}}</h1>
     <div class="sub">诚 挚 邀 请 你 登 岛</div>
     <button class="btn" id="startBtn">&#9654; 点击开启请柬</button>
-    <div class="hint">建议打开声音 &#127925; 效果更佳</div>
+    <div class="hint">{{SOUND_HINT}}</div>
   </section>
 
   <!-- ===== P1 里程票 ===== -->
@@ -390,6 +392,7 @@ var WEDDING = {
 var $ = function(s){ return document.querySelector(s); };
 var pages = [].slice.call(document.querySelectorAll('.page'));
 var cur = 0, animLock = false;
+var MUSIC_ON = {{MUSIC_FLAG}};   // false=无 BGM 变体：音频不初始化、音乐按钮隐藏
 
 /* ============ 音频：动森风 BGM（Web Audio 合成） ============ */
 var actx = null, master = null, musicTimer = null, slotIdx = 0, nextT = 0, muted = false;
@@ -453,6 +456,7 @@ function startMusic(){
 }
 function stopMusic(){ clearInterval(musicTimer); musicTimer=null; }
 function initAudio(){
+  if(!MUSIC_ON) return;
   if(actx) return;
   var AC = window.AudioContext || window.webkitAudioContext;
   if(!AC) return;
@@ -475,6 +479,7 @@ function blip(){
   });
 }
 $('#musicBtn').addEventListener('click', function(){
+  if(!MUSIC_ON) return;
   if(!actx){ initAudio(); return; }
   muted = !muted;
   if(muted){ stopMusic(); this.className='on mute'; this.innerHTML='&#128263;'; }

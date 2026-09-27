@@ -5,9 +5,13 @@
       产出一个零依赖、可离线打开、微信可分享的单文件 HTML。
 用法: python3 generate_h5.py --groom 王青 --bride 桃十九 --date 2026-10-03 \
         --time 12:08 --venue "西安 · 温德姆大酒店" --addr "陕西省西安市温德姆大酒店" \
-        [--map-keyword XX] [--groom-avatar 🐻] [--out 路径] [--config config.json]
+        [--map-keyword XX] [--groom-avatar 🐻] [--out 路径] [--config config.json] \
+        [--fx fade|none] [--music on|off] [--emit-all]
+变体: --fx none=无切换/现出动效(翻页瞬切)；--music off=无 BGM(隐藏音乐按钮、不初始化音频)。
+      --emit-all 一次生成视频生成四步法的前三个 PPT 产物：
+      PPT1-无切换无音乐 / PPT2-渐现无音乐 / PPT3-渐现带音乐（第 4 步 MP4 由 export_mp4.py 出）。
 依赖: Python 3.9+ 纯标准库。
-输出: JSON 到 stdout(status/path/size/fields)；日志到 stderr。
+输出: JSON 到 stdout(单文件: status/path/size/fx/music/fields；--emit-all: status/variants)；日志到 stderr。
 退出码: 0=成功 1=渲染错误 2=参数/输入错误。
 """
 from __future__ import annotations
@@ -43,8 +47,16 @@ def parse_date(s: str) -> datetime.date:
         err(f"日期格式错误: {s!r}，应为 YYYY-MM-DD（如 2026-10-03）")
 
 
-def build_fields(cfg: dict) -> dict:
-    """由配置派生全部模板占位符。"""
+# 视频生成四步法的三个 PPT 变体：(文件名后缀, fx, music)；第 4 步 MP4 由 export_mp4.py 负责
+PPT_VARIANTS = (
+    ("PPT1-无切换无音乐", "none", "off"),
+    ("PPT2-渐现无音乐", "fade", "off"),
+    ("PPT3-渐现带音乐", "fade", "on"),
+)
+
+
+def build_fields(cfg: dict, fx: str = "fade", music: str = "on") -> dict:
+    """由配置派生全部模板占位符（含 fx/music 变体开关）。"""
     d = parse_date(cfg["date"])
     hh, mm = cfg["time"].split(":")
     time_cn = f"中午 {cfg['time']}" if int(hh) < 18 else f"晚上 {cfg['time']}"
@@ -59,7 +71,7 @@ def build_fields(cfg: dict) -> dict:
         "等你一起见证重要时刻！", "",
         f"\u2014\u2014 {cfg['groom']} & {cfg['bride']}",
     ]
-    return {
+    fields = {
         "GROOM": cfg["groom"], "BRIDE": cfg["bride"],
         "GROOM_AVATAR": cfg.get("groom_avatar", DEFAULTS["groom_avatar"]),
         "BRIDE_AVATAR": cfg.get("bride_avatar", DEFAULTS["bride_avatar"]),
@@ -76,6 +88,19 @@ def build_fields(cfg: dict) -> dict:
         "MAP_KEYWORD": cfg.get("map_keyword") or cfg["venue"].replace(" · ", ""),
         "DIALOG_JSON": json.dumps(dialog, ensure_ascii=False),
     }
+    # ---- 变体开关：翻页动效(fx) 与 页面内置 BGM(music) ----
+    fields["BODY_CLASS"] = "no-fx" if fx == "none" else ""
+    fields["MUSIC_FLAG"] = "true" if music == "on" else "false"
+    fields["SOUND_HINT"] = ("建议打开声音 &#127925; 效果更佳" if music == "on"
+                            else "静音版 · 本文件无背景音乐")
+    css = ""
+    if fx == "none":
+        css += (".no-fx .page{transition:none!important;}"
+                ".no-fx .fadeup{animation:none!important;opacity:1!important;transform:none!important;}")
+    if music == "off":
+        css += "#musicBtn{display:none!important;}"
+    fields["VARIANT_CSS"] = css
+    return fields
 
 
 def render(template: Path, fields: dict) -> str:
@@ -102,6 +127,13 @@ def main() -> None:
     ap.add_argument("--groom-avatar", help="新郎护照头像 emoji, 默认 🐻")
     ap.add_argument("--bride-avatar", help="新娘护照头像 emoji, 默认 🐰")
     ap.add_argument("--out", help="输出 HTML 路径, 默认 ./婚礼请柬-<新郎><新娘>.html")
+    ap.add_argument("--fx", choices=("fade", "none"), default="fade",
+                    help="翻页动效: fade=渐现/现出效果(默认) / none=无任何切换效果")
+    ap.add_argument("--music", choices=("on", "off"), default="on",
+                    help="页面内置 BGM: on=带背景音乐(默认) / off=无音乐")
+    ap.add_argument("--emit-all", action="store_true",
+                    help="一次生成视频四步法前三个 PPT 产物: "
+                         "PPT1-无切换无音乐 / PPT2-渐现无音乐 / PPT3-渐现带音乐")
     a = ap.parse_args()
 
     cfg = dict(DEFAULTS)
@@ -128,13 +160,34 @@ def main() -> None:
     template = Path(__file__).parent / "templates" / "acnh.html"
     if not template.is_file():
         err(f"模板缺失: {template}", 1)
-    fields = build_fields(cfg)
+
+    def write_variant(fx: str, music: str, path: Path) -> dict:
+        fields = build_fields(cfg, fx=fx, music=music)
+        path.write_text(render(template, fields), encoding="utf-8")
+        return {"name": path.stem, "fx": fx, "music": music,
+                "path": str(path.resolve()), "size": path.stat().st_size}
+
+    if a.emit_all:
+        if a.out:
+            base = Path(a.out)
+            stem, parent = base.stem, base.parent
+        else:
+            stem, parent = f"婚礼请柬-{cfg['groom']}{cfg['bride']}", Path(".")
+        variants = [write_variant(fx, music, parent / f"{stem}-{name}.html")
+                    for name, fx, music in PPT_VARIANTS]
+        json.dump({"status": "ok", "variants": variants, "pages": 7,
+                   "note": "第4步视频请用 export_mp4.py 录制 PPT3"},
+                  sys.stdout, ensure_ascii=False, indent=2)
+        return
+
+    fields = build_fields(cfg, fx=a.fx, music=a.music)
     html = render(template, fields)
 
     out = Path(a.out) if a.out else Path(f"婚礼请柬-{cfg['groom']}{cfg['bride']}.html")
     out.write_text(html, encoding="utf-8")
     json.dump({"status": "ok", "path": str(out.resolve()), "size": out.stat().st_size,
-               "pages": 7, "fields": fields}, sys.stdout, ensure_ascii=False, indent=2)
+               "fx": a.fx, "music": a.music, "pages": 7, "fields": fields},
+              sys.stdout, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":

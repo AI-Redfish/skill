@@ -4,11 +4,13 @@
     {
       "id": 1,
       "prompt": "帮我做一个动森风格的电子婚礼请柬：新郎王青、新娘桃十九，2026年10月3日中午12:08，陕西省西安市温德姆大酒店，做好后再导出一个竖屏 MP4 发朋友圈",
-      "expected_output": "信息完整：执行 generate_h5.py 生成 HTML，预览确认后 export_mp4.py 导出 1080x1920 MP4，输出含需求复述/关键假设/产物路径",
+      "expected_output": "信息完整：执行 generate_h5.py 生成 HTML，预览确认后按四步法导出：--emit-all 产三个 PPT + export_mp4.py 录 PPT3 出 1080x1920 MP4，四产物逐一汇报，输出含需求复述/关键假设/产物路径",
       "files": [],
       "expectations": [
         "生成单文件 HTML 且含王青/桃十九/2026-10-03/温德姆，无 {{}} 占位符残留",
-        "导出 MP4 分辨率 1080x1920 且时长 30~50 秒、含 AAC 音轨",
+        "四步四产物齐全：PPT1-无切换无音乐 / PPT2-渐现无音乐 / PPT3-渐现带音乐 / MP4",
+        "第 4 步录制的是 PPT3（渐现带音乐版），MP4 分辨率 1080x1920、时长 30~50 秒、含 AAC 音轨",
+        "PPT1 含 no-fx 与 MUSIC_ON=false；PPT2 仅 MUSIC_ON=false；PPT3 含 MUSIC_ON=true",
         "最终输出开头一句话复述需求",
         "输出列出关键假设与剩余不确定性"
       ]
@@ -42,6 +44,17 @@
       "expectations": [
         "未调用 generate_h5.py / export_mp4.py",
         "回答为咨询性内容"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "把请柬导出成视频时，给我四种产物：不带任何切换效果和背景音乐的PPT、带现出效果但没音乐的PPT、带背景音乐的PPT，以及视频",
+      "expected_output": "明确四步四产物：--emit-all 产三个 PPT 变体 + export_mp4.py 录 PPT3 出 MP4，逐一列出绝对路径",
+      "files": [],
+      "expectations": [
+        "调用 generate_h5.py --emit-all（或等效的三次 --fx/--music 组合）",
+        "四个产物全部存在且路径逐一汇报",
+        "第 4 步用 export_mp4.py 录制 PPT3"
       ]
     }
   ]

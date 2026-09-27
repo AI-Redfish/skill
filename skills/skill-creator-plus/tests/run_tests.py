@@ -352,6 +352,30 @@ class TestReviewChecklist(unittest.TestCase):
             self.assertEqual(r.returncode, 1)
             self.assertIn("security.env_location", r.stdout)
 
+    def test_prompt_engineering_warns(self):
+        with tempfile.TemporaryDirectory() as td:
+            # 去掉不确定性措辞（防幻觉）、不给输出格式约定 → 两条 warn
+            # 并把双闭环章节移到末尾（关键指令位置） → 第三条 warn
+            start = GOOD_SKILL_MD.index("## 双闭环流程")
+            end = GOOD_SKILL_MD.index("## 功能说明")
+            loop = GOOD_SKILL_MD[start:end]
+            rest = GOOD_SKILL_MD[:start] + GOOD_SKILL_MD[end:]
+            rest = rest.replace("说明关键假设与剩余不确定性。", "说明关键假设。")
+            loop = loop.replace("说明关键假设与剩余不确定性。", "说明关键假设。")
+            # 垫长正文，使末尾的双闭环超出“前 40% 且 ≤400 字符”的关键位置阈值
+            rest = rest.rstrip() + "\n\n## 附录\n" + "细节说明。" * 200 + "\n"
+            bad = rest + "\n" + loop
+            sk = self._make(Path(td), bad)
+            out = Path(td) / "cl.json"
+            r = run_script("review_checklist.py", "--skill", str(sk), "--workdir", td,
+                           "--json", str(out))
+            self.assertEqual(r.returncode, 0)  # warn 级不阻断
+            warns = {c["id"] for c in json.loads(out.read_text(encoding="utf-8"))["checks"]
+                     if c["status"] == "warn"}
+            self.assertIn("body.output_format", warns)
+            self.assertIn("body.anti_hallucination", warns)
+            self.assertIn("body.key_position", warns)
+
 
 class TestEnvUtils(unittest.TestCase):
     def test_roundtrip_and_gitignore(self):

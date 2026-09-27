@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """test_scripts.py — wedding-invitation 各脚本单元测试（unittest, 纯标准库）。
 
-覆盖: generate_h5(正常/边界/错误)、synth_bgm(正常/边界)、ensure_ffmpeg(纯函数)、
-record_page(纯函数/参数校验)、export_mp4(参数校验)。
+覆盖: generate_h5(正常/边界/错误/fx与music变体/emit-all三产物)、synth_bgm(正常/边界)、
+ensure_ffmpeg(纯函数)、record_page(纯函数/参数校验)、export_mp4(参数校验)。
 运行: cd <skill_dir> && python3 -m unittest discover -s tests -v
 """
 from __future__ import annotations
@@ -69,6 +69,58 @@ class TestGenerateH5(unittest.TestCase):
         lines = json.loads(f["DIALOG_JSON"])
         self.assertIsInstance(lines, list)
         self.assertTrue(any("g" in x for x in lines))
+
+    def test_variant_fx_none_music_off(self):
+        """--fx none --music off → 无切换动效 + 无 BGM。"""
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "a.html"
+            r = run_cli(self.BASE + ["--out", str(out), "--fx", "none", "--music", "off"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            data = json.loads(r.stdout)
+            self.assertEqual((data["fx"], data["music"]), ("none", "off"))
+            html = out.read_text(encoding="utf-8")
+            self.assertIn('class="no-fx"', html)
+            self.assertIn("MUSIC_ON = false", html)
+            self.assertIn(".no-fx .page{transition:none", html)
+            self.assertIn(".no-fx .fadeup{animation:none", html)
+            self.assertIn("#musicBtn{display:none", html)
+            self.assertIn("静音版", html)
+            self.assertNotIn("{{", html)                       # 无占位符残留
+
+    def test_variant_default_fade_music_on(self):
+        """默认 fade/on：不注入 no-fx，音频开启。"""
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "a.html"
+            r = run_cli(self.BASE + ["--out", str(out)])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            html = out.read_text(encoding="utf-8")
+            self.assertIn("MUSIC_ON = true", html)
+            self.assertNotIn("no-fx", html)
+            self.assertNotIn("#musicBtn{display:none", html)
+
+    def test_emit_all_three_ppts(self):
+        """--emit-all → 一次产出 PPT1/PPT2/PPT3 三个互不相同的产物。"""
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "请柬.html"
+            r = run_cli(self.BASE + ["--out", str(out), "--emit-all"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            data = json.loads(r.stdout)
+            self.assertEqual(data["status"], "ok")
+            self.assertEqual(len(data["variants"]), 3)
+            texts = []
+            for v, (fx, music) in zip(data["variants"],
+                                      (("none", "off"), ("fade", "off"), ("fade", "on"))):
+                self.assertEqual((v["fx"], v["music"]), (fx, music))
+                p = Path(v["path"])
+                self.assertTrue(p.is_file(), p)
+                self.assertIn("PPT", p.name)
+                texts.append(p.read_text(encoding="utf-8"))
+            self.assertEqual(len(set(texts)), 3)               # 三变体互不相同
+            self.assertIn("MUSIC_ON = false", texts[0])
+            self.assertIn("MUSIC_ON = false", texts[1])
+            self.assertIn("MUSIC_ON = true", texts[2])
+            self.assertIn(".no-fx .page{transition:none", texts[0])
+            self.assertNotIn(".no-fx .page{transition:none", texts[1])
 
 
 class TestSynthBgm(unittest.TestCase):
