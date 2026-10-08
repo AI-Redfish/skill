@@ -1,0 +1,25 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 3,
+    "failed": 0,
+    "total": 3
+  },
+  "expectations": [
+    {
+      "text": "识别 dev/v6.0.7.0 为基分支并规范为 origin/dev/v6.0.7.0",
+      "passed": true,
+      "evidence": "agent-response.md 首句 + base-not-found.json message 字段"
+    },
+    {
+      "text": "worktree 目录名为 fixbug_abc-75339",
+      "passed": true,
+      "evidence": "校验失败即停未建目录（符合错误处理表）；命名规则由 eval-1 实证 + 单测 test_create_success_and_naming 佐证"
+    },
+    {
+      "text": "分支不存在时不编造，明确告知并求证",
+      "passed": true,
+      "evidence": "agent-response.md 列出可用分支并求证，未自行替换为 dev/v6.0.8.1"
+    }
+  ]
+}

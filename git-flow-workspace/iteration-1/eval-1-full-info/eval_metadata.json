@@ -1,0 +1,12 @@
+{
+  "eval_id": 1,
+  "eval_name": "full-info-create",
+  "prompt": "帮我新建一个worktree，基于分支：origin/dev/v6.0.8.1，新分支名称：v6.0.8.1/feature/zly-sharelease-20261008，新worktree的工作空间和当前工作空间同级，新工作空间名称和分支名称一样，/ 用 _ 替代。",
+  "assertions": [
+    "需求复述",
+    "同级目录且 / → _",
+    "走脚本创建",
+    "超时≥900s",
+    "关键假设"
+  ]
+}

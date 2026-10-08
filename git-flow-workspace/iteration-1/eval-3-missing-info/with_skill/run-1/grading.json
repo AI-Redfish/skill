@@ -1,0 +1,20 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 2,
+    "failed": 0,
+    "total": 2
+  },
+  "expectations": [
+    {
+      "text": "仅提出一个问题（不是多个）",
+      "passed": true,
+      "evidence": "agent-response.md 仅 1 个问句（基分支），括号内为补充说明非问题"
+    },
+    {
+      "text": "未执行创建、未输出最终方案或产物",
+      "passed": true,
+      "evidence": "outputs 下无创建产物；应答止于提问（SKILL.md 工作流步骤 1：必问项缺失进入理解闭环，一次只问一个）"
+    }
+  ]
+}

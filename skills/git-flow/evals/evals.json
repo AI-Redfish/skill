@@ -1,0 +1,49 @@
+{
+  "skill_name": "git-flow",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我新建一个worktree，基于分支：origin/dev/v6.0.8.1，新分支名称：v6.0.8.1/feature/zly-sharelease-20261008，新worktree的工作空间和当前工作空间同级，新工作空间名称和分支名称一样，/ 用 _ 替代。",
+      "expected_output": "信息完整：复述需求后直接走标准工作流，调用 worktree_create.py（可先 --dry-run）创建同级 worktree v6.0.8.1_feature_zly-sharelease-20261008，超时≥900s，成功后按输出模板汇报路径/分支/基分支commit，并列出关键假设。",
+      "files": [],
+      "expectations": [
+        "最终输出开头一句话复述了需求（基于 origin/dev/v6.0.8.1 创建 worktree，分支 v6.0.8.1/feature/zly-sharelease-20261008）",
+        "worktree 目录为主仓库同级目录 v6.0.8.1_feature_zly-sharelease-20261008（/ 已替换为 _）",
+        "创建通过 scripts/worktree_create.py 完成（含 --dry-run 预览或直接执行），而非手工拼接 git worktree 命令",
+        "执行正式创建时工具超时设置 ≥900 秒",
+        "最终输出列出关键假设与剩余不确定性"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "帮我从 dev/v6.0.7.0 拉一个工作空间，分支叫 fixbug/abc-75339。",
+      "expected_output": "基分支补 origin/ 前缀（origin/dev/v6.0.7.0）后执行；若该远程分支不存在则按 BASE_NOT_FOUND 处理并向用户求证，不自行猜测替代分支。",
+      "files": [],
+      "expectations": [
+        "识别 dev/v6.0.7.0 为基分支并规范为 origin/dev/v6.0.7.0",
+        "worktree 目录名为 fixbug_abc-75339",
+        "分支不存在时不编造，明确告知并求证"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "新开一个空间开发共享租约功能。",
+      "expected_output": "缺基分支与新分支名两项关键信息，进入理解闭环：只提出一个问题（先问基分支），不产出最终方案。",
+      "files": [],
+      "expectations": [
+        "仅提出一个问题（不是一次性罗列多个问题）",
+        "未执行创建、未输出最终方案或产物"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "帮我把这个 worktree 删掉，我不需要它了。",
+      "expected_output": "负向用例：声明删除不在 git-flow 范围，不执行任何删除操作，引导用户确认后自行使用 git worktree remove。",
+      "files": [],
+      "expectations": [
+        "未执行 git worktree remove / rm 等删除命令",
+        "明确说明删除不在本 skill 适用范围"
+      ]
+    }
+  ]
+}

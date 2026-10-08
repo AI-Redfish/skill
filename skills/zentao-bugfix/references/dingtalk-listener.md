@@ -1,6 +1,6 @@
 # 钉钉消息监听器（dingtalk_listen.py）使用指南
 
-全自动链路：**钉钉消息 → Agent 提取 bugId → bugfix.py prepare → 同一 Agent 无头会话先输出分析报告（补全 analysis.md，不改代码）→ 实施修复 → 报告**。
+全自动链路：**钉钉消息 → Agent 提取 bugId → bugfix.py prepare → 同一 Agent 无头会话先输出分析报告与解决方案（补全 analysis.md 与 solution.md，不改代码）→ 实施修复 → 报告**。
 本文是 `scripts/dingtalk_listen.py` 的完整参考；速览见 SKILL.md「钉钉消息自动触发」。
 
 ## 架构
@@ -53,6 +53,7 @@ message_id 去重拦截。水位（`poll-state.json`，多目标读-改-写合�
 | `POLL_INTERVAL_SECONDS` | 可选 | 拉取兜底轮询间隔秒数（默认 20） |
 | `POLL_LOOKBACK_MINUTES` | 可选 | 兜底每轮重扫的「过去 X 分钟」窗口（默认 10；调大更抗丢消息，代价是每轮拉取量略增） |
 | `POLL_MAX_CATCHUP_MINUTES` | 可选 | 停机/水位过旧时兜底最多回看的分钟数（默认 60，防远古消息重放） |
+| `LISTEN_AUTOSTART` | 可选 | 系统级开机自启 on/off（默认 on：首次 `start` 成功后自动创建；off 关闭自动创建。彻底卸载用 `autostart remove`） |
 | `BUGFIX_BASE_BRANCH` | 可选 | worktree 基准分支；**优先级：.env > 对话询问 > 仓库当前分支**（手动使用与监听自动触发一致）；prepare 新建 worktree 时会自动 fetch 并合并该分支的远端最新代码（无远程/fetch 失败降级本地快照；冲突返回码 5 人工决策） |
 | `TARGET_PROJECT_PATH` | 可选 | 目标仓库；**优先级高于启动目录** |
 | `AGENT_TYPE` | 可选 | `pi` / `codex` / `claude` / `custom` |
@@ -71,7 +72,8 @@ message_id 去重拦截。水位（`poll-state.json`，多目标读-改-写合�
 | `save-config KEY=VALUE...` | 保存/合并写入 .env，回显仍缺项（AI 逐项向用户索取后写入） |
 | `start [--foreground] [--agent T] [--model M]` | 启动；默认后台守护（DETACHED，不阻塞当前会话），`--foreground` 前台调试；配置缺失退出码 2 |
 | `status` | JSON：pid、目标存活、最近事件时间、队列长度、修复统计、`last_fix`（最近一次修复结果含失败原因） |
-| `stop` | 写 stop 标志 → 守护进程优雅退出（dws 子进程经 stdin EOF 自动退订清理）；超时 30s 强杀 |
+| `stop` | 写 stop 标志 → 守护进程优雅退出（dws 子进程经 stdin EOF 自动退订清理）；超时 30s 强杀。**只停当前进程，开机自启保留** |
+| `autostart [install\|remove\|status]` | 管理系统级开机自启（默认 `status` 查询；`install` 创建/覆盖，`remove` 移除。首次 `start` 成功后会自动 install） |
 | `test-extract <文本>` | 不监听，直接跑一遍「Agent 意图提取」，验证 Agent 配置 |
 
 脚本全非交互（无 input()，适配无终端环境）；缺配置时报错退出，由 AI 逐项问用户后
@@ -98,11 +100,33 @@ save-config，再重新 start。
 | `start.log` | **启动全过程追踪**：配置检查→Agent 解析→仓库/目标解析→守护拉起/前台主循环；任何一步失败（含配置缺失、dws 未登录、目标解析失败）都会在此留下原因 |
 | `events.log` | 每条监听到的消息事件（原始 JSON） |
 | `listener.log` | 运行主日志（启动/命中/忽略/提取失败/拉取失败/错误，全量带时间戳落盘；即使 stdout 不可见也不丢） |
-| `fix-<bugId>.log` | 每次自动修复会话的命令、耗时、输出末尾 40 行，以及 **[VERIFY] 产物校验**（worktree/meta.json/报告是否真实存在，含 `analysis_complete` 分析先行校验） |
+| `fix-<bugId>.log` | 每次自动修复会话的命令、耗时、输出末尾 40 行，以及 **[VERIFY] 产物校验**（worktree/meta.json/报告是否真实存在，含 `analysis_complete` / `solution_complete` 分析先行校验） |
 | `state.json` | status 数据源（5s 刷新，含 stats.last_fix） |
 | `processed-ids.json` | message_id 去重（环形，最近 1000 条） |
 | `poll-state.json` | 拉取兜底各目标水位（停机后窗口前探用） |
 | `listener.pid` / `stop.flag` | 守护进程管理 |
+| `autostart-listener.bat` / `autostart.out` | 仅 Windows schtasks 兜底路径会生成：启动脚本与其输出 |
+
+## 系统级开机自启（跨平台，首次 start 自动创建）
+
+**行为**：首次 `start` 成功后自动创建系统级自启任务，之后每次开机/登录自动拉起监听
+（入口固定为 `<解释器> <脚本> start --foreground`，工作目录=启动时的工作空间）；
+重复 `start` 幂等覆盖为最新工作空间。`--no-autostart` 可单次跳过，`.env` 配
+`LISTEN_AUTOSTART=off` 可永久关闭自动创建；`stop` 只停当前进程不卸载自启，
+`autostart remove` 才彻底移除（remove 不影响正在运行的监听）。
+
+| 平台 | 机制 | 落点 | 说明 |
+|---|---|---|---|
+| Windows | 任务计划程序（登录触发） | 任务名 `zentao-bugfix-listener` | 优先 `Register-ScheduledTask`（当前用户、无 72h 执行时限、电池供电不中断、pythonw 无黑窗）；PowerShell 不可用时回退 `schtasks /SC ONLOGON` + 启动 bat |
+| macOS | LaunchAgent | `~/Library/LaunchAgents/com.ai-redfish.zentao-bugfix-listener.plist` | `RunAtLoad=true`、`KeepAlive=false`（stop 后不被拉起）；bootstrap 失败自动回退 `launchctl load -w` |
+| Linux | systemd 用户服务 | `~/.config/systemd/user/zentao-bugfix-listener.service` | `enable`（+尽力 `loginctl enable-linger` 免登录自启）；无 systemd（部分 WSL/容器）自动回退 **cron `@reboot`**（托管块成对标记包裹，remove 只删自己的块） |
+
+- 解释器选择：Windows 优先 `pythonw.exe`；uv/venv 环境回退基础解释器（脚本零第三方依赖，避免缓存 venv 被清理后自启失效）。
+- Linux 可用环境变量 `AUTOSTART_MECHANISM=cron` 强制走 cron（默认自动探测 systemd 可用性）。
+- 开机时若配置缺失（`.env` 不在/缺键），自启拉起的监听会以退出码 2 结束并留日志
+ `start.log`，补齐配置后下次登录/重启即恢复正常。
+- 手动验证：`autostart status` 看 `installed/mechanism/entry/config_ok`；
+ `listener.status` 的 JSON 也带 `autostart` 字段。
 
 ## Windows 无黑窗说明
 
@@ -134,3 +158,5 @@ save-config，再重新 start。
 | 提取总失败 | Agent CLI 未登录或模型名错误；`test-extract` 验证 |
 | 目标解析失败（重名/不存在） | `dws contact user search --query 名字` / `dws chat bot find --query 名字` 人工核对唯一性，改用精确姓名 |
 | 想立即停掉一切 | `stop` 后确认 `status` running=false；残留 dws 进程可 `taskkill /IM dws.exe /F`（Windows） |
+| 不想重启后监听自动运行 | `autostart remove` 移除系统级自启（`stop` 只停当前进程）；或 `.env` 配 `LISTEN_AUTOSTART=off` 后重新 start（不再自动创建）；Windows 也可在任务计划程序里禁用 `zentao-bugfix-listener` |
+| 自启创建了但重启后没拉起 | `autostart status` 确认 installed 与 entry 路径；查工作空间 `.agents/logs/start.log`（开机拉起失败的原因，如配置缺失/dws 未登录） |

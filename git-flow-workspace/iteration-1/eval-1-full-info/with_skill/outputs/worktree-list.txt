@@ -1,0 +1,2 @@
+/tmp/gitflow-eval.quGG/main-repo                                15d4d97 [main]
+/tmp/gitflow-eval.quGG/v6.0.8.1_feature_zly-sharelease-20261008 15d4d97 [v6.0.8.1/feature/zly-sharelease-20261008]

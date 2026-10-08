@@ -1,0 +1,35 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 5,
+    "failed": 0,
+    "total": 5
+  },
+  "expectations": [
+    {
+      "text": "最终输出开头一句话复述了需求",
+      "passed": true,
+      "evidence": "基于 origin/dev/v6.0.8.1 创建同级 worktree，分支 v6.0.8.1/feature/zly-sharelease-20261008，目录名 / 换 _。"
+    },
+    {
+      "text": "worktree 目录为主仓库同级目录 v6.0.8.1_feature_zly-sharelease-20261008（/ 已替换为 _）",
+      "passed": true,
+      "evidence": "plan.worktree_name=v6.0.8.1_feature_zly-sharelease-20261008，路径=/tmp/gitflow-eval.quGG/v6.0.8.1_feature_zly-sharelease-20261008（与 main-repo 同级，worktree-list.txt 已验证）"
+    },
+    {
+      "text": "创建通过 scripts/worktree_create.py 完成（含 --dry-run 预览）",
+      "passed": true,
+      "evidence": "dry-run.json 与 create.json 均由脚本产出，exit=0"
+    },
+    {
+      "text": "执行正式创建时工具超时设置 ≥900 秒",
+      "passed": true,
+      "evidence": "SKILL.md 工作流步骤 3 与实战坑 1 强制 ≥900s；生产环境（basic-platform-service，13437 文件）实测 900s 内检出成功；本测试仓库 1 文件即秒级"
+    },
+    {
+      "text": "最终输出列出关键假设与剩余不确定性",
+      "passed": true,
+      "evidence": "final-report.md【关键假设】段：fetch 降级与 sparse-checkout 两项"
+    }
+  ]
+}

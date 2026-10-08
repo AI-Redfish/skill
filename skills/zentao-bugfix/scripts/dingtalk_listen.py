@@ -32,6 +32,10 @@
     POLL_INTERVAL_SECONDS=20                             拉取兜底轮询间隔（可选，默认20秒）
     POLL_LOOKBACK_MINUTES=10                             兜底每轮重扫「过去X分钟」窗口（默认10）
     POLL_MAX_CATCHUP_MINUTES=60                          停机后兜底最多回看分钟数（默认60）
+    LISTEN_AUTOSTART=on                                  系统级开机自启开关（默认 on：首次 start
+                                                          成功后自动创建，跨平台：Windows 计划任务
+                                                          （登录触发）/ macOS LaunchAgent / Linux
+                                                          systemd 用户服务或 cron @reboot；off 关闭）
 
 Agent/模型选择优先级：命令行参数 > .env > 自动探测当前 pi 会话 > 交互询问。
 目标仓库优先级：.env 的 TARGET_PROJECT_PATH > 启动时所在项目目录。
@@ -39,9 +43,12 @@ Agent/模型选择优先级：命令行参数 > .env > 自动探测当前 pi 会
 需在同一工作空间目录执行；不要在 skill 目录内运行，避免产生嵌套 .agents。
 
 子命令：
-    start [--foreground] [--agent T] [--model M]      启动监听（默认后台守护；配置缺失退出码 2）
-    status                                            查看运行状态（JSON）
-    stop                                              停止监听（优雅退出）
+    start [--foreground] [--no-autostart]
+         [--agent T] [--model M]                       启动监听（默认后台守护；配置缺失退出码 2）
+    status                                            查看运行状态（JSON，含开机自启状态）
+    stop                                              停止监听（优雅退出；开机自启保留）
+    autostart [install|remove|status]                 管理系统级开机自启（默认 status；首次
+                                                      start 成功后自动 install）
     config-status                                     检查配置完整性（JSON，密码脱敏）
     save-config KEY=VALUE...                          保存/合并写入 .agents/.env
     test-extract <消息文本>                           手动测试意图提取（不监听）
@@ -113,6 +120,9 @@ KEY_HELP = {
     "POLL_INTERVAL_SECONDS": "拉取兜底轮询间隔秒数（默认 20）",
     "POLL_LOOKBACK_MINUTES": "兜底每轮重扫的「过去X分钟」窗口（默认 10；调大更抗丢消息）",
     "POLL_MAX_CATCHUP_MINUTES": "停机/水位过旧时兜底最多回看的分钟数（默认 60）",
+    "LISTEN_AUTOSTART": "系统级开机自启 on/off（默认 on：首次 start 成功后自动创建，"
+                        "跨平台 Windows 计划任务/macOS LaunchAgent/Linux systemd 或 cron；"
+                        "off 关闭自动创建；彻底卸载用 autostart remove 子命令）",
 }
 
 
@@ -517,9 +527,10 @@ def build_fix_prompt(bug_id, base_branch=None):
             "skill 目录：%s（先读其中 SKILL.md 了解完整流程）。\n"
             "%s\n"
             "步骤：1) 运行 `python %s prepare %s%s --project .`（或 uv run --no-project 同命令）；"
-            "2) 按 SKILL.md 先在 worktree 中只读分析代码，补全 analysis.md 输出完整分析报告"
-            "（落盘在 worktree 的 .agents 下；此阶段禁止修改任何代码文件）；"
-            "3) 依据分析报告中的修复方案实施修复（禁止 commit/push）；"
+            "2) 按 SKILL.md 先在 worktree 中只读分析代码，补全 analysis.md（完整分析报告）"
+            "与 solution.md（解决方案），两份文档落盘在 worktree 的 .agents/zentao-bugfix/"
+            "<bugId>/ 下；此阶段禁止修改任何代码文件；"
+            "3) 依据 solution.md 中的方案实施修复（禁止 commit/push）；"
             "4) 运行 report 子命令生成修复报告并补全（待填写）章节。"
             "全程遵守 SKILL.md 的边界约束，完成后输出根因一句话与报告路径。\n"
             % (bug_id, SKILL_DIR, branch_note,
@@ -531,28 +542,41 @@ def verify_fix(bug_id, repo):
 
     无头 Agent 会话退出码 0 ≠ 流程完成（可能中途需要向用户提问后正常退出，
     例如禅道密码失效时只能“提问后结束”），必须以文件系统证据为准。
-    返回 {"ok": bool, "worktree": str|None, "report": str|None,
-    "analysis_complete": bool, "analysis_state": "no"|"yes"|"missing"}。
-    analysis_state 校验分析先行流程：analysis.md 应在修复前已补全（无（待填写））。
+    返回 {"ok": bool, "worktree": str|None, "report_dir": str|None, "report": str|None,
+    "analysis_complete": bool, "analysis_state": "no"|"yes"|"missing",
+    "solution_complete": bool, "solution_state": "no"|"yes"|"missing"}。
+    analysis/solution 校验分析先行流程：analysis.md 与 solution.md 均应在修复前
+    已补全（无（待填写））；报告目录新布局 .agents/zentao-bugfix/<id>，旧 worktree
+    自动回退 .agents/bugfix/<id>。
     """
     parent = Path(repo).resolve().parent
     for pat in ("bugfix_%s_*" % bug_id, "bugfix_%s" % bug_id):
         for wt in sorted(parent.glob(pat)):
-            report_dir = wt / ".agents" / "bugfix" / str(bug_id)
-            if wt.is_dir() and (report_dir / "meta.json").is_file():
+            rd_new = wt / ".agents" / "zentao-bugfix" / str(bug_id)
+            rd_old = wt / ".agents" / "bugfix" / str(bug_id)
+            meta_new = (rd_new / "meta.json").is_file()
+            meta_old = (rd_old / "meta.json").is_file()
+            if wt.is_dir() and (meta_new or meta_old):
+                report_dir = rd_new if meta_new else rd_old
                 reports = sorted(p.name for p in report_dir.glob("fix-report*.md"))
-                analysis_md = report_dir / "analysis.md"
-                analysis_state = "missing"
-                if analysis_md.is_file():
-                    analysis_state = ("yes" if "（待填写" in
-                                      analysis_md.read_text(encoding="utf-8",
-                                                            errors="replace") else "no")
-                return {"ok": True, "worktree": str(wt),
+
+                def _state(p):
+                    if not p.is_file():
+                        return "missing"
+                    return ("yes" if "（待填写" in
+                            p.read_text(encoding="utf-8", errors="replace") else "no")
+
+                analysis_state = _state(report_dir / "analysis.md")
+                solution_state = _state(report_dir / "solution.md")
+                return {"ok": True, "worktree": str(wt), "report_dir": str(report_dir),
                         "report": (str(report_dir / reports[0]) if reports else None),
                         "analysis_complete": analysis_state == "no",
-                        "analysis_state": analysis_state}
+                        "analysis_state": analysis_state,
+                        "solution_complete": solution_state == "no",
+                        "solution_state": solution_state}
     return {"ok": False, "worktree": None, "report": None,
-            "analysis_complete": False, "analysis_state": "missing"}
+            "analysis_complete": False, "analysis_state": "missing",
+            "solution_complete": False, "solution_state": "missing"}
 
 
 def run_auto_fix(adapter, bug_id, repo, base_branch=None):
@@ -575,15 +599,22 @@ def run_auto_fix(adapter, bug_id, repo, base_branch=None):
                   " ".join(cmd[:6]), time.time() - t0, "\n".join(tail)))
     if v["ok"]:
         write_log("fix-%s.log" % bug_id,
-                  "[VERIFY] OK worktree=%s report=%s analysis_complete=%s" % (
-                      v["worktree"], v["report"], v.get("analysis_complete")))
+                  "[VERIFY] OK worktree=%s report=%s analysis_complete=%s "
+                  "solution_complete=%s" % (
+                      v["worktree"], v["report"], v.get("analysis_complete"),
+                      v.get("solution_complete")))
         if not v.get("analysis_complete"):
             write_log("fix-%s.log" % bug_id,
                       "[VERIFY-WARN] analysis.md 未在修复前完整落盘（state=%s）——"
                       "偏离分析先行流程" % v.get("analysis_state"))
+        if not v.get("solution_complete"):
+            write_log("fix-%s.log" % bug_id,
+                      "[VERIFY-WARN] solution.md 未在修复前完整落盘（state=%s）——"
+                      "解决方案文档缺失或未补全" % v.get("solution_state"))
         return {"bug_id": bug_id, "ok": True, "worktree": v["worktree"],
                 "report": v["report"],
                 "analysis_complete": v.get("analysis_complete"),
+                "solution_complete": v.get("solution_complete"),
                 "elapsed": int(time.time() - t0)}
     # 会话退出但无 worktree：prepare 未成功（常见：禅道密码失效/网络不通，
     # 无头会话无法向人提问只能“提问后结束”）——完整原因看本日志[输出末尾]
@@ -1091,6 +1122,396 @@ def resolve_repo(cfg):
     return Path(repo).resolve()
 
 
+# ---------------------------------------------------------------- 开机自启（跨平台）
+# 系统级开机自启：首次成功 start 监听后自动创建（--no-autostart / LISTEN_AUTOSTART=off 跳过）。
+#   Windows : 任务计划程序·当前用户登录触发（Register-ScheduledTask 优先，schtasks+bat 兜底）
+#   macOS   : LaunchAgent（~/Library/LaunchAgents/<label>.plist + launchctl）
+#   Linux   : systemd 用户服务优先（无 systemd 的 WSL/容器回退 cron @reboot）
+
+AUTOSTART_NAME = "zentao-bugfix-listener"                   # Windows 任务名 / Linux 服务名
+AUTOSTART_LABEL = "com.ai-redfish.zentao-bugfix-listener"   # macOS LaunchAgent Label
+CRON_BEGIN = "# zentao-bugfix-listener:managed-begin"       # cron 托管块标记（成对出现）
+CRON_END = "# zentao-bugfix-listener:managed-end"
+
+
+def _autostart_python():
+    """自启入口使用的解释器。
+
+    sys.executable 可能是 uv/venv 的临时解释器（缓存目录可能被清理），本脚本零第
+    三方依赖，回退到基础解释器更稳；Windows 优先 pythonw.exe（无控制台黑窗）。
+    """
+    base = Path(sys.base_prefix)
+    if os.name == "nt":
+        for name in ("pythonw.exe", "python.exe"):
+            if (base / name).exists():
+                return str(base / name)
+    elif sys.prefix != sys.base_prefix:                      # venv/uv → 基础解释器
+        for name in ("bin/python3", "bin/python"):
+            if (base / name).exists():
+                return str(base / name)
+    return sys.executable
+
+
+def _autostart_entry():
+    """开机自启要执行的完整入口（解释器/脚本/参数/工作目录=启动工作空间）。"""
+    return {"python": _autostart_python(),
+            "script": str(Path(__file__).resolve()),
+            "args": ["start", "--foreground"],
+            "workspace": str(BASE_DIR)}
+
+
+def _listener_running():
+    if PID_FILE.is_file():
+        try:
+            return _pid_alive(int(PID_FILE.read_text().strip() or 0))
+        except ValueError:
+            pass
+    return False
+
+
+# ---- Windows：任务计划程序（登录触发）
+
+def _ps_quote(s):
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+def _run_powershell(ps, timeout=30):
+    exe = shutil.which("powershell") or os.path.join(
+        os.environ.get("SystemRoot", r"C:\Windows"),
+        "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    return subprocess.run([exe, "-NoProfile", "-NonInteractive", "-Command", ps],
+                          capture_output=True, timeout=timeout,
+                          creationflags=creation_flags())
+
+
+def _ps_err(r):
+    return (r.stderr or b"").decode("utf-8", errors="replace").strip()[:300]
+
+
+def _win_ps_command(entry):
+    """构造 Register-ScheduledTask 命令（纯函数，便于测试）。
+
+    要点：登录触发、工作目录=工作空间、禁用 72h 默认执行时限（长驻进程不被杀）、
+    电池供电不中断、重复启动实例忽略。
+    """
+    arg = '"%s" %s' % (entry["script"], " ".join(entry["args"]))
+    return ("$ErrorActionPreference='Stop';"
+            "$a=New-ScheduledTaskAction -Execute %s -Argument %s -WorkingDirectory %s;"
+            "$t=New-ScheduledTaskTrigger -AtLogOn;"
+            "$s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries"
+            " -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew"
+            " -ExecutionTimeLimit ([TimeSpan]::Zero);"
+            "Register-ScheduledTask -TaskName %s -Action $a -Trigger $t -Settings $s"
+            " -Force | Out-Null; 'OK'"
+            ) % (_ps_quote(entry["python"]), _ps_quote(arg),
+                 _ps_quote(entry["workspace"]), _ps_quote(AUTOSTART_NAME))
+
+
+def _win_install(entry):
+    r = _run_powershell(_win_ps_command(entry))
+    if r.returncode != 0 or b"OK" not in (r.stdout or b""):
+        raise RuntimeError("Register-ScheduledTask 失败(%d): %s"
+                           % (r.returncode, _ps_err(r)))
+
+
+def _win_install_schtasks(entry):
+    """Register-ScheduledTask 不可用时的兜底：schtasks + 启动 bat（mbcs=cmd 代码页）。"""
+    bat = LOG_DIR / "autostart-listener.bat"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    bat.write_text('@echo off\r\ncd /d "%s"\r\n"%s" "%s" %s >> "%s" 2>&1\r\n'
+                   % (entry["workspace"], entry["python"], entry["script"],
+                      " ".join(entry["args"]), LOG_DIR / "autostart.out"),
+                   encoding="mbcs", errors="replace", newline="")
+    r = subprocess.run(["schtasks", "/Create", "/F", "/SC", "ONLOGON",
+                        "/RL", "LIMITED", "/TN", AUTOSTART_NAME,
+                        "/TR", '\\"%s\\"' % bat],
+                       capture_output=True, creationflags=creation_flags())
+    if r.returncode != 0:
+        raise RuntimeError("schtasks /Create 失败(%d): %s"
+                           % (r.returncode, (r.stderr or r.stdout or b"")
+                              .decode("utf-8", errors="replace").strip()[:300]))
+
+
+def _win_installed():
+    r = subprocess.run(["schtasks", "/Query", "/TN", AUTOSTART_NAME],
+                       capture_output=True, creationflags=creation_flags())
+    return r.returncode == 0
+
+
+def _win_remove():
+    r = _run_powershell("$ErrorActionPreference='SilentlyContinue';"
+                        "Unregister-ScheduledTask -TaskName %s -Confirm:$false"
+                        % _ps_quote(AUTOSTART_NAME))
+    if not _win_installed():
+        (LOG_DIR / "autostart-listener.bat").unlink(missing_ok=True)
+        return
+    r2 = subprocess.run(["schtasks", "/Delete", "/F", "/TN", AUTOSTART_NAME],
+                        capture_output=True, creationflags=creation_flags())
+    (LOG_DIR / "autostart-listener.bat").unlink(missing_ok=True)
+    if r2.returncode != 0 and _win_installed():
+        raise RuntimeError("schtasks /Delete 失败: %s | %s"
+                           % (_ps_err(r),
+                              (r2.stderr or r2.stdout or b"")
+                              .decode("utf-8", errors="replace").strip()[:200]))
+
+
+# ---- macOS：LaunchAgent
+
+def _mac_plist_path():
+    return Path.home() / "Library" / "LaunchAgents" / (AUTOSTART_LABEL + ".plist")
+
+
+def _mac_plist_xml(entry):
+    from xml.sax.saxutils import escape
+    items = "\n".join("        <string>%s</string>" % escape(a)
+                      for a in [entry["python"], entry["script"]] + entry["args"])
+    out = escape(str(LOG_DIR / "launchd.out"))
+    return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+            "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+            "<plist version=\"1.0\">\n<dict>\n"
+            "    <key>Label</key>\n    <string>%s</string>\n"
+            "    <key>ProgramArguments</key>\n    <array>\n%s\n    </array>\n"
+            "    <key>WorkingDirectory</key>\n    <string>%s</string>\n"
+            "    <key>RunAtLoad</key>\n    <true/>\n"
+            "    <key>KeepAlive</key>\n    <false/>\n"
+            "    <key>StandardOutPath</key>\n    <string>%s</string>\n"
+            "    <key>StandardErrorPath</key>\n    <string>%s</string>\n"
+            "</dict>\n</plist>\n"
+            ) % (escape(AUTOSTART_LABEL), items,
+                 escape(entry["workspace"]), out, out)
+
+
+def _mac_install(entry):
+    plist = _mac_plist_path()
+    plist.parent.mkdir(parents=True, exist_ok=True)
+    plist.write_text(_mac_plist_xml(entry), encoding="utf-8")
+    uid = os.getuid()
+    subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (uid, AUTOSTART_LABEL)],
+                   capture_output=True)                    # 未加载时失败属正常
+    r = subprocess.run(["launchctl", "bootstrap", "gui/%d" % uid, str(plist)],
+                       capture_output=True)
+    if r.returncode != 0:                                  # 旧版 macOS 无 bootstrap
+        r2 = subprocess.run(["launchctl", "load", "-w", str(plist)],
+                            capture_output=True)
+        if r2.returncode != 0:
+            raise RuntimeError("launchctl 加载失败: %s"
+                               % (r2.stderr or b"").decode("utf-8", errors="replace")[:300])
+
+
+def _mac_remove():
+    uid = os.getuid()
+    subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (uid, AUTOSTART_LABEL)],
+                   capture_output=True)
+    subprocess.run(["launchctl", "remove", AUTOSTART_LABEL], capture_output=True)
+    _mac_plist_path().unlink(missing_ok=True)
+
+
+# ---- Linux：systemd 用户服务优先，无 systemd 回退 cron @reboot
+
+def _linux_unit_path():
+    return Path.home() / ".config" / "systemd" / "user" / (AUTOSTART_NAME + ".service")
+
+
+def _linux_unit_content(entry):
+    """systemd 用户服务单元内容（纯函数，便于测试）。"""
+    return ("[Unit]\n"
+            "Description=zentao-bugfix DingTalk listener\n\n"
+            "[Service]\n"
+            "Type=simple\n"
+            "WorkingDirectory=%s\n"
+            "ExecStart=%s start --foreground\n"
+            "Restart=on-failure\n"
+            "RestartSec=15\n\n"
+            "[Install]\n"
+            "WantedBy=default.target\n"
+            ) % (entry["workspace"],
+                 " ".join(shlex.quote(x) for x in (entry["python"], entry["script"])))
+
+
+def _linux_systemd_available():
+    try:
+        r = subprocess.run(["systemctl", "--user", "show-environment"],
+                           capture_output=True, timeout=10)
+        return r.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _linux_mechanism():
+    """Linux 自启机制选择：AUTOSTART_MECHANISM=cron 可强制回退；默认自动探测。"""
+    pref = os.environ.get("AUTOSTART_MECHANISM", "").strip().lower()
+    if pref == "cron":
+        return "cron"
+    return "systemd" if _linux_systemd_available() else "cron"
+
+
+def _linux_install_systemd(entry):
+    unit = _linux_unit_path()
+    unit.parent.mkdir(parents=True, exist_ok=True)
+    unit.write_text(_linux_unit_content(entry), encoding="utf-8")
+    r = subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError("systemctl --user daemon-reload 失败: %s"
+                           % (r.stderr or b"").decode("utf-8", errors="replace")[:300])
+    # 已在运行则只 enable（下次登录生效），避免 --now 撞上 pid 防重
+    cmd = ["systemctl", "--user", "enable"] \
+        + ([] if _listener_running() else ["--now"]) + [AUTOSTART_NAME + ".service"]
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError("systemctl --user enable 失败: %s"
+                           % (r.stderr or b"").decode("utf-8", errors="replace")[:300])
+    subprocess.run(["loginctl", "enable-linger", str(os.getuid())],
+                   capture_output=True)      # 尽力而为：免登录也随开机自启，失败不阻断
+    return "linux-systemd-user（%s）" % unit
+
+
+def _cron_lines():
+    r = subprocess.run(["crontab", "-l"], capture_output=True)
+    if r.returncode != 0:
+        return []
+    return r.stdout.decode("utf-8", errors="replace").splitlines()
+
+
+def _cron_strip_managed(lines):
+    """去掉本脚本的托管块（BEGIN..END 成对标记），保留用户既有条目。"""
+    out, inside = [], False
+    for ln in lines:
+        if ln.strip() == CRON_BEGIN:
+            inside = True
+            continue
+        if ln.strip() == CRON_END:
+            inside = False
+            continue
+        if not inside:
+            out.append(ln)
+    while out and not out[-1].strip():
+        out.pop()
+    return out
+
+
+def _linux_cron_entry(entry):
+    return "@reboot cd %s && %s start --foreground >> %s 2>&1" % (
+        shlex.quote(entry["workspace"]),
+        " ".join(shlex.quote(x) for x in (entry["python"], entry["script"])),
+        shlex.quote(str(LOG_DIR / "cron.out")))
+
+
+def _linux_install_cron(entry):
+    lines = _cron_strip_managed(_cron_lines())
+    lines += ["", CRON_BEGIN, _linux_cron_entry(entry), CRON_END]
+    r = subprocess.run(["crontab", "-"],
+                       input=("\n".join(lines) + "\n").encode("utf-8"),
+                       capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError("crontab 写入失败: %s"
+                           % (r.stderr or b"").decode("utf-8", errors="replace")[:300])
+    return "linux-cron @reboot（crontab -l 可查看）"
+
+
+def _linux_remove():
+    removed = []
+    if _linux_unit_path().is_file():
+        subprocess.run(["systemctl", "--user", "disable", "--now",
+                        AUTOSTART_NAME + ".service"], capture_output=True)
+        _linux_unit_path().unlink(missing_ok=True)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        removed.append("systemd")
+    old = _cron_lines()
+    new = _cron_strip_managed(old)
+    if new != old:
+        subprocess.run(["crontab", "-"],
+                       input=("\n".join(new) + "\n").encode("utf-8"),
+                       capture_output=True)
+        removed.append("cron")
+    return removed
+
+
+# ---- 跨平台统一入口
+
+def autostart_status():
+    """查询系统级开机自启状态（纯查询，无副作用）。"""
+    if sys.platform.startswith("win"):
+        installed, mech = _win_installed(), "windows-task-scheduler（用户登录触发）"
+    elif sys.platform == "darwin":
+        installed, mech = _mac_plist_path().is_file(), "macos-launchagent（RunAtLoad）"
+    else:
+        if _linux_unit_path().is_file():
+            installed, mech = True, "linux-systemd-user（default.target）"
+        else:
+            installed = any(l.strip() == CRON_BEGIN for l in _cron_lines())
+            mech = "linux-cron（@reboot）"
+    return {"platform": sys.platform, "mechanism": mech, "installed": installed,
+            "name": AUTOSTART_NAME, "entry": _autostart_entry(),
+            "config_ok": not missing_keys(load_env())}
+
+
+def autostart_install():
+    """创建系统级开机自启（幂等：重复执行覆盖为最新入口/工作空间）。"""
+    entry = _autostart_entry()
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    if sys.platform.startswith("win"):
+        try:
+            _win_install(entry)
+            mech = "windows-task-scheduler（用户登录触发，任务计划程序）"
+        except Exception as e1:
+            try:
+                _win_install_schtasks(entry)
+                mech = "windows-task-scheduler/schtasks+bat（用户登录触发）"
+            except Exception as e2:
+                raise RuntimeError("注册计划任务失败: %s | 兜底也失败: %s" % (e1, e2))
+    elif sys.platform == "darwin":
+        _mac_install(entry)
+        mech = "macos-launchagent（%s）" % _mac_plist_path()
+    else:
+        mech = _linux_install_systemd(entry) if _linux_mechanism() == "systemd" \
+            else _linux_install_cron(entry)
+    log("开机自启已创建: %s（autostart remove 可移除）" % mech)
+    return {"installed": True, "mechanism": mech, "name": AUTOSTART_NAME,
+            "entry": entry}
+
+
+def autostart_remove():
+    """移除系统级开机自启（不影响当前正在运行的监听进程；stop 才停进程）。"""
+    if sys.platform.startswith("win"):
+        _win_remove()
+        mech = "windows-task-scheduler"
+    elif sys.platform == "darwin":
+        _mac_remove()
+        mech = "macos-launchagent"
+    else:
+        removed = _linux_remove()
+        mech = "+".join(removed) if removed else "无（本就未安装）"
+    log("开机自启已移除(%s)" % mech)
+    return {"installed": False, "removed": mech, "name": AUTOSTART_NAME}
+
+
+def _ensure_autostart(args, cfg):
+    """首次成功启动监听后创建系统级开机自启（--no-autostart / LISTEN_AUTOSTART=off 跳过）。"""
+    if getattr(args, "no_autostart", False):
+        write_log("start.log", "[start] 开机自启: --no-autostart，跳过")
+        return
+    if (cfg.get("LISTEN_AUTOSTART") or "on").strip().lower() in ("off", "0", "no", "false"):
+        write_log("start.log", "[start] 开机自启: LISTEN_AUTOSTART=off，跳过")
+        return
+    try:
+        info = autostart_install()
+        write_log("start.log", "[start] 开机自启已创建: %s"
+                  % json.dumps(info, ensure_ascii=False))
+    except Exception as e:
+        log("开机自启创建失败(不影响监听运行): %s" % e)
+
+
+def _stop_autostart_hint():
+    try:
+        st = autostart_status()
+        if st.get("installed"):
+            log("提示: 开机自启仍保留(%s)，重启/登录后会自动拉起；"
+                "彻底关闭请执行 autostart remove" % st.get("mechanism"))
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------- 子命令
 
 def cmd_start(args):
@@ -1132,6 +1553,7 @@ def _cmd_start_impl(args):
               % (len(targets), ", ".join("%s(%s)" % (n, t) for n, _, t in targets)))
     if not args.foreground:
         _daemon_spawn(args, adapter)
+        _ensure_autostart(args, cfg)     # 首次成功启动即创建系统级开机自启
         return
     write_log("start.log", "[start] 进入前台监听主循环")
     Listener(targets, adapter, repo, cfg.get("BUGFIX_BASE_BRANCH"),
@@ -1152,6 +1574,10 @@ def cmd_status(_args):
             result.update(json.loads(STATE_FILE.read_text(encoding="utf-8")))
         except json.JSONDecodeError:
             pass
+    try:
+        result["autostart"] = autostart_status()
+    except Exception as e:
+        result["autostart"] = {"error": str(e)}
     print(json.dumps(result, ensure_ascii=False, indent=1))
 
 
@@ -1165,11 +1591,13 @@ def cmd_stop(_args):
         time.sleep(2.5)
         if not _pid_alive(pid):
             log("监听已停止 (pid=%d)" % pid)
+            _stop_autostart_hint()
             return
     log("优雅停止超时，强制结束 pid=%d" % pid)
     subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"]
                    if os.name == "nt" else ["kill", "-9", str(pid)],
                    creationflags=creation_flags())
+    _stop_autostart_hint()
 
 
 def cmd_config_status(_args):
@@ -1177,7 +1605,7 @@ def cmd_config_status(_args):
     optional = ["DWS_LISTEN_BOTS", "BUGFIX_BASE_BRANCH", "TARGET_PROJECT_PATH",
                 "AGENT_TYPE", "AGENT_MODEL", "AGENT_CUSTOM_CMD", "LISTEN_MODE",
                 "POLL_INTERVAL_SECONDS", "POLL_LOOKBACK_MINUTES",
-                "POLL_MAX_CATCHUP_MINUTES"]
+                "POLL_MAX_CATCHUP_MINUTES", "LISTEN_AUTOSTART"]
     print(json.dumps({
         "env_file": str(ENV_FILE),
         "legacy_env_file": str(LEGACY_ENV_FILE),
@@ -1203,6 +1631,17 @@ def cmd_save_config(args):
     cfg = load_env()
     print(json.dumps({"saved": sorted(updates),
                       "still_missing": missing_keys(cfg)}, ensure_ascii=False))
+
+
+def cmd_autostart(args):
+    """管理系统级开机自启：install 创建 / remove 移除 / status 查询（默认）。"""
+    if args.action == "install":
+        info = autostart_install()
+    elif args.action == "remove":
+        info = autostart_remove()
+    else:
+        info = autostart_status()
+    print(json.dumps(info, ensure_ascii=False, indent=1))
 
 
 def cmd_test_extract(args):
@@ -1231,7 +1670,8 @@ def main():
     ap = argparse.ArgumentParser(description="zentao-bugfix 钉钉消息监听器")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn in (("start", cmd_start), ("status", cmd_status),
-                     ("stop", cmd_stop), ("config-status", cmd_config_status),
+                     ("stop", cmd_stop), ("autostart", cmd_autostart),
+                     ("config-status", cmd_config_status),
                      ("save-config", cmd_save_config),
                      ("test-extract", cmd_test_extract)):
         sp = sub.add_parser(name)
@@ -1241,6 +1681,12 @@ def main():
             sp.add_argument("--model", default="", help="模型（provider/model 或模型名）")
         if name == "start":
             sp.add_argument("--foreground", action="store_true", help="前台运行（默认后台守护）")
+            sp.add_argument("--no-autostart", action="store_true",
+                            help="本次启动不创建系统级开机自启")
+        if name == "autostart":
+            sp.add_argument("action", nargs="?", default="status",
+                            choices=["install", "remove", "status"],
+                            help="install=创建 remove=移除 status=查询（默认）")
         if name == "save-config":
             sp.add_argument("pairs", nargs="+", help="KEY=VALUE ...")
         if name == "test-extract":

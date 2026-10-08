@@ -360,7 +360,7 @@ class TestVerifyFix(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             repo = self._mk_repo(td)
             wt = repo.parent / "bugfix_75042_20260920"
-            rd = wt / ".agents" / "bugfix" / "75042"
+            rd = wt / ".agents" / "zentao-bugfix" / "75042"
             rd.mkdir(parents=True)
             (rd / "meta.json").write_text("{}", encoding="utf-8")
             v = dl.verify_fix("75042", repo)
@@ -370,6 +370,20 @@ class TestVerifyFix(unittest.TestCase):
             (rd / "fix-report.md").write_text("x", encoding="utf-8")
             self.assertTrue(dl.verify_fix("75042", repo)["report"].endswith("fix-report.md"))
 
+    def test_legacy_report_dir_fallback(self):
+        """旧版 worktree（.agents/bugfix/<id> 布局）也能被识别与校验。"""
+        with tempfile.TemporaryDirectory() as td:
+            repo = self._mk_repo(td)
+            wt = repo.parent / "bugfix_75044_20260920"
+            rd = wt / ".agents" / "bugfix" / "75044"
+            rd.mkdir(parents=True)
+            (rd / "meta.json").write_text("{}", encoding="utf-8")
+            (rd / "analysis.md").write_text("已完整", encoding="utf-8")
+            v = dl.verify_fix("75044", repo)
+            self.assertTrue(v["ok"])
+            self.assertTrue(v["report_dir"].endswith(".agents%sbugfix%s75044" % (os.sep, os.sep)))
+            self.assertTrue(v["analysis_complete"])
+
     def test_worktree_without_meta_not_counted(self):
         """同名目录但无 meta.json（残留/伪造）不算 prepare 成功。"""
         with tempfile.TemporaryDirectory() as td:
@@ -378,17 +392,19 @@ class TestVerifyFix(unittest.TestCase):
             self.assertFalse(dl.verify_fix("75042", repo)["ok"])
 
     def test_analysis_first_states(self):
-        """分析先行校验：analysis.md 缺失/未补全/已完整三种状态。"""
+        """分析先行校验：analysis/solution 缺失/未补全/已完整三种状态。"""
         with tempfile.TemporaryDirectory() as td:
             repo = self._mk_repo(td)
             wt = repo.parent / "bugfix_75043_20260920"
-            rd = wt / ".agents" / "bugfix" / "75043"
+            rd = wt / ".agents" / "zentao-bugfix" / "75043"
             rd.mkdir(parents=True)
             (rd / "meta.json").write_text("{}", encoding="utf-8")
             v = dl.verify_fix("75043", repo)
             self.assertTrue(v["ok"])
             self.assertFalse(v["analysis_complete"])          # missing
             self.assertEqual(v["analysis_state"], "missing")
+            self.assertFalse(v["solution_complete"])
+            self.assertEqual(v["solution_state"], "missing")
             (rd / "analysis.md").write_text("（待填写）", encoding="utf-8")
             v = dl.verify_fix("75043", repo)
             self.assertFalse(v["analysis_complete"])          # 仍有待填写
@@ -397,6 +413,10 @@ class TestVerifyFix(unittest.TestCase):
             v = dl.verify_fix("75043", repo)
             self.assertTrue(v["analysis_complete"])
             self.assertEqual(v["analysis_state"], "no")
+            (rd / "solution.md").write_text("方案：xxx（待填写）", encoding="utf-8")
+            self.assertFalse(dl.verify_fix("75043", repo)["solution_complete"])
+            (rd / "solution.md").write_text("方案：xxx", encoding="utf-8")
+            self.assertTrue(dl.verify_fix("75043", repo)["solution_complete"])
 
 
 class TestFixPrompt(unittest.TestCase):
@@ -412,15 +432,16 @@ class TestFixPrompt(unittest.TestCase):
         self.assertNotIn("基准分支必须", p)
 
     def test_analysis_first_ordering(self):
-        """分析先行：提示词必须先补全 analysis.md（不改代码）再实施修复。"""
+        """分析先行：提示词必须先补全 analysis.md/solution.md（不改代码）再实施修复。"""
         p = dl.build_fix_prompt("12345")
         self.assertIn("补全 analysis.md", p)
+        self.assertIn("solution.md", p)
         self.assertIn("禁止修改任何代码文件", p)
-        self.assertIn("依据分析报告", p)
+        self.assertIn("依据 solution.md", p)
         # 顺序：补全 analysis.md 的步骤先于实施修复的步骤
         self.assertLess(p.index("补全 analysis.md"), p.index("实施修复"))
-        # 分析报告落盘位置指向 worktree 的 .agents
-        self.assertIn(".agents", p)
+        # 分析报告落盘位置指向 worktree 的 .agents/zentao-bugfix
+        self.assertIn(".agents/zentao-bugfix/", p)
 
 
 class TestCreationFlags(unittest.TestCase):
@@ -542,6 +563,108 @@ class TestPollFallback(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo,
                             None, "auto", None, "0", None)
+
+
+class TestAutostart(unittest.TestCase):
+    """开机自启模块：纯函数与开关逻辑（不碰真实系统计划任务/crontab）。"""
+
+    def test_entry_defaults(self):
+        e = dl._autostart_entry()
+        self.assertEqual(e["args"], ["start", "--foreground"])
+        self.assertTrue(e["script"].endswith("dingtalk_listen.py"))
+        self.assertEqual(e["workspace"], str(dl.BASE_DIR))
+        self.assertTrue(Path(e["python"]).name.startswith("python"))
+
+    def test_ps_quote(self):
+        self.assertEqual(dl._ps_quote("C:\\a b.py"), "'C:\\a b.py'")
+        self.assertEqual(dl._ps_quote("it's"), "'it''s'")
+
+    def test_win_ps_command(self):
+        e = {"python": "C:\\py\\pythonw.exe", "script": "C:\\s p\\dingtalk_listen.py",
+             "args": ["start", "--foreground"], "workspace": "C:\\ws dir"}
+        ps = dl._win_ps_command(e)
+        self.assertIn("-AtLogOn", ps)                       # 登录触发
+        self.assertIn("-ExecutionTimeLimit ([TimeSpan]::Zero)", ps)  # 无 72h 时限
+        self.assertIn("-WorkingDirectory 'C:\\ws dir'", ps)
+        self.assertIn("-Argument '\"C:\\s p\\dingtalk_listen.py\" start --foreground'", ps)
+        self.assertIn("-TaskName '%s'" % dl.AUTOSTART_NAME, ps)
+        self.assertIn("-Force", ps)                         # 幂等覆盖
+
+    def test_mac_plist_xml(self):
+        e = {"python": "/usr/bin/python3", "script": "/opt/space dir/dl.py",
+             "args": ["start", "--foreground"], "workspace": "/Users/x/ws & ops"}
+        xml = dl._mac_plist_xml(e)
+        self.assertIn("<string>%s</string>" % dl.AUTOSTART_LABEL, xml)
+        self.assertIn("<string>/usr/bin/python3</string>", xml)
+        self.assertIn("<string>/opt/space dir/dl.py</string>", xml)
+        self.assertIn("<string>start</string>", xml)
+        self.assertIn("<key>RunAtLoad</key>\n    <true/>", xml)
+        self.assertIn("<key>KeepAlive</key>\n    <false/>", xml)
+        self.assertIn("<string>/Users/x/ws &amp; ops</string>", xml)  # XML 转义
+
+    def test_linux_unit_content(self):
+        e = {"python": "/usr/bin/python3", "script": "/opt/space dir/dl.py",
+             "args": ["start", "--foreground"], "workspace": "/home/x/ws dir"}
+        u = dl._linux_unit_content(e)
+        self.assertIn("WorkingDirectory=/home/x/ws dir", u)
+        self.assertIn("ExecStart=/usr/bin/python3 '/opt/space dir/dl.py'"
+                      " start --foreground", u)
+        self.assertIn("Restart=on-failure", u)
+        self.assertIn("WantedBy=default.target", u)
+
+    def test_linux_cron_entry(self):
+        e = {"python": "/usr/bin/python3", "script": "/opt/space dir/dl.py",
+             "args": ["start", "--foreground"], "workspace": "/home/x/ws dir"}
+        line = dl._linux_cron_entry(e)
+        self.assertTrue(line.startswith("@reboot cd '/home/x/ws dir' &&"))
+        self.assertIn("'/opt/space dir/dl.py' start --foreground", line)
+        self.assertIn("cron.out", line)
+
+    def test_cron_strip_managed(self):
+        foreign = ["0 9 * * * /usr/bin/backup", "# user comment"]
+        lines = foreign + ["", dl.CRON_BEGIN, "@reboot old-entry", dl.CRON_END, "", "kept"]
+        # 块内条目移除，块外的空行保留（仅收尾空行会被清理）
+        self.assertEqual(dl._cron_strip_managed(lines),
+                         foreign + ["", "", "kept"])
+        self.assertEqual(dl._cron_strip_managed(foreign), foreign)   # 无托管块不动
+        self.assertEqual(dl._cron_strip_managed([]), [])
+        self.assertEqual(dl._cron_strip_managed([dl.CRON_BEGIN, "x", dl.CRON_END]), [])
+        # 块在末尾且后有尾随空行 → 清理尾随空行
+        self.assertEqual(dl._cron_strip_managed(foreign + ["", dl.CRON_BEGIN, "x", dl.CRON_END, "", ""]),
+                         foreign)
+
+    def test_ensure_autostart_switches(self):
+        import argparse
+        args = argparse.Namespace(no_autostart=False)
+        called = []
+        orig = dl.autostart_install
+        dl.autostart_install = lambda: called.append(1) or {"installed": True}
+        try:
+            dl._ensure_autostart(args, {"LISTEN_AUTOSTART": "off"})
+            self.assertEqual(called, [])                    # off → 不创建
+            args.no_autostart = True
+            dl._ensure_autostart(args, {})
+            self.assertEqual(called, [])                    # --no-autostart → 不创建
+            args.no_autostart = False
+            dl._ensure_autostart(args, {})                  # 默认 → 创建
+            self.assertEqual(called, [1])
+            dl._ensure_autostart(args, {"LISTEN_AUTOSTART": "ON"})
+            self.assertEqual(called, [1, 1])                # 大小写不敏感
+        finally:
+            dl.autostart_install = orig
+
+    def test_ensure_autostart_install_failure_not_fatal(self):
+        import argparse
+        args = argparse.Namespace(no_autostart=False)
+
+        def boom():
+            raise RuntimeError("no permission")
+        orig = dl.autostart_install
+        dl.autostart_install = boom
+        try:
+            dl._ensure_autostart(args, {})                  # 创建失败不抛出（不影响监听）
+        finally:
+            dl.autostart_install = orig
 
 
 if __name__ == "__main__":

@@ -1,0 +1,10 @@
+{
+  "eval_id": 2,
+  "eval_name": "prefix-normalize-missing-base",
+  "prompt": "帮我从 dev/v6.0.7.0 拉一个工作空间，分支叫 fixbug/abc-75339。",
+  "assertions": [
+    "识别基分支并补 origin/ 前缀",
+    "目录名 fixbug_abc-75339",
+    "分支不存在时不编造"
+  ]
+}

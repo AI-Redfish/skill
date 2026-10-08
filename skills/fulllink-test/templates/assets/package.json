@@ -1,0 +1,10 @@
+{
+  "name": "fulllink-test-workspace-assets",
+  "private": true,
+  "_comment": "Node 探针脚本运行依赖（仅当探针用 Node.js 时 npm install）。Python 探针用 uv run，依赖在探针脚本头部以 PEP 723 内联声明；其他语言同理装在工作空间侧。",
+  "dependencies": {
+    "amqplib": "^0.10.0",
+    "mysql2": "^3.0.0",
+    "mqtt": "^5.0.0"
+  }
+}

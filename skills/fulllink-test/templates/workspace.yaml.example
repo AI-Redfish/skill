@@ -1,0 +1,62 @@
+# 测试工作空间元数据（由 init 模式填写；本文件不含任何凭据）
+project: <项目名，与目录名一致，如 basic-platform>   # 一个项目一个空间，项目名 init 时经用户确认
+kind: multi            # backend | frontend | mobile | multi（前后端分离/微前端等多仓库）
+
+# ── 代码仓库登记表：一个项目可含 1~N 个 git 仓库 ──────────────────────────
+# 所有仓库 clone 到本空间下，与 docs/assets/runs 平级（测试内容永在仓库外，不会被提交）。
+# primary: true 为主仓库（测试模式默认解析对象）；baseBranch 为该仓库 diff 基线主干分支。
+repos:
+  basic-platform-service:          # 仓库名 = 空间内目录名
+    url: <git remote url>
+    kind: backend
+    primary: true
+    baseBranch: develop            # 不配置则自动探测 develop/master/main/release
+  bps-web:
+    url: <git remote url>
+    kind: frontend                 # 前端主应用
+    baseBranch: master
+  bps-app-monitor:
+    url: <git remote url>
+    kind: frontend                 # 前端微应用
+    baseBranch: master
+
+language: <按仓库描述，如 backend: java-springcloud；frontend: vue>
+build: <按仓库描述，如 service: mvn -s settings.xml clean package -DskipTests；web: npm run build>
+toolVersion: 1.2.0     # 创建本空间所用 fulllink-test skill 版本
+
+# 模块粗映射：仓库名:路径 glob → 功能域（影响分析的加速索引，细节看 docs/02-feature-map.md）
+modules:
+  "basic-platform-service:application/**/monitor/**": [monitor-iot, monitor-forward]
+  "basic-platform-service:application/**/order/**": [order]
+  "bps-web:src/views/order/**": [order]
+
+# 部署单元与指纹获取方式（执行对账时按需参考/校验；跨仓库部署单元注明来源仓库）
+services:
+  monitor:
+    repo: basic-platform-service
+    health: http://<host>:<port>/actuator/health
+    fingerprint: http://<host>:<port>/actuator/git-commit-id
+
+# 本空间可用的 MCP 能力登记（agent 只用这里登记过的 server；未登记=不存在）
+mcp:
+  mysql:
+    server: <mcp server 名>
+    usage: [查询对账, 造数, 索引与EXPLAIN验证]
+  rabbitmq:
+    server: <mcp server 名>
+    usage: [队列状态, 单发消息, 消费确认]
+  mqtt:
+    server: <mcp server 名>
+    usage: [订阅topic, 收推送断言]
+  redis:
+    server: <mcp server 名>
+    usage: [缓存键断言, TTL验证]
+  nacos:
+    server: <mcp server 名>
+    usage: [实例存活, 配置读取]
+
+# 环境索引（环境信息台账见 docs/04-env-matrix.md，init 对话登记、后续可修改；default: true 为测试模式默认目标）
+environments:
+  - name: "147"
+    default: true
+    note: 192.168.0.147 联调环境

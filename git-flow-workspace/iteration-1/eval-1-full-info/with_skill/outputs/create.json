@@ -1,0 +1,19 @@
+{
+  "status": "ok",
+  "data": {
+    "created": true,
+    "plan": {
+      "repo": "/tmp/gitflow-eval.quGG/main-repo",
+      "worktree_path": "/tmp/gitflow-eval.quGG/v6.0.8.1_feature_zly-sharelease-20261008",
+      "worktree_path_windows": null,
+      "worktree_name": "v6.0.8.1_feature_zly-sharelease-20261008",
+      "branch": "v6.0.8.1/feature/zly-sharelease-20261008",
+      "base": "origin/dev/v6.0.8.1",
+      "base_commit": "15d4d97c9f12db69eeff8fbec998adbcf1176e5d",
+      "mode": "new-branch",
+      "fetch": "skipped（默认用本地引用；需要最新代码时加 --fetch）",
+      "dry_run": false
+    },
+    "git_output_last_line": "HEAD is now at 15d4d97 init"
+  }
+}

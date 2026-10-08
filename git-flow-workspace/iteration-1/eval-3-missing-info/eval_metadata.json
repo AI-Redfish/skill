@@ -1,0 +1,9 @@
+{
+  "eval_id": 3,
+  "eval_name": "missing-info-clarify",
+  "prompt": "新开一个空间开发共享租约功能。",
+  "assertions": [
+    "仅提出一个问题",
+    "未输出最终方案"
+  ]
+}

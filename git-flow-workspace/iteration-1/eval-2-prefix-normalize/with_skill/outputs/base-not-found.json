@@ -1,0 +1,8 @@
+{
+  "status": "error",
+  "error": {
+    "error_code": "BASE_NOT_FOUND",
+    "message": "基分支不存在或无法解析：origin/dev/v6.0.7.0",
+    "hint": "用 `git branch -r` 查看可用远程分支；注意前缀 origin/"
+  }
+}

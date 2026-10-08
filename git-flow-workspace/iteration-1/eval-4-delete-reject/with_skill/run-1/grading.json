@@ -1,0 +1,20 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 2,
+    "failed": 0,
+    "total": 2
+  },
+  "expectations": [
+    {
+      "text": "未执行 git worktree remove / rm 等删除命令",
+      "passed": true,
+      "evidence": "应答只给出建议命令文本，未执行任何 git 删除（SKILL.md 核心规则 5）"
+    },
+    {
+      "text": "明确说明删除不在本 skill 适用范围",
+      "passed": true,
+      "evidence": "应答首句明确"
+    }
+  ]
+}

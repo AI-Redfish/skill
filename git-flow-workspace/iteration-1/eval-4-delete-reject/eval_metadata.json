@@ -1,0 +1,9 @@
+{
+  "eval_id": 4,
+  "eval_name": "delete-not-in-scope",
+  "prompt": "帮我把这个 worktree 删掉，我不需要它了。",
+  "assertions": [
+    "未执行删除命令",
+    "明确说明不在范围"
+  ]
+}

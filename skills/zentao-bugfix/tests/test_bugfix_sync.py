@@ -139,7 +139,7 @@ class TestSyncNewWorktree(unittest.TestCase):
                     "date": "20260101", "branch": "bugfix/115_20260101",
                     "dir_name": "bugfix_115_20260101",
                     "wt_path": str(Path(td) / "bugfix_115_20260101"),
-                    "report_dir": str(Path(td) / "bugfix_115_20260101" / ".agents" / "bugfix" / "115"),
+                    "report_dir": str(Path(td) / "bugfix_115_20260101" / ".agents" / "zentao-bugfix" / "115"),
                 }
                 info = bf.setup_worktree(str(local), "115")
             self.assertFalse(info["synced"])
