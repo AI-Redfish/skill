@@ -1,15 +1,20 @@
-# assets/probes/ — 沉淀探针脚本（语言不限）
+# assets/probes/ — 沉淀探针脚本（按功能模块分目录，语言不限）
 
-从 `runs/<主题>/scratch/` 沉淀出的可复用探针，按功能域分目录存放：
+从 `runs/<主题>/scratch/` 沉淀出的可复用探针。**目录按功能模块整理，与
+`docs/02-modules/<模块名>/` 同名对齐**（模块清单见 `docs/01-architecture/module-map.md`）：
 
 ```
-probes/
-├── iot-property/          # 功能域
-│   ├── check_fanout.py    # Python 探针（uv run）
-│   └── check_consume.js   # Node 探针（node 直接运行）
-└── order/
-    └── check_side_effect.sh
+assets/
+├── common/                  # 公共库（全局共享，不按模块分）
+└── probes/
+    ├── monitor-iot/         # ← 对应 docs/02-modules/monitor-iot/
+    │   ├── check_fanout.py  # Python 探针（uv run）
+    │   └── check_consume.js # Node 探针（node 直接运行）
+    └── order/
+        └── check_side_effect.sh
 ```
+
+模块的探针清单在 `docs/02-modules/<模块名>/README.md` 的"已沉淀探针"节双向登记。
 
 ## 通用契约（任何语言必须遵守）
 
@@ -17,7 +22,7 @@ probes/
 2. **输出**：断言明细到 stdout（JSON 优先，含 name/ok/evidence），日志到 stderr
 3. **凭据**只从 `assets/common/env.secret.json` 读取（经 lib.js / lib.py 合并 env.json），不硬编码
 4. **长整型 ID** 一律按字符串处理（Node 走 lib.js 的 bigNumberStrings；Python 值天然保持 str）
-5. **依赖装在工作空间侧**，永不装进 skill 目录：
+5. **依赖装在工作空间侧**，永不装进 skill 目录或 repos/ 下的代码仓库：
    - Node → 空间根 `package.json` + `npm install`，脚本内 `require('../common/lib.js')`
    - Python → 探针头部写 PEP 723 内联依赖（`# /// script` 块），`uv run <脚本>` 执行，
      脚本内 `sys.path` 加入 `common/` 后 `import lib`
@@ -28,13 +33,13 @@ probes/
 
 ```bash
 # Node 探针（依赖已在空间根 npm install）
-node probes/iot-property/check_consume.js
+node assets/probes/monitor-iot/check_consume.js
 
 # Python 探针（uv 自动按内联依赖装环境）
-uv run probes/iot-property/check_fanout.py
+uv run assets/probes/monitor-iot/check_fanout.py
 
 # Shell 探针
-bash probes/order/check_side_effect.sh
+bash assets/probes/order/check_side_effect.sh
 ```
 
 Python 探针头部内联依赖示例：

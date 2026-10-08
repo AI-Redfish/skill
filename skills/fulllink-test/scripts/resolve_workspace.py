@@ -32,6 +32,8 @@ _DEV_SUBDIRS = ("develop", "dev", "workspace", "workspaces", "projects")
 ENV_KEY = "FULLLINK_TESTSPACES_ROOT"
 WORKSPACE_MARK = "workspace.yaml"
 MAX_UP = 4  # 向上查找所属空间的最大层级
+REPOS_DIR = "repos"
+RESERVED_ROOT_ENTRIES = {"docs", "assets", "runs", "repos", ".git", "node_modules"}
 
 
 def log(msg: str) -> None:
@@ -146,6 +148,22 @@ def find_workspace_up(repo_dir: str, max_up: int = MAX_UP) -> str | None:
     return None
 
 
+def repo_name_under(repo_dir: str, ws: str) -> str | None:
+    """从空间内路径提取仓库名：repos/<仓库> 优先；兼容仓库直接放空间根的旧布局。"""
+    rel = os.path.relpath(repo_dir, ws)
+    if rel == ".":
+        return None
+    parts = [p for p in rel.replace("\\", "/").split("/") if p not in (".", "")]
+    if not parts:
+        return None
+    if parts[0] == REPOS_DIR and len(parts) >= 2:
+        return parts[1]
+    if (len(parts) == 1 and parts[0] not in RESERVED_ROOT_ENTRIES
+            and not parts[0].endswith((".yaml", ".json", ".md"))):
+        return parts[0]
+    return None
+
+
 def extract_project_name(remote_url: str) -> str:
     """从 remote url 提取仓库名：取最后一段路径，去 .git 后缀。
 
@@ -190,7 +208,7 @@ def locate_repo(repo_dir_arg: str) -> int:
 
     ws = find_workspace_up(repo_dir)
     if ws:
-        repo = None if os.path.samefile(ws, repo_dir) else os.path.basename(repo_dir.rstrip("/\\"))
+        repo = repo_name_under(repo_dir, ws)
         registered = None
         if repo:
             t = read_text(os.path.join(ws, WORKSPACE_MARK))
@@ -213,7 +231,7 @@ def locate_repo(repo_dir_arg: str) -> int:
     print(json.dumps({"status": "ok", "data": {
         "mode": "external", "repo_dir": repo_dir, "remote_url": remote,
         "repo_name": repo_name,
-        "hint": "外部仓库：init 时对话确认项目名后，git clone 到 <根>/<项目名>/<repo_name>/ "
+        "hint": "外部仓库：init 时对话确认项目名后，git clone 到 <根>/<项目名>/repos/<repo_name>/ "
                 "并在 workspace.yaml 的 repos 登记表登记（url/kind/primary/baseBranch）",
     }}, ensure_ascii=False, indent=2))
     return 0
@@ -247,11 +265,14 @@ def resolve_project(args) -> int:
 
     ws = os.path.join(root, project)
     data = {"project": project, "root": root, "root_source": root_source,
-            "workspace": ws, "exists": os.path.isdir(ws), "created": False}
-    if args.create and not data["exists"]:
-        os.makedirs(ws, exist_ok=True)
-        data["created"] = True
-        log(f"已创建工作空间目录：{ws}")
+            "workspace": ws, "repos_dir": os.path.join(ws, REPOS_DIR),
+            "exists": os.path.isdir(ws), "created": False}
+    if args.create:
+        os.makedirs(os.path.join(ws, REPOS_DIR), exist_ok=True)  # 代码仓库统一目录
+        if not data["exists"]:
+            os.makedirs(ws, exist_ok=True)
+            data["created"] = True
+            log(f"已创建工作空间目录：{ws}（含 {REPOS_DIR}/）")
     print(json.dumps({"status": "ok", "data": data}, ensure_ascii=False, indent=2))
     return 0
 

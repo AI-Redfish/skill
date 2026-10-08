@@ -7,11 +7,11 @@
   python3 workspace_check.py --workspace /path/to/space [--out report.json]
 检查项:
   W1 workspace.yaml 存在且含顶层键 project/kind 及 repo|repos 之一 (error)
-  W2 docs/ 目录及功能索引、环境矩阵文档存在                    (error/warning)
+  W2 docs/ 知识层结构（模块地图/模块目录/环境台账）存在    (error/warning)
   W3 assets/common/env.json 存在、合法 JSON 且含 activeEnv+envs (error)
   W4 明文密钥扫描（yaml/json/docs 中 password 等赋实值）       (error)
   W5 env.secret.json 的 gitignore 提醒                         (warning)
-  W6 空间内 git 仓库目录未登记到 workspace.yaml                (warning)
+  W6 repos/ 及空间根的 git 仓库目录未登记到 workspace.yaml     (warning)
 退出码: 0=无 error（warning 需逐条确认） 1=存在 error 2=参数错误
 """
 from __future__ import annotations
@@ -97,17 +97,21 @@ def run_checks(ws: str) -> list[dict]:
             "workspace.yaml 必需顶层键齐全",
             f"workspace.yaml 缺少顶层键：{missing}（project/kind 及 repo|repos）")
 
-    # W2 docs
+    # W2 docs 知识层结构
     docs = os.path.join(ws, "docs")
     if not os.path.isdir(docs):
         add("W2", "error", False, "", f"缺少 docs/ 目录（{docs}）")
     else:
-        feature = os.path.join(docs, "02-feature-map.md")
-        envmat = os.path.join(docs, "04-env-matrix.md")
-        missing = [n for n, p in (("02-feature-map.md", feature), ("04-env-matrix.md", envmat)) if not os.path.isfile(p)]
+        missing = []
+        if not os.path.isfile(os.path.join(docs, "01-architecture", "module-map.md")):
+            missing.append("01-architecture/module-map.md")
+        if not os.path.isdir(os.path.join(docs, "02-modules")):
+            missing.append("02-modules/")
+        if not os.path.isfile(os.path.join(docs, "04-env-matrix.md")):
+            missing.append("04-env-matrix.md")
         add("W2", "warning", not missing,
-            "功能索引与环境矩阵文档存在",
-            f"docs/ 缺少文档：{missing}（init 未完成或被移动）")
+            "知识层结构齐全（模块地图/模块目录/环境台账）",
+            f"docs/ 缺少：{missing}（init 未完成或被移动）")
 
     # W3 env.json
     env_path = os.path.join(ws, "assets", "common", "env.json")
@@ -161,17 +165,23 @@ def run_checks(ws: str) -> list[dict]:
     else:
         add("W5", "warning", True, "未配置 env.secret.json（相关对账将降级）", "")
 
-    # W6 代码仓库登记一致性：空间一级子目录中的 git 仓库应在 workspace.yaml 中登记
+    # W6 代码仓库登记一致性：repos/ 下（含空间根兼容）的 git 仓库应在 workspace.yaml 登记
     git_repos: list[str] = []
     try:
-        git_repos = [n for n in sorted(os.listdir(ws))
-                     if os.path.isdir(os.path.join(ws, n, ".git"))]
+        for base in (os.path.join(ws, "repos"), ws):
+            if not os.path.isdir(base):
+                continue
+            for n in sorted(os.listdir(base)):
+                if base == ws and n in ("docs", "assets", "runs", "repos"):
+                    continue
+                if os.path.isdir(os.path.join(base, n, ".git")):
+                    git_repos.append(n)
     except OSError:
         pass
     unregistered = [n for n in git_repos if yaml_text is None or n not in yaml_text]
     if git_repos:
         add("W6", "warning", not unregistered,
-            f"空间内 {len(git_repos)} 个代码仓库均已登记",
+            f"repos/ 下 {len(git_repos)} 个代码仓库均已登记",
             f"存在未在 workspace.yaml 登记的代码仓库目录：{unregistered}")
     else:
         add("W6", "warning", True, "空间内无代码仓库目录（可选，骨架期正常）", "")
