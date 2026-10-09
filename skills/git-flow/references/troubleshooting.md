@@ -73,7 +73,23 @@ git 限制：一个本地分支同一时刻只能被一个 worktree 检出。
 - 脚本 JSON 同时输出 `worktree_path`（posix）与 `worktree_path_windows`（如有）
 - 手工转换：`/mnt/<盘>/a/b` ↔ `<盘大写>:\a\b`；注意反斜杠方向
 
-## 7. 大仓库性能参考
+## 7. WSL可用但Windows Git / IDEA / Maven无法读取HEAD
+
+`.git` 在linked worktree中是文件，这是正常格式；先读取其 `gitdir:`，再查真实管理目录的 `gitdir` 回指针与 `commondir`。`/mnt/d/...` 是WSL路径，Windows Git不能直接识别；Windows盘符绝对路径也不能直接用于WSL Git。
+
+```bash
+python3 <skill_dir>/scripts/worktree_paths.py --repo <worktree>
+# 用户已授权修复，且当前端Git能解析该worktree时：
+python3 <skill_dir>/scripts/worktree_paths.py --repo <worktree> --repair
+```
+
+修复查询真实管理目录而非推算 `.git/worktrees/<目录名>`，两个指针相对化，失败自动恢复原字节。主仓库与worktree位于不同Windows盘时不能用相对路径保证双端访问，选择同盘布局或单一Git运行环境并明确限制。
+
+若当前端完全无法解析指针，切换到能解析的Git环境修复；不要盲目运行另一端 `git worktree repair` 将路径再次写成单端绝对路径。不要删除重建已有工作区。完成后从实际使用的Windows与WSL端分别验证根目录、分支、HEAD及 `git worktree list`；某一端Git不可用则报告未验证。
+
+IDEA还需 Settings → Version Control → Git 的执行路径正确，以及 Directory Mappings 将项目根映射为Git。路径修复后仍有Git插件构建失败，再查插件兼容性，不能把跳过插件当作路径修复。
+
+## 8. 大仓库性能参考
 
 | 场景 | 实测 | 建议 |
 |---|---|---|

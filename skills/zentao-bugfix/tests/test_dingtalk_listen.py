@@ -365,7 +365,8 @@ class TestVerifyFix(unittest.TestCase):
             (rd / "meta.json").write_text("{}", encoding="utf-8")
             v = dl.verify_fix("75042", repo)
             self.assertTrue(v["ok"])
-            self.assertEqual(v["worktree"], str(wt))
+            # Windows TEMP 可能是 8.3 短路径，按 realpath 归一后比较。
+            self.assertEqual(os.path.realpath(v["worktree"]), os.path.realpath(str(wt)))
             self.assertIsNone(v["report"])          # 尚无 fix-report.md
             (rd / "fix-report.md").write_text("x", encoding="utf-8")
             self.assertTrue(dl.verify_fix("75042", repo)["report"].endswith("fix-report.md"))

@@ -61,6 +61,8 @@
 3. clone 各源码仓库进 `repos/`：`git clone <remote url> <空间>/repos/<仓库名>/`
    （用户日常开发仓库不动；空间内仓库是测试检出，准备分支后测试执行期间内容只读；
    **binary 第三方交付物不 clone**，文件留在原处/环境侧，只登记）
+   - 外部源码目录为worktree时先用 `resolve_workspace.py --repo-dir <目录>` 的只读兼容性检查，不能因 `.git` 为文件误判。clone沿用默认，clone完成后用实际Git验证分支与HEAD。
+   - 用户明确要求以worktree提供源码时遵守SKILL.md的跨平台指针规则；Windows/WSL两端分别验证，失败不输出初始化成功，不擅自修复外部业务仓库。
 4. 环境信息登记（详见第 4 步）：**先从构建配置考古线索**（pom profiles /
    application*.yml / bootstrap.properties / nacos 配置中的地址与中间件），再对话
    确认落盘；用户暂不提供 → 环境相关项标 `未配置`，不阻塞骨架交付

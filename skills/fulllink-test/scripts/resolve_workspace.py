@@ -21,11 +21,17 @@
 """
 from __future__ import annotations
 import argparse
+import importlib.util
+from pathlib import Path
 import json
 import os
 import re
 import subprocess
 import sys
+
+_paths_spec = importlib.util.spec_from_file_location("worktree_paths", Path(__file__).with_name("worktree_paths.py"))
+_paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(_paths)
 
 # 推荐逻辑：扫描各盘/家目录下的常见开发子目录，命中即推荐 <开发目录>/testspaces
 _DEV_SUBDIRS = ("develop", "dev", "workspace", "workspaces", "projects")
@@ -200,12 +206,19 @@ def git_remote_url(repo_dir: str) -> str:
 
 def locate_repo(repo_dir_arg: str) -> int:
     """代码目录 → 所属空间（mode: located）或外部仓库识别（mode: external）。"""
-    repo_dir = os.path.abspath(repo_dir_arg)
+    repo_dir = os.path.abspath(_paths.native_path(repo_dir_arg))
     if not os.path.isdir(repo_dir):
         return fail(f"代码目录不存在：{repo_dir}",
                     "路径错误或不可读",
                     "确认 --repo-dir 指向项目代码目录后重跑")
 
+    compatibility = None
+    if os.path.isfile(os.path.join(repo_dir, ".git")):
+        try:
+            compatibility = _paths.check_worktree(repo_dir)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            return fail("worktree的Git路径不可用或跨平台不一致", str(exc),
+                        "本命令不改业务仓库；使用可识别该路径的Git诊断，显式修复后重试，或使用独立clone")
     ws = find_workspace_up(repo_dir)
     if ws:
         repo = repo_name_under(repo_dir, ws)
@@ -217,6 +230,7 @@ def locate_repo(repo_dir_arg: str) -> int:
         print(json.dumps({"status": "ok", "data": {
             "mode": "located", "repo_dir": repo_dir, "workspace": ws,
             "repo": repo, "registered_in_yaml": registered,
+            "worktree_compatibility": compatibility,
         }}, ensure_ascii=False, indent=2))
         return 0
 
@@ -231,6 +245,7 @@ def locate_repo(repo_dir_arg: str) -> int:
     print(json.dumps({"status": "ok", "data": {
         "mode": "external", "repo_dir": repo_dir, "remote_url": remote,
         "repo_name": repo_name,
+        "worktree_compatibility": compatibility,
         "hint": "外部仓库：init 时对话确认项目名后，git clone 到 <根>/<项目名>/repos/<repo_name>/ "
                 "并在 workspace.yaml 的 repos 登记表登记（url/kind/primary/baseBranch）",
     }}, ensure_ascii=False, indent=2))

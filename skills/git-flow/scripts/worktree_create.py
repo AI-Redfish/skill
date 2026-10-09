@@ -18,12 +18,17 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path, PureWindowsPath
+
+_paths_spec = importlib.util.spec_from_file_location("worktree_paths", Path(__file__).with_name("worktree_paths.py"))
+_paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(_paths)
 
 # ---------------------------------------------------------------------------
 # 基础工具
@@ -102,7 +107,7 @@ def main() -> int:
     args = parser.parse_args()
 
     # --- 1. 定位主仓库 ---
-    repo = args.repo or os.getcwd()
+    repo = _paths.native_path(args.repo or os.getcwd())
     rc, toplevel, err = run_git(["rev-parse", "--show-toplevel"], cwd=repo)
     if rc != 0:
         return fail(
@@ -111,6 +116,8 @@ def main() -> int:
             "确认 --repo 指向主仓库（含 .git 的目录），或先 cd 到仓库内再执行",
         )
     toplevel = toplevel.splitlines()[0]
+    # Windows git 可能返回 8.3 短路径（ADMINI~1），统一展开为长路径再计算同级目录。
+    toplevel = os.path.realpath(toplevel)
     log(f"主仓库: {toplevel}")
 
     # --- 2. 校验新分支名 ---
@@ -208,6 +215,13 @@ def main() -> int:
         return fail("WORKTREE_ADD_FAILED", f"git worktree add 失败：{err or out}",
                     "常见原因：检出被中断（重跑本命令，分支残留时加 --reuse-branch）、磁盘空间不足、路径权限")
 
+    try:
+        compatibility = _paths.repair_worktree(worktree_path)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        return fail("WORKTREE_COMPATIBILITY_FAILED", str(exc),
+                    "工作区与分支已保留；修复指针后验证，不删除、不重新创建。",
+                    {"worktree_path": worktree_path, "branch": args.branch})
+    plan["compatibility"] = compatibility
     plan["dry_run"] = False
     print(json.dumps({"status": "ok", "data": {"created": True, "plan": plan,
                                                "git_output_last_line": out.splitlines()[-1] if out else ""}},

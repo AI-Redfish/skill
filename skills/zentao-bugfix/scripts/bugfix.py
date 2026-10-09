@@ -68,6 +68,9 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
 """
 import argparse
 import html as html_mod
+import datetime
+import importlib.util
+from pathlib import Path
 import http.cookiejar
 import json
 import os
@@ -76,6 +79,10 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+
+_paths_spec = importlib.util.spec_from_file_location("worktree_paths", Path(__file__).with_name("worktree_paths.py"))
+_paths = importlib.util.module_from_spec(_paths_spec)
+_paths_spec.loader.exec_module(_paths)
 
 REQUIRED_KEYS = ["ZENTAO_BASE_URL", "ZENTAO_ACCOUNT", "ZENTAO_PASSWORD"]
 TIMEOUT = 30
@@ -390,7 +397,7 @@ def worktree_info(project_dir, bug_id, base_branch_arg=None):
         sys.exit(2)
     rc, out, _ = run_git(["rev-parse", "--short", "HEAD"], repo_root, check=False)
     head_short = out.strip()
-    date = subprocess.run(["date", "+%Y%m%d"], text=True, stdout=subprocess.PIPE).stdout.strip()
+    date = datetime.date.today().strftime("%Y%m%d")
     branch = "bugfix/%s_%s" % (bug_id, date)
     dir_name = branch.replace("/", "_")
     wt_path = os.path.join(parent_dir, dir_name)
@@ -721,16 +728,20 @@ def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None)
             log("ERROR: 创建 worktree 失败: %s" % e)
             sys.exit(3)
 
-        # 相对路径改写：WSL git / Windows git 双环境兼容
-        repo_name = os.path.basename(repo_root)
-        admin_dir = os.path.join(repo_root, ".git", "worktrees", info["dir_name"])
-        if os.path.isdir(os.path.join(repo_root, ".git")) and os.path.isdir(admin_dir):
-            with open(os.path.join(wt_path, ".git"), "w", encoding="utf-8") as f:
-                f.write("gitdir: ../%s/.git/worktrees/%s\n" % (repo_name, info["dir_name"]))
-            with open(os.path.join(admin_dir, "gitdir"), "w", encoding="utf-8") as f:
-                f.write("../../../../%s/.git\n" % info["dir_name"])
-        else:
-            log("[warn] 非标准 .git 布局，跳过相对路径改写")
+        # 查询真实管理目录，兼容嵌套worktree和Git自动追加的管理目录后缀。
+        try:
+            info["compatibility"] = _paths.repair_worktree(wt_path)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            log("ERROR: worktree跨平台验证失败，保留工作区和分支: %s" % exc)
+            sys.exit(3)
+
+    if reuse_target:
+        # 复用只验证，不自动改写用户已有worktree元数据。
+        try:
+            info["compatibility"] = _paths.check_worktree(info["wt_path"])
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            log("ERROR: 复用worktree跨平台验证失败，请显式修复: %s" % exc)
+            sys.exit(3)
 
     rc, _, _ = run_git(["rev-parse", "--git-dir"], info["wt_path"], check=False)
     if rc != 0:
@@ -768,7 +779,7 @@ def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None)
         meta = {"bug_id": str(bug_id), "branch": info["branch"],
                 "base_branch": info["base_branch"], "date": info["date"],
                 "wt_path": info["wt_path"], "repo_root": info["repo_root"]}
-        for k in ("synced", "sync_reason", "sync_remote_branch"):
+        for k in ("synced", "sync_reason", "sync_remote_branch", "compatibility"):
             if k in info:
                 meta[k] = info[k]
         with open(meta_path, "w", encoding="utf-8") as f:

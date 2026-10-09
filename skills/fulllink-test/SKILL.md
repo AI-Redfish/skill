@@ -4,7 +4,7 @@ description: 变更驱动的全链路测试引擎 + 项目测试工作空间管�
 compatibility: skill 内置脚本为 Python 3.9+ 纯标准库（python 或 uv run 均可）；需 git。**测试脚本优先 Python（uv run，PEP 723 内联依赖）**；测试脚本仅允许 Python（uv）与 Node.js，Python 不适合时使用 Node.js（见"探针脚本契约"）；模板自带 Python 与 Node 两套公共库；依赖一律安装在工作空间侧，不进 skill 包。
 metadata:
   author: AI-Redfish
-  version: "1.12.1"
+  version: "1.13.0"
 ---
 
 # fulllink-test — 变更驱动的全链路测试引擎
@@ -105,6 +105,8 @@ metadata:
   禁止在仓库内安装依赖、构建生成产物、格式化或打调试补丁。
   脚本、日志、截图、trace、缓存及报告均写入仓库外的工作空间目录；发现缺陷只记录。
   准备与执行细节见①、④、⑤。
+- **跨操作系统Git兼容性**：源码默认独立clone进 `repos/`，不为了隔离构建改建worktree；local仍使用仓库外非Git副本。外部代码目录可能是worktree，`.git` 为文件属正常情况，不能仅按 `.git` 目录存在判断仓库。解析脚本对worktree只读检查根目录、分支、HEAD，并在WSL挂载盘可发现 `git.exe` 时交叉验证；输出 `worktree_compatibility`，未验证端明确标注。检查失败不自动改写外部业务仓库指针。
+- 用户明确要求创建worktree时，准备阶段使用带兼容性处理的创建工具：Git查询真实管理目录，两个 `gitdir` 指针使用相对路径及 `/` 分隔符，不能写入 `/mnt/d/...` 或 `D:/...` 单端绝对路径，不能按目录名推算。Windows共用布局必须同盘；不支持的跨盘或WSL原生布局明确说明。创建后各实际使用端分别核对根目录、分支、HEAD，一端可用不等于全部可用。用户明确授权修复时才执行 `python3 <skill_dir>/scripts/worktree_paths.py --repo <worktree> --repair`，测试执行阶段不修复元数据。
 - **工作空间根目录**解析优先级：参数显式指定 > `<workdir>/.agents/.env` 中
   `FULLLINK_TESTSPACES_ROOT`（首次确认后持久化）> **询问用户**。未配置时先不带
   `--root` 运行解析脚本，取返回的 `recommended_root`（按系统目录推荐的默认值，
@@ -431,6 +433,7 @@ Git/环境查询等工具命令可直接执行，不作为测试脚本。两种�
 | 用户未提供被测分支 | **拒绝执行测试**，明确告知"需要仓库 X 的被测分支名"；用户提供后落 `repos.<名>.branch` 并切换分支再继续 |
 | 空间内仓库当前分支与用户指定不一致 | 按①准备指定分支：先检查本地修改，脏检出保留原样并使用独立 clone，禁止强制覆盖；拒绝在错误分支上出报告 |
 | `resolve_workspace.py` 返回 mode: external | 空间外仓库：init 引导——对话确认项目名后 clone 进空间并登记 repos，不要直接在原仓库旁建目录 |
+| WSL Git可用但Windows Git/IDEA/Maven读不到HEAD | 先只读检查 `.git` 文件及实际管理目录回指针；确认是否含单端绝对路径，明确授权后在准备阶段修复。不删除工作区、不重建分支、不默认跳过Git插件 |
 | `resolve_workspace.py` 报非 git 仓库 | 向用户确认代码目录路径或 remote url 后重跑，不要猜 |
 | `resolve_workspace.py` 返回 need_root | 把 recommended_root 作为默认值问用户，确认后带 `--root <值> --save-root` 重跑 |
 | `workspace_check.py` 有 error 项 | 先修复（通常是结构缺失或明文密钥）再进入测试模式 |

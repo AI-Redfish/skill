@@ -4,7 +4,7 @@ description: 基于指定远程分支创建 git worktree 并行开发工作区�
 compatibility: Python 3.9+ 纯标准库（python/python3 直跑，零安装）；需 git ≥2.20；支持 Linux/macOS/Windows 与 WSL（自动转换 /mnt/<盘> 与盘符路径）。
 metadata:
   author: AI-Redfish
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # git-flow — 基于远程分支一键创建同级 worktree 并行开发
@@ -42,7 +42,8 @@ metadata:
 4. **创建操作必须调用本 skill 的脚本**，不要手工拼接 git worktree 命令
    （脚本内含全部守卫与恢复逻辑）：
    `python3 <skill_dir>/scripts/worktree_create.py --repo <主仓库> --base <基分支> --branch <新分支> [--dry-run] [--fetch] [--reuse-branch]`
-5. 禁止执行任何删除类操作（`git worktree remove`、`git branch -D`、rm 目录），
+5. 新建worktree必须使用真实Git管理目录将 `.git` 的 `gitdir:` 和管理目录中的 `gitdir` 回指针写为相对路径，统一 `/` 分隔符；创建脚本自动处理，不按目录名猜测管理目录。Linux/macOS单环境也使用相对路径；Windows/WSL共用时须在同一Windows盘，跨盘或仅WSL可访问的布局不得声称双环境兼容。
+6. 禁止执行任何删除类操作（`git worktree remove`、`git branch -D`、rm 目录），
    恢复场景中涉及删除的一律先向用户确认
 
 ## 路径与输出位置约定
@@ -69,7 +70,12 @@ metadata:
 3. **正式创建**：去掉 `--dry-run` 执行；**工具超时必须设置 ≥900 秒**
    （大型仓库在 Windows/WSL 挂载盘检出上万文件需数分钟，详见下方实战坑）
 4. **验证汇报**：按退出码与 JSON 结果，使用「输出规范」模板向用户汇报；
-   用 `git worktree list` 确认新条目存在
+   用 `git worktree list` 确认新条目存在，并检查 JSON `data.plan.compatibility`。脚本验证根目录、分支、HEAD；WSL挂载盘上可找到Windows `git.exe` 时自动交叉验证。未安装另一端Git时明确列出 `not-checked`，不能当作已验证。
+
+已有worktree只读检查：`python3 <skill_dir>/scripts/worktree_paths.py --repo <worktree>`。
+用户已授权修复时加 `--repair`；只改两个指针，验证失败恢复原始字节，不删除工作区、不重建分支。
+Windows创建后需要WSL使用时，从WSL再运行只读检查；Windows脚本不自动启动WSL发行版。
+IDEA不显示Git时先验证IDE使用的Git，再检查Directory Mappings；不把IDE配置文件自动加入每个新工作区。
 
 ## 参数决策指南
 
@@ -94,6 +100,7 @@ metadata:
 | 2 | BRANCH_CHECKED_OUT | 分支已被其他 worktree 占用 | 换分支名或改在现有 worktree 开发 |
 | 2 | BRANCH_NOT_FOUND | --reuse-branch 但分支不存在 | 去掉该参数重试 |
 | 2 | BASE_NOT_FOUND | 基分支不存在 | `git branch -r` 核对；注意 origin/ 前缀 |
+| 2 | WORKTREE_COMPATIBILITY_FAILED | 已创建但跨平台验证失败 | 保留目录与分支，诊断并显式修复，不重复创建 |
 | 1 | WORKTREE_ADD_FAILED | git 执行失败 | 读 stderr 的 git 原始错误；中断恢复见 references/troubleshooting.md |
 
 详细排查步骤（含中断恢复、残留清理、fetch 超时、WSL 路径）：
@@ -107,7 +114,7 @@ metadata:
    使用本地 `origin/*` 引用（用 `git log <base> -1 --format=%ci` 展示引用新鲜度）
 3. **中断恢复**：`worktree add` 被中断后典型状态是"分支已建、目录已回滚"，
    此时**不要**重新 `-b` 建分支，直接用 `--reuse-branch` 复用残留分支
-4. **WSL 路径双轨**：命令里用 `/mnt/d/...`，对用户汇报用 `D:\...`；
+4. **WSL 路径双轨**：命令参数与Python宿主系统一致，不能把WSL绝对路径写入Windows IDE要读取的Git指针；命令里用 `/mnt/d/...`，对用户汇报用 `D:\...`；
    脚本 JSON 已同时输出两种格式（`worktree_path` / `worktree_path_windows`）
 
 ## 输出规范
@@ -123,7 +130,8 @@ metadata:
 ```
 
 - 汇报前自查：路径同级？目录名已将 `/` 换 `_`？分支基于正确基分支？
-  三项任一不符即未达 95% 信心，回到输出审查闭环修正
+  同时核对相对指针、原生Git验证、另一端验证/未验证说明。
+  任一已要求的验证失败即未达 95% 信心，回到输出审查闭环修正
 
 ## 触发示例
 

@@ -16,7 +16,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "worktree_create.py"
 
 
@@ -60,7 +59,10 @@ class WorktreeTestBase(unittest.TestCase):
                                   "--branch", "v6.0.8.1/feature/zly-demo-20261008")
         self.assertEqual(rc, 0, proc_out(out))
         self.assertEqual(out["status"], "ok")
-        return out["data"]["plan"]
+        plan = out["data"]["plan"]
+        # Windows git 可能返回 8.3 短路径，比较前统一展开。
+        plan["worktree_path"] = os.path.realpath(plan["worktree_path"])
+        return plan
 
 
 def proc_out(out) -> str:
@@ -70,8 +72,9 @@ def proc_out(out) -> str:
 class TestHappyPath(WorktreeTestBase):
     def test_create_success_and_naming(self):
         """正常路径：创建成功，目录在同级且 '/' 已换 '_'。"""
+        import os
         plan = self.create_ok()
-        expected = self.repo.parent / "v6.0.8.1_feature_zly-demo-20261008"
+        expected = Path(os.path.realpath(str(self.repo.parent / "v6.0.8.1_feature_zly-demo-20261008")))
         self.assertEqual(Path(plan["worktree_path"]), expected)
         self.assertTrue(expected.is_dir())
         self.assertTrue((expected / "f.txt").exists())  # 检出了基分支内容
