@@ -10,8 +10,14 @@ assets/common/.auth/
 # 代码仓库（独立 git，不嵌套追踪）
 repos/
 
+# 可选空间内黑盒交付物（只读引用）
+components/
+
 # Node 依赖
 node_modules/
+
+# UI 录像与操作时间线（本地留存，不自动提交或上传）
+runs/**/videos/
 
 # 本轮临时产物（plan/report 归档保留，tmp/ 不进版本库）
 runs/**/tmp/

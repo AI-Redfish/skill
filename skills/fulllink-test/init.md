@@ -9,7 +9,7 @@
 <根目录>/<项目名>/
 ├── workspace.yaml              # 空间元数据 + repos 多仓库登记表
 ├── package.json / .gitignore
-├── repos/                      # ── 代码仓库层：所有 git 仓库收拢在此 ──
+├── repos/                      # 可选：空间内源码仓库；外部仓库直接登记 path
 │   ├── <后端仓库>/             #   primary（测试模式默认解析对象）
 │   └── <前端仓库>/ ...         #   主应用 / 微应用
 ├── docs/                       # ── 知识层（≈需求/功能/技术文档）──
@@ -27,9 +27,10 @@
 
 一个测试空间仅对应一个业务项目；workspace.yaml `project` 只填写一个项目名。
 空间根直接放 repos/docs/assets/runs，不增加 projects/ 或其他项目子目录。
-一个项目可由多个 Git 仓库和黑盒项目/组件组成：源码统一 clone 到 `repos/` 下
-（monorepo 一个仓库可含多应用），黑盒登记到同一 externalComponents；
-交付物留原处/部署侧。它们共享本项目知识、环境、脚本和记录，测试内容隔离在仓库外。知识层分**三个粒度**：全局架构（拓扑/模块地图/数据流转，
+一个项目可由多个 Git 仓库和黑盒项目/组件组成；组件可放空间内，也可用用户提供
+的外部路径，分别登记 repos.<名>.path 与 externalComponents.<名>.path。
+相对路径以 workspace.yaml 所在目录为基准，绝对路径直接引用；不强制 clone/搬迁。
+monorepo 一个仓库可含多应用，黑盒只读引用实际交付物或现成服务入口。它们共享本项目知识、环境、脚本和记录，测试内容隔离在仓库外。知识层分**三个粒度**：全局架构（拓扑/模块地图/数据流转，
 全局视角的模块关系）→ 模块知识（按模块分目录：功能说明/链路说明/技术文档；
 黑盒组件也是模块）→ 全局链路（跨模块端到端）。
 
@@ -37,8 +38,8 @@
 
 | 组件类型 | 判别 | init 动作 |
 |---|---|---|
-| **source 源码仓库**（含 monorepo） | 有 .git、可 clone；monorepo = 一个仓库内多应用（pnpm-workspace/nx/apps 等） | clone 进 repos/，登记 repos（monorepo 附 apps 应用清单） |
-| **binary 第三方交付物** | 无 .git、只有 jar/引擎 + 启动脚本 + 配置（如定位引擎） | **不 clone**；登记 externalComponents；建黑盒模块知识目录（只写外部契约） |
+| **source 源码仓库**（含 monorepo） | Git 可只读访问；monorepo 一个仓库含多应用 | 登记空间内/外实际 path；仅 remote 无路径时可新 clone，monorepo 附 apps 清单 |
+| **binary 第三方交付物** | 无 .git、只有 jar/引擎 + 启动脚本 + 配置（如定位引擎） | 登记 externalComponents.path（空间内/外均可）或现成服务入口；只读建外部契约文档 |
 | **external 外部服务** | 纯环境依赖（下游系统/硬件） | 只进环境台账 |
 
 ## 前置门禁
@@ -47,35 +48,34 @@
    - 项目名：唯一业务项目名，用主仓库名作建议值，用户确认或改填；多个仓库和
      黑盒项目/组件归属同一业务项目，不逐仓库新建项目空间。已有空间先核对
      workspace.yaml.project；归属不一致时不覆盖原项目配置、不混入无关仓库
-   - 源码仓库清单：每个仓库的 remote url、角色（backend / frontend / micro-app）、
+   - 源码仓库清单：每个仓库的实际路径（优先用户提供的路径，remote url 可选）、角色（backend / frontend / micro-app）、
      是否主仓库（primary）；**monorepo 追问应用清单**（如 pnpm/nx 的 apps/* 有哪些
      独立部署的应用、构建命令，登记到 repos.<名>.apps）
    - 第三方组件清单：有无无源码的黑盒交付物（引擎 jar/商业组件）？逐个登记
-     externalComponents（类型/当前版本/部署位置/启动方式/配置来源）
+     externalComponents（类型/path/当前版本/部署位置/启动方式/配置来源）
 2. 建空间目录：
    `python3 <skill_dir>/scripts/resolve_workspace.py --project <项目名> --create`
    （自动创建空间目录与 `repos/` 子目录，幂等）
    - 返回 `need_root`（根目录未配置）→ 把脚本给出的 `recommended_root` 作为默认值
      向用户提问（确认或改填），确认后带 `--root <值> --save-root --create` 重跑，
      持久化到 `<workdir>/.agents/.env`，之后不再询问
-3. clone 各源码仓库进 `repos/`：`git clone <remote url> <空间>/repos/<仓库名>/`
-   （用户日常开发仓库不动；空间内仓库是测试检出，准备分支后测试执行期间内容只读；
-   **binary 第三方交付物不 clone**，文件留在原处/环境侧，只登记）
-   - 外部源码目录为worktree时先用 `resolve_workspace.py --repo-dir <目录>` 的只读兼容性检查，不能因 `.git` 为文件误判。clone沿用默认，clone完成后用实际Git验证分支与HEAD。
-   - 用户明确要求以worktree提供源码时遵守SKILL.md的跨平台指针规则；Windows/WSL两端分别验证，失败不输出初始化成功，不擅自修复外部业务仓库。
+3. 登记实际组件路径：已有 Git/黑盒目录不搬迁、不强制 clone；空间外仓库用
+   `resolve_workspace.py --repo-dir <路径>` 只读识别，回到已确认空间登记 path。
+   Git 无 origin 也可使用；仅给 remote 且无本地路径时可 clone 到新的 repos/<名>/，
+   不覆盖已有目录。worktree 兼容性检查只读执行，异常提示用户，不创建/修复指针。
 4. 环境信息登记（详见第 4 步）：**先从构建配置考古线索**（pom profiles /
    application*.yml / bootstrap.properties / nacos 配置中的地址与中间件），再对话
    确认落盘；用户暂不提供 → 环境相关项标 `未配置`，不阻塞骨架交付
 
 ## 标准流程（首次创建）
 
-### 1. 建骨架 + clone 代码仓库
+### 1. 建骨架 + 登记组件路径
 
 1. `resolve_workspace.py --project <项目名> --create` 建空间目录与 repos/（幂等）
-2. 对话确认过的各源码仓库逐个 clone 到 `<空间>/repos/<仓库名>/`，填写 workspace.yaml
-   的 `repos` 登记表（url / kind / primary / baseBranch〔基线主干〕/ branch〔当前被测
-   分支，测试模式确认后更新〕；monorepo 加 `apps` 应用清单）；binary 组件填
-   `externalComponents`（不 clone）
+2. workspace.yaml 的 repos 登记每个仓库实际 path（相对空间根或绝对路径）、
+   可选 url、kind、primary、baseBranch 与用户指定 branch；monorepo 加 apps。
+   binary 登记 externalComponents.path 或服务入口，不改交付物所在目录。
+   所有组件均只读引用；测试台账、脚本、构建副本和证据写在这些目录之外。
 3. 把 `<skill_dir>/templates/` 复制进工作空间并落位：
 
 | 模板 | 落点 |
@@ -96,7 +96,7 @@
 
 4. **空间版本化（推荐）**：`git init` 并推送到私有备份仓，保护越攒越厚的知识资产；
    把 `templates/gitignore.example` 拷为空间根 `.gitignore`（覆盖凭据/登录态/
-   repos/ / node_modules / tmp 产物）
+   repos/ / node_modules / tmp 产物 / UI 录像）
 
 探针脚本仅允许 Python（uv）与 Node.js，优先 Python；契约见 SKILL.md"探针脚本契约"；
 两套公共库都落位，之后用哪种语言写探针就用哪套。
@@ -173,6 +173,8 @@ feature 写外部可观察行为，link 只写与本系统的交互（调用/消
    - 前端访问方式（有前端仓库时）：各应用地址、SSO 登录 URL 与方式
      （env.json `envs.<环境>.front`）；测试账号引导用户填入 env.secret.json 的
      `envs.<环境>.front.{username,password}`（值不进对话）
+   - UI 录屏与操作节奏：env.json `envs.<环境>.uiAutomation` 使用默认慢速参数，
+     视频保存到本轮 runs/<主题>/videos/，按 ui-recording.md 登记人工核对要求
    - MCP 工具：**默认登记 AgentR 本地网关**（`mcp.agentr`：四端点 rust/go/node/python
      + 用途映射），init 时逐端点调 `tools/list` 核对可用工具并更新登记，调
      `*_list_connections` 确认目标环境的连接已在 AgentR 侧登记（缺了提示用户在
@@ -206,7 +208,7 @@ python3 <skill_dir>/scripts/workspace_check.py --workspace <空间路径>
    只处理 delta：新增模块 → module-map 加行 + 建 `02-modules/<模块>/` 目录（四件套）；
    模块功能已删 → 该模块目录标 `deprecated` 不直接删（历史测试报告还引用它）；
    monorepo 新增应用 → repos.apps 补登记
-2. **仓库清单变更**：新增仓库 → clone 进 `repos/` + 登记 + 补考古；
+2. **组件清单变更**：新增仓库/黑盒 → 登记空间内或用户提供的外部 path + 补考古；
    移除仓库 → repos 标 `deprecated`（目录保留）
 3. `workspace.yaml` 的 modules / repos.baseBranch 过期 → 更新
 4. 测试数据失效（SQL 查不到合格样本）→ 更新挖掘 SQL 并标注变更原因；
@@ -219,15 +221,16 @@ python3 <skill_dir>/scripts/workspace_check.py --workspace <空间路径>
 
 ## 硬性规则
 
-- 遵守 SKILL.md 的“仓库只读约束”：分支检出限准备阶段；测试执行期间不修改任何
-  业务仓库内容，包括配置、依赖/锁文件、自带测试、构建产物与缓存。需要本地运行
-  使用仓库外副本；有本地修改时保留原样，不 stash/reset/clean。
+- 遵守 SKILL.md 的“代码与服务只读约束”：空间内外 Git/黑盒目录始终只读，不切分支、
+  fetch、修 worktree、不改代码/配置/依赖/测试。需要本地运行使用非 Git 副本，
+  运行输出均留在工作空间；启动或服务问题通过对话提示用户，不自行修复。
   不在任何业务 Git 仓库新增或修改单元/集成/E2E 测试，脚本仅用 Python（uv）或 Node.js
 - 尽量使用 E2E：知识层登记真实业务入口、完整链路与最终结果，前端优先 Playwright；
   无法跑完整链路时登记降级原因和覆盖缺口
 - 测试脚本优先 Python（uv run）；测试输入样本与预期值一律运行时从目标环境 DB 现查，
   禁止把 ID/SN 写死在脚本或 fixtures 里
-- 知识/脚本/记录层只存在于 `repos/` 之外，**永不写进任何代码仓库目录**
+- 工作空间必须位于已登记 Git/黑盒目录之外；知识/脚本/记录/构建副本永不写进
+  任何空间内外组件目录，也不通过符号链接或共享写入挂载绕过只读约束
 - `assets/probes/<模块>/` 与 `docs/02-modules/<模块>/` 同名对齐；探针变更同步更新
   模块 README 的"已沉淀探针"
 - 凭据不写进任何文档；docs 里只记"脱敏目标 + 变量名"

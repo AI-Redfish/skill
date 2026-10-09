@@ -2,8 +2,8 @@
 """resolve_workspace.py — 项目测试工作空间定位/创建（多仓库模型）。
 
 模型: 一个项目一个工作空间；一个空间可含 1~N 个 git 代码仓库
-      （前后端分离/前端微应用等多仓库项目）。仓库 clone 在空间下、
-      与 docs/assets/runs 平级——测试内容永远在仓库外，不会被提交进业务仓库。
+      （前后端分离/前端微应用等多仓库项目）。仓库/黑盒组件可位于空间内或
+      用户提供的外部路径；登记 path，不强制 clone，组件原目录始终只读。
 
 用法:
   # 定位：代码目录 → 所属空间（向上找 workspace.yaml）
@@ -218,7 +218,7 @@ def locate_repo(repo_dir_arg: str) -> int:
             compatibility = _paths.check_worktree(repo_dir)
         except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
             return fail("worktree的Git路径不可用或跨平台不一致", str(exc),
-                        "本命令不改业务仓库；使用可识别该路径的Git诊断，显式修复后重试，或使用独立clone")
+                        "本命令只读；通过对话请用户处理 Git 路径问题，不自动修指针或强制 clone")
     ws = find_workspace_up(repo_dir)
     if ws:
         repo = repo_name_under(repo_dir, ws)
@@ -234,20 +234,30 @@ def locate_repo(repo_dir_arg: str) -> int:
         }}, ensure_ascii=False, indent=2))
         return 0
 
-    # 不在任何空间内：识别是否 git 仓库，给出 init 登记建议
+    # 外部路径只读识别，origin 可选，不强制 clone/切换或修改仓库。
     try:
-        remote = git_remote_url(repo_dir)
-    except RuntimeError as e:
-        return fail(f"目录不在任何测试工作空间内，且不是可用 git 仓库：{repo_dir}",
-                    str(e),
-                    "确认路径；若要纳入测试，init 时对话确认项目名后 clone 进空间并登记 repos")
-    repo_name = extract_project_name(remote)
+        top = subprocess.run(
+            ["git", "--no-optional-locks", "-C", repo_dir, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=15)
+        if top.returncode != 0:
+            raise RuntimeError(top.stderr.strip()[:200] or "不是可用 Git 仓库")
+        repo_dir = os.path.abspath(_paths.native_path(top.stdout.strip()))
+        if os.path.isfile(os.path.join(repo_dir, ".git")) and compatibility is None:
+            compatibility = _paths.check_worktree(repo_dir)
+        try:
+            remote = git_remote_url(repo_dir)
+        except RuntimeError:
+            remote = None  # 本地仓库没有 origin 也能直接登记使用
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+        return fail(f"目录不是可用 git 仓库：{repo_dir}", str(e),
+                    "确认实际路径或通过对话请用户处理 Git 问题；黑盒目录直接登记 externalComponents.path")
+    repo_name = extract_project_name(remote) if remote else os.path.basename(repo_dir)
     print(json.dumps({"status": "ok", "data": {
         "mode": "external", "repo_dir": repo_dir, "remote_url": remote,
         "repo_name": repo_name,
         "worktree_compatibility": compatibility,
-        "hint": "外部仓库：init 时对话确认项目名后，git clone 到 <根>/<项目名>/repos/<repo_name>/ "
-                "并在 workspace.yaml 的 repos 登记表登记（url/kind/primary/baseBranch）",
+        "hint": "外部仓库可直接使用：在已确认项目的 workspace.yaml 中登记 "
+                "repos.<登记名>.path 为本次 repo_dir，remote_url 可选；无需 clone/移动，目录保持只读",
     }}, ensure_ascii=False, indent=2))
     return 0
 
@@ -283,7 +293,7 @@ def resolve_project(args) -> int:
             "workspace": ws, "repos_dir": os.path.join(ws, REPOS_DIR),
             "exists": os.path.isdir(ws), "created": False}
     if args.create:
-        os.makedirs(os.path.join(ws, REPOS_DIR), exist_ok=True)  # 代码仓库统一目录
+        os.makedirs(os.path.join(ws, REPOS_DIR), exist_ok=True)  # 可选空间内仓库容器，允许为空
         if not data["exists"]:
             os.makedirs(ws, exist_ok=True)
             data["created"] = True

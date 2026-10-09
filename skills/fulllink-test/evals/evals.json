@@ -4,13 +4,13 @@
     {
       "id": 1,
       "prompt": "针对当前分支的 git 修改做全链路测试，工作空间在 D:/develop/testspaces/basic-platform-service，环境用 147",
-      "expected_output": "进入测试模式五步流程：对话确认被测仓库与各仓库被测分支（未提供则拒绝）→切换 repos/ 内仓库到指定分支→解析变更（指定分支自分叉点）→影响分析（读工作空间 docs）→生成 plan.md→执行对账→报告沉淀；首先明确本轮 local/existing，地址使用台账，本地模式必须编译启动并核实依赖服务就绪",
+      "expected_output": "进入测试模式五步流程：对话确认被测仓库与各仓库被测分支（未提供则拒绝）→从已登记实际 path 只读解析指定分支 commit→解析变更（指定分支自分叉点）→影响分析（读工作空间 docs）→生成 plan.md→执行对账→报告沉淀；首先明确本轮 local/existing，地址使用台账，本地模式必须编译启动并核实依赖服务就绪",
       "files": [],
       "expectations": [
         "开始执行前一句话复述了测试范围（基线/环境/工作空间）并列出关键假设",
         "在 runs/ 下生成或更新了 plan.md，含 提交/测试点→验证内容→脚本或方式 三列表格",
         "开始前对话确认被测仓库集合与各仓库被测分支，未提供分支则拒绝执行（不猜分支不默认全测）",
-        "确认后把 repos/ 内仓库 checkout 到指定分支，被测分支落 workspace.yaml repos.<名>.branch 与 plan.md 头部",
+        "从 repos.<名>.path 只读解析用户指定分支 commit，不 checkout/fetch；被测分支、实际路径与 commit 落 workspace.yaml 和 plan.md",
         "diff 基线取指定分支自分叉点（repos.baseBranch 或自动探测主干分支的 merge-base），探测不到时询问用户",
         "测试输入样本与预期值在脚本执行时从 DB 现查，脚本中无写死的 ID/SN",
         "验证手段脚本优先：先查沉淀库 assets/probes/，没有则本轮生成（后端 Python/uv，前端页面用 skill 生成的 playwright 脚本）；一次性查询/取证才用 AgentR MCP，未臆造不存在的 MCP 工具",
@@ -35,10 +35,10 @@
     {
       "id": 3,
       "prompt": "给 D:/develop/project/front/demo-web 这个前端项目建测试工作空间",
-      "expected_output": "进入 init 模式：对话确认项目名与仓库清单→建空间并 clone 仓库进空间 repos/ 目录→拷贝模板脚手架→代码考古填知识层→对话登记环境信息（含运行方式、服务准备清单及前端访问与登录方式）→输出就绪报告",
+      "expected_output": "进入 init 模式：对话确认项目名与仓库清单→建空间并登记用户提供的 Git/黑盒实际 path（空间内外均可，无需 clone）→拷贝模板脚手架→代码考古填知识层→对话登记环境信息（含运行方式、服务准备清单及前端访问与登录方式）→输出就绪报告",
       "files": [],
       "expectations": [
-        "对话确认唯一业务项目名（给建议值）与组件清单后创建空间；一个空间仅一个项目，多个 Git 仓库放 repos/、黑盒登记 externalComponents，不新增 projects/ 或逐仓库项目空间",
+        "对话确认唯一业务项目名（给建议值）与组件清单后创建空间；一个空间仅一个项目，多个 Git/黑盒组件引用实际 path，分别登记 repos/externalComponents，不新增 projects/ 或逐仓库项目空间",
         "用 resolve_workspace.py --project 创建空间目录，未手工拼路径；根目录未配置时把推荐值作为默认询问用户确认后持久化",
         "知识层按三粒度落位：docs/01-architecture/（overview/module-map/data-flow）+ docs/02-modules/<模块>/（README/feature/link/tech）+ 03-global-links/；assets/common/ 含两套公共库；workspace.yaml 含 repos 登记表",
         "生成的 docs 标注 status: draft，考古不出的部分标'未知'而非编造",
@@ -73,7 +73,7 @@
     {
       "id": 6,
       "prompt": "对 wukong@feature-order 和 basic-platform-service@feature-order 做订单回归，工作空间 D:/develop/testspaces/basic-platform，环境 147，测试现成已启动的服务。不要改 Git 仓库，测试脚本仅用 Python(uv) 或 Node，尽量 E2E。后端检出有本地未提交改动，请保留。",
-      "expected_output": "保留脏检出，不 stash/reset/clean；在独立测试 clone 准备用户指定分支。仓库外生成 Python/uv Playwright 或 Node.js E2E，从页面订单操作贯穿后端并核对最终结果与副作用；无法完成则明确降级缺口。生成 Markdown/HTML 报告并自动打开，包含仓库只读检查。",
+      "expected_output": "保留原仓库状态及未提交修改，不 checkout/fetch/stash/reset/clean；只读解析用户指定分支 commit，不要求独立 clone。仓库外生成 Python/uv Playwright 或 Node.js E2E，从页面订单操作贯穿后端并核对最终结果与副作用；无法完成则明确降级缺口。生成 Markdown/HTML 报告并自动打开，包含仓库只读检查。",
       "files": [],
       "expectations": [
         "保留已有本地修改，未 stash/reset/clean 或强制切换脏检出",
@@ -98,7 +98,7 @@
         "核实 Nginx 配置与实际代理路由、RabbitMQ AMQP 认证及业务队列/绑定/消费者，不能只查端口或管理页",
         "进程跨调用存活，记录 PID/容器 ID、日志、就绪检查与超时；准备失败将相关链路标 BLOCKED",
         "生成 report.md/report.html 并尝试打开，报告记录构建与就绪证据；健康检查不替代业务 E2E 的 PASS",
-        "只停止本轮启动实例，不停止或重置复用的 RabbitMQ，不杀未知的占用端口进程"
+        "只停止本轮启动实例，不停止或重置复用 RabbitMQ；端口冲突或服务异常立即对话提示用户，不自动改端口配置或修复服务"
       ]
     },
     {
@@ -110,6 +110,37 @@
         "询问本次 local/existing，不因 localhost 或台账地址推断方式",
         "方式未明确前可读取代码与台账，但未构建启动服务或执行业务测试",
         "仅询问当前关键缺口，不重复追问已提供的仓库分支"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "对 wukong@feature-order 和 basic-platform-service@feature-order 回归订单流程，测试空间 D:/develop/testspaces/basic-platform，使用现成已启动的 147 服务。用 Playwright 或其他 UI 工具做端到端测试，要录屏让我看清每一步操作再核对；包括下单弹窗，失败重试的视频也保留。不要改 Git 仓库。",
+      "expected_output": "仓库外 Python/uv 或 Node.js UI E2E 全程录屏，操作使用可读节奏和状态等待，主页面及弹窗录制，成功失败重试均保留。finally 完成视频写入，核实文件存在且非空。Markdown/HTML 报告提供视频链接与步骤时间点，将人工视频核对记待核对，不声称人工已核对。",
+      "files": [],
+      "expectations": [
+        "Playwright 或其他 UI 自动化工具全程录屏，截图和 trace 未替代视频",
+        "默认 slowMo 500ms、状态出现后停留 1000ms，输入需要观察时使用逐字符延迟，不用固定停顿替代正确性状态等待",
+        "主页面与参与业务操作的弹窗/新页面均有录像，失败和每次重试视频均保留且路径不覆盖",
+        "finally 中关闭录制 context 等待视频保存后核实文件存在且非空，录制失败明确证据缺失",
+        "视频和 steps.json 位于 runs/<主题>/videos/<环境>/<场景>/<尝试>/，不在业务仓库或 tmp/，默认不提交或上传",
+        "报告提供相对视频链接、关键步骤时间点、自动断言结果及人工待核对项，HTML 保留视频链接",
+        "自动断言通过但无人工反馈时明确 UI 录像待人工核对，未称全部验证完成",
+        "优先复用测试登录态避免录入凭据，视频敏感信息按实际情况遮挡或脱敏"
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "给 basic-platform 建测试空间，后端用 D:/develop/project/back/basic-platform-service，前端用 D:/develop/project/wukong，黑盒定位引擎用 D:/develop/project/PositionEngine。不要 clone 或搬动；这些目录都只读。用后端 feature-order、前端 feature-order 分支做本地 E2E，当前目录可能在其他分支。若 Nginx 启动失败或 RabbitMQ 服务有问题，通过对话告诉我，不要自行修改。",
+      "expected_output": "同一项目空间登记外部 Git 与黑盒 path，不 clone/搬迁，不切换或修改已提供目录。只读解析指定分支 commit，local 使用非 Git 构建副本和黑盒运行副本，不向原目录写日志/缓存。服务问题立即对话提示并记录相关测试 BLOCKED，不修改原目录或副本代码/配置修复问题，仍生成 Markdown/HTML 报告。",
+      "files": [],
+      "expectations": [
+        "repos 与 externalComponents 记录用户提供的实际 path，支持空间内相对路径和空间外绝对路径，不强制 clone/搬迁",
+        "没有 origin 的本地 Git 仓库也可登记，不因缺 origin 判定非 Git 仓库",
+        "不 checkout/fetch/pull 或修 worktree，指定引用缺失时请用户准备，不以当前 HEAD 冒充指定分支",
+        "原 Git 与黑盒目录只读，local 构建/运行副本无共享可写文件，不在原目录写产物、日志、缓存或单元测试",
+        "启动失败、端口冲突或 RabbitMQ 异常时对话提示具体组件、证据、影响及建议，记录 BLOCKED，不擅自改端口、配置、代码或重启修复现有实例",
+        "非 Git 副本也不通过修补业务源码或服务配置绕过问题，等待用户处理或提供明确新方案后再复查",
+        "报告记录空间内外 Git/黑盒路径的只读检查、用户提示和问题处理状态，生成 Markdown/HTML 并尝试打开"
       ]
     }
   ]

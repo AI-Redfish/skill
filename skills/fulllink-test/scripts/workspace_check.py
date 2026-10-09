@@ -59,6 +59,41 @@ def check_yaml_top_keys(text: str, required=("project", "kind", "repo")) -> list
     return missing
 
 
+def registered_repo_paths(text: str, ws: str) -> set[str]:
+    """读取常规 repos 块的登记名/path；未填 path 兼容 repos/<名>。
+
+    与本工具顶层检查相同，仅支持模板使用的块格式，不作为完整 YAML 解析器。
+    """
+    entries = {}
+    in_repos, name = False, None
+    for line in text.splitlines():
+        if re.match(r"^repos\s*:", line):
+            in_repos, name = True, None
+            continue
+        if not in_repos:
+            continue
+        if re.match(r"^\S", line) and not line.startswith("#"):
+            break
+        entry = re.match(r"^  ([\w.-]+)\s*:", line)
+        if entry:
+            name = entry.group(1)
+            entries[name] = None
+        value = re.match(r"^    path\s*:\s*(.*)$", line)
+        if value and name:
+            raw = value.group(1).strip()
+            quoted = re.match(r'''^(["'])(.*?)\1(?:\s*#.*)?$''', raw)
+            entries[name] = quoted.group(2) if quoted else raw.split(" #", 1)[0].strip()
+    paths = set()
+    for name, value in entries.items():
+        value = value or os.path.join("repos", name)
+        if os.name != "nt":
+            drive = re.match(r"^([a-zA-Z]):[/\\](.*)$", value)
+            if drive:
+                value = "/mnt/" + drive[1].lower() + "/" + drive[2].replace("\\", "/")
+        paths.add(os.path.normcase(os.path.realpath(os.path.join(ws, value))))
+    return paths
+
+
 def scan_plaintext_secrets(path: str, text: str) -> list[str]:
     """扫描 key: value 形式的疑似明文密钥，返回问题描述列表。"""
     hits = []
@@ -175,17 +210,22 @@ def run_checks(ws: str) -> list[dict]:
             for n in sorted(os.listdir(base)):
                 if base == ws and n in ("docs", "assets", "runs", "repos"):
                     continue
-                if os.path.isdir(os.path.join(base, n, ".git")):
-                    git_repos.append(n)
+                if os.path.isdir(os.path.join(base, n)) and os.path.exists(os.path.join(base, n, ".git")):
+                    git_repos.append(os.path.join(base, n))
     except OSError:
         pass
-    unregistered = [n for n in git_repos if yaml_text is None or n not in yaml_text]
+    registered_paths = registered_repo_paths(yaml_text or "", ws)
+    # 旧 workspace 使用单 repo 而非 repos 时保留原宽松检查。
+    legacy = yaml_text is not None and "repos" not in top_yaml_keys(yaml_text)
+    unregistered = [p for p in git_repos
+                    if os.path.normcase(os.path.realpath(p)) not in registered_paths
+                    and not (legacy and os.path.basename(p) in yaml_text)]
     if git_repos:
         add("W6", "warning", not unregistered,
             f"repos/ 下 {len(git_repos)} 个代码仓库均已登记",
             f"存在未在 workspace.yaml 登记的代码仓库目录：{unregistered}")
     else:
-        add("W6", "warning", True, "空间内无代码仓库目录（可选，骨架期正常）", "")
+        add("W6", "warning", True, "空间内无代码仓库目录（可引用外部 path，正常）", "")
 
     # W7 探针目录与模块知识目录同名对齐（对齐后双向索引才有效）
     probes_dir = os.path.join(ws, "assets", "probes")

@@ -6,6 +6,9 @@
       workspace_check 的结构校验/密钥扫描/降级提示。
 """
 from __future__ import annotations
+import contextlib
+import io
+import subprocess
 import importlib.util
 import json
 import os
@@ -27,6 +30,32 @@ def load_module(name: str):
 resolve_ws = load_module("resolve_workspace")
 ws_check = load_module("workspace_check")
 rh = load_module("report_html")
+
+
+class TestExternalRepo(unittest.TestCase):
+    def test_external_repo_without_origin_is_read_only(self):
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "external repo"
+            subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+            nested = repo / "src"
+            nested.mkdir()
+            (nested / "keep.txt").write_text("user data", encoding="utf-8")
+            before = {str(p.relative_to(repo)): p.read_bytes()
+                      for p in repo.rglob("*") if p.is_file()}
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                rc = resolve_ws.locate_repo(str(nested))
+            self.assertEqual(rc, 0)
+            data = json.loads(output.getvalue())["data"]
+            self.assertEqual(data["mode"], "external")
+            self.assertEqual(data["repo_dir"], str(repo))
+            self.assertIsNone(data["remote_url"])
+            self.assertEqual(data["repo_name"], repo.name)
+            self.assertIn("无需 clone", data["hint"])
+            after = {str(p.relative_to(repo)): p.read_bytes()
+                     for p in repo.rglob("*") if p.is_file()}
+            self.assertEqual(before, after)  # 包括 Git 元数据和用户文件
 
 
 class TestExtractProjectName(unittest.TestCase):
@@ -248,6 +277,15 @@ class TestWorkspaceCheck(unittest.TestCase):
             "assets/common/env.json": json.dumps({"activeEnv": "t", "envs": {"t": {}}})})
         os.makedirs(os.path.join(ws, "repos", "svc", ".git"))
         self.assertTrue(self._by_id(ws_check.run_checks(ws), "W6")["ok"])
+
+    def test_w6_matches_actual_path_with_different_registration_name(self):
+        ws = self._make_ws({
+            "workspace.yaml": "project: demo\nkind: multi\nrepos:\n  backend:\n    path: repos/actual-svc\n",
+            "assets/common/env.json": json.dumps({"activeEnv": "t", "envs": {"t": {}}})})
+        os.makedirs(os.path.join(ws, "repos", "actual-svc", ".git"))
+        self.assertTrue(self._by_id(ws_check.run_checks(ws), "W6")["ok"])
+        os.makedirs(os.path.join(ws, "repos", "backend", ".git"))
+        self.assertFalse(self._by_id(ws_check.run_checks(ws), "W6")["ok"])
 
     def test_w7_unaligned_probe_dir_warns(self):
         ws = self._make_ws({

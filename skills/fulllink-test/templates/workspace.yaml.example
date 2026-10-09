@@ -5,18 +5,21 @@ project: <项目名，与目录名一致，如 basic-platform>   # 唯一业务�
 kind: multi            # backend | frontend | mobile | multi（同项目多仓库/多组件，不表示多项目）
 
 # ── 源码仓库登记表：一个项目可含 1~N 个 git 仓库 ──────────────────────────
-# 所有源码仓库 clone 到空间 repos/ 目录下（与 docs/assets/runs 平级，测试内容永在仓库外）。
+# path 可为相对 workspace.yaml 的空间内路径或用户提供的绝对路径；已有路径不要求 clone。
+# 所有 Git/黑盒原目录始终只读，测试资产/构建副本不得写入这些路径。
 # primary: true 为主仓库；baseBranch 为该仓库 diff 基线主干分支；
 # monorepo（pnpm/nx 等）用 apps 登记仓库内的独立部署应用；自带 e2e 仅供只读考古；执行脚本由 skill 在仓库外生成。
 repos:
-  basic-platform-service:          # 仓库名 = repos/ 下目录名（Maven 多模块后端）
-    url: <git remote url>
+  basic-platform-service:          # 登记名用于模块映射，不要求与实际目录名一致
+    path: repos/basic-platform-service # 空间内相对路径示例
+    url: <git remote url，可选>
     kind: backend
     primary: true
     baseBranch: develop            # 基线主干（merge-base 锚点），不配置则自动探测 develop/master/main/release
-    branch: feature-iot-fanout     # 当前被测分支（测试模式①由用户提供并切换，每轮更新）
+    branch: feature-iot-fanout     # 用户指定被测分支，只读解析 commit，不切换当前 HEAD
   wukong:                          # 前端 monorepo：一个仓库含多个应用
-    url: <git remote url>
+    path: D:/develop/project/wukong # 用户提供的空间外绝对路径示例
+    url: <git remote url，可选>
     kind: frontend
     baseBranch: master
     build: pnpm build              # 仓库级构建命令；nx 仓库可写 nx affected --target=build
@@ -30,6 +33,7 @@ repos:
 externalComponents:
   position-engine:                 # 定位引擎（jar 交付）
     kind: binary                   # binary = 黑盒交付物；契约与启动方式见模块知识
+    path: D:/develop/project/PositionEngine # 或 components/position-engine；原目录只读
     version: "1.5-SNAPSHOT"        # 当前登记版本；测试模式比对环境实际版本
     deployAt: 192.168.10.56        # 部署位置（细节见 docs/04-env-matrix.md）
     start: <启动命令/脚本，如 java -jar locationServer.jar 或 start.cmd>
@@ -38,10 +42,10 @@ externalComponents:
 
 language: "按仓库描述，如 basic-platform-service: java-springcloud；wukong: vue"
 build: "按仓库描述，如 service: mvn -s settings.xml clean package -DskipTests；web: pnpm build"
-toolVersion: 1.12.1     # 创建本空间所用 fulllink-test skill 版本
+toolVersion: 1.14.0     # 创建本空间所用 fulllink-test skill 版本
 
 # 模块粗映射：仓库名:路径 glob → 功能模块（与 docs/01-architecture/module-map.md、
-# docs/02-modules/<模块>/ 对齐；仓库在 repos/ 下，仓库名即目录名）
+# docs/02-modules/<模块>/ 对齐；登记名定位 repos.<名>.path，glob 相对实际仓库根）
 modules:
   "basic-platform-service:application/**/monitor/**": [monitor-iot, monitor-forward]
   "basic-platform-service:application/**/order/**": [order]
