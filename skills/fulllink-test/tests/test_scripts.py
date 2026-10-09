@@ -26,6 +26,7 @@ def load_module(name: str):
 
 resolve_ws = load_module("resolve_workspace")
 ws_check = load_module("workspace_check")
+rh = load_module("report_html")
 
 
 class TestExtractProjectName(unittest.TestCase):
@@ -129,19 +130,56 @@ class TestFindWorkspaceUp(unittest.TestCase):
 
     def test_locates_parent_space_from_repo(self):
         td = self._mk({"proj/workspace.yaml": "project: proj\n"},
-                      ["proj/svc/sub/deep"])
-        ws = resolve_ws.find_workspace_up(os.path.join(td, "proj", "svc"))
+                      ["proj/repos/svc"])
+        ws = resolve_ws.find_workspace_up(os.path.join(td, "proj", "repos", "svc"))
         self.assertEqual(ws, os.path.join(td, "proj"))
 
     def test_locates_from_nested_subdir(self):
         td = self._mk({"proj/workspace.yaml": "project: proj\n"},
-                      ["proj/svc/src/main"])
-        ws = resolve_ws.find_workspace_up(os.path.join(td, "proj", "svc", "src", "main"))
+                      ["proj/repos/svc/src/main"])
+        ws = resolve_ws.find_workspace_up(os.path.join(td, "proj", "repos", "svc", "src", "main"))
         self.assertEqual(ws, os.path.join(td, "proj"))
 
     def test_none_outside(self):
         with tempfile.TemporaryDirectory() as td:
             self.assertIsNone(resolve_ws.find_workspace_up(td))
+
+
+class TestRepoNameUnder(unittest.TestCase):
+    def setUp(self):
+        self.td = tempfile.mkdtemp(prefix="reponame_")
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.td, ignore_errors=True))
+
+    def test_repo_under_repos_dir(self):
+        self.assertEqual(
+            resolve_ws.repo_name_under(os.path.join(self.td, "proj", "repos", "svc"),
+                                       os.path.join(self.td, "proj")), "svc")
+
+    def test_nested_path_takes_second_segment(self):
+        self.assertEqual(
+            resolve_ws.repo_name_under(os.path.join(self.td, "proj", "repos", "svc", "src"),
+                                       os.path.join(self.td, "proj")), "svc")
+
+    def test_repos_dir_itself_is_none(self):
+        self.assertIsNone(
+            resolve_ws.repo_name_under(os.path.join(self.td, "proj", "repos"),
+                                       os.path.join(self.td, "proj")))
+
+    def test_workspace_itself_is_none(self):
+        self.assertIsNone(
+            resolve_ws.repo_name_under(os.path.join(self.td, "proj"),
+                                       os.path.join(self.td, "proj")))
+
+    def test_reserved_dirs_are_none(self):
+        for d in ("docs", "assets", "runs"):
+            self.assertIsNone(
+                resolve_ws.repo_name_under(os.path.join(self.td, "proj", d),
+                                           os.path.join(self.td, "proj")))
+
+    def test_legacy_repo_at_root(self):
+        self.assertEqual(
+            resolve_ws.repo_name_under(os.path.join(self.td, "proj", "svc"),
+                                       os.path.join(self.td, "proj")), "svc")
 
 
 class TestWorkspaceCheck(unittest.TestCase):
@@ -160,8 +198,10 @@ class TestWorkspaceCheck(unittest.TestCase):
 
     def test_good_workspace(self):
         ws = self._make_ws({
-            "workspace.yaml": "project: demo\nkind: backend\nrepo: https://h/g/demo.git\n",
-            "docs/02-feature-map.md": "| a | b |\n",
+            "workspace.yaml": "project: demo\nkind: multi\nrepos:\n  svc:\n    url: x\n",
+            "docs/01-architecture/module-map.md": "| a | b |\n",
+            "docs/01-architecture/overview.md": "# arch\n",
+            "docs/02-modules/monitor/README.md": "# monitor\n",
             "docs/04-env-matrix.md": "| e |\n",
             "assets/common/env.json": json.dumps(
                 {"activeEnv": "t", "envs": {"t": {"db": {"host": "1"}}}}),
@@ -169,6 +209,23 @@ class TestWorkspaceCheck(unittest.TestCase):
         checks = ws_check.run_checks(ws)
         errors = [c for c in checks if not c["ok"] and c["level"] == "error"]
         self.assertEqual(errors, [], f"不应有 error：{errors}")
+
+    def test_missing_knowledge_structure_warns_w2(self):
+        ws = self._make_ws({
+            "workspace.yaml": "project: demo\nkind: backend\nrepo: https://h/g/demo.git\n",
+            "docs/placeholder.md": "x\n",
+            "assets/common/env.json": json.dumps({"activeEnv": "t", "envs": {"t": {}}})})
+        w2 = self._by_id(ws_check.run_checks(ws), "W2")
+        self.assertEqual(w2["level"], "warning")
+        self.assertFalse(w2["ok"])
+
+    def test_missing_docs_dir_is_error(self):
+        ws = self._make_ws({
+            "workspace.yaml": "project: d\nkind: b\nrepo: r\n",
+            "assets/common/env.json": json.dumps({"activeEnv": "t", "envs": {"t": {}}})})
+        w2 = self._by_id(ws_check.run_checks(ws), "W2")
+        self.assertEqual(w2["level"], "error")
+        self.assertFalse(w2["ok"])
 
     def test_repos_key_satisfies_w1(self):
         ws = self._make_ws({
@@ -180,7 +237,7 @@ class TestWorkspaceCheck(unittest.TestCase):
         ws = self._make_ws({
             "workspace.yaml": "project: demo\nkind: multi\nrepos:\n  svc:\n    url: x\n",
             "assets/common/env.json": json.dumps({"activeEnv": "t", "envs": {"t": {}}})})
-        os.makedirs(os.path.join(ws, "another-repo", ".git"))
+        os.makedirs(os.path.join(ws, "repos", "another-repo", ".git"))
         w6 = self._by_id(ws_check.run_checks(ws), "W6")
         self.assertEqual(w6["level"], "warning")
         self.assertFalse(w6["ok"])
@@ -189,8 +246,25 @@ class TestWorkspaceCheck(unittest.TestCase):
         ws = self._make_ws({
             "workspace.yaml": "project: demo\nkind: multi\nrepos:\n  svc:\n    url: x\n",
             "assets/common/env.json": json.dumps({"activeEnv": "t", "envs": {"t": {}}})})
-        os.makedirs(os.path.join(ws, "svc", ".git"))
+        os.makedirs(os.path.join(ws, "repos", "svc", ".git"))
         self.assertTrue(self._by_id(ws_check.run_checks(ws), "W6")["ok"])
+
+    def test_w7_unaligned_probe_dir_warns(self):
+        ws = self._make_ws({
+            "workspace.yaml": "project: demo\nkind: multi\nrepos:\n  svc:\n    url: x\n",
+            "assets/common/env.json": json.dumps({"activeEnv": "t", "envs": {"t": {}}})})
+        os.makedirs(os.path.join(ws, "assets", "probes", "orphan-mod"))
+        w7 = self._by_id(ws_check.run_checks(ws), "W7")
+        self.assertEqual(w7["level"], "warning")
+        self.assertFalse(w7["ok"])
+
+    def test_w7_aligned_probe_dir_ok(self):
+        ws = self._make_ws({
+            "workspace.yaml": "project: demo\nkind: multi\nrepos:\n  svc:\n    url: x\n",
+            "assets/common/env.json": json.dumps({"activeEnv": "t", "envs": {"t": {}}})})
+        os.makedirs(os.path.join(ws, "assets", "probes", "monitor-iot"))
+        os.makedirs(os.path.join(ws, "docs", "02-modules", "monitor-iot"))
+        self.assertTrue(self._by_id(ws_check.run_checks(ws), "W7")["ok"])
 
     def test_missing_yaml_is_error(self):
         ws = self._make_ws({
@@ -230,6 +304,52 @@ class TestWorkspaceCheck(unittest.TestCase):
         w5 = self._by_id(ws_check.run_checks(ws), "W5")
         self.assertEqual(w5["level"], "warning")
         self.assertFalse(w5["ok"])
+
+
+class TestReportHtml(unittest.TestCase):
+    def test_renders_table_and_status_colors(self):
+        md = "# 回归报告\n\n| 测试点 | 结果 |\n|---|---|\n| 扇出 | PASS |\n| 对账 | FAIL |\n"
+        h = rh.render_markdown(md)
+        self.assertIn("<h1>回归报告</h1>", h)
+        self.assertIn("<th>测试点</th>", h)
+        self.assertIn("#1a7f37", h)   # PASS 标色
+        self.assertIn("#cf222e", h)   # FAIL 标色
+
+    def test_code_block_escaped(self):
+        h = rh.render_markdown("```\n<a> & |x|\n```")
+        self.assertIn("&lt;a&gt; &amp; |x|", h)
+
+    def test_inline_bold_and_code(self):
+        h = rh.render_markdown("**加粗** `code` [链接](http://x)")
+        self.assertIn("<strong>加粗</strong>", h)
+        self.assertIn("<code>code</code>", h)
+        self.assertIn('<a href="http://x">链接</a>', h)
+
+    def test_list_and_quote(self):
+        h = rh.render_markdown("- 项一\n- 项二\n\n> 引用文字\n")
+        self.assertIn("<ul><li>项一</li><li>项二</li></ul>", h)
+        self.assertIn("<blockquote>引用文字</blockquote>", h)
+
+    def test_table_align_and_escaped_pipe(self):
+        md = "| a | b |\n|:---:|---:|\n| x\\|y | 1 |\n"
+        h = rh.render_markdown(md)
+        self.assertIn('style="text-align:center"', h)
+        self.assertIn('style="text-align:right"', h)
+        self.assertIn("x|y", h)  # 转义竖线还原为字面量
+
+    def test_main_writes_html_no_open(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "report.md")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("# Demo 报告\n\n内容 **加粗** 与表格\n\n| # | 结果 |\n|---|---|\n| 1 | PASS |\n")
+            rc = rh.main_with_args([p, "--no-open"])
+            self.assertEqual(rc, 0)
+            out = os.path.join(td, "report.html")
+            self.assertTrue(os.path.isfile(out))
+            with open(out, encoding="utf-8") as f:
+                content = f.read()
+            self.assertIn("<title>Demo 报告</title>", content)
+            self.assertIn("#1a7f37", content)
 
 
 if __name__ == "__main__":

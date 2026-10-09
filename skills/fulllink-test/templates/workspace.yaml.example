@@ -1,62 +1,114 @@
 # 测试工作空间元数据（由 init 模式填写；本文件不含任何凭据）
-project: <项目名，与目录名一致，如 basic-platform>   # 一个项目一个空间，项目名 init 时经用户确认
-kind: multi            # backend | frontend | mobile | multi（前后端分离/微前端等多仓库）
+# 一个测试空间只放一个业务项目，目录内不再分 projects/<项目>/。
+# repos 与 externalComponents 均为下列唯一项目的组成部分，可登记多个 Git 仓库和黑盒项目/组件。
+project: <项目名，与目录名一致，如 basic-platform>   # 唯一业务项目名，init 时经用户确认
+kind: multi            # backend | frontend | mobile | multi（同项目多仓库/多组件，不表示多项目）
 
-# ── 代码仓库登记表：一个项目可含 1~N 个 git 仓库 ──────────────────────────
-# 所有仓库 clone 到本空间下，与 docs/assets/runs 平级（测试内容永在仓库外，不会被提交）。
-# primary: true 为主仓库（测试模式默认解析对象）；baseBranch 为该仓库 diff 基线主干分支。
+# ── 源码仓库登记表：一个项目可含 1~N 个 git 仓库 ──────────────────────────
+# 所有源码仓库 clone 到空间 repos/ 目录下（与 docs/assets/runs 平级，测试内容永在仓库外）。
+# primary: true 为主仓库；baseBranch 为该仓库 diff 基线主干分支；
+# monorepo（pnpm/nx 等）用 apps 登记仓库内的独立部署应用；自带 e2e 仅供只读考古；执行脚本由 skill 在仓库外生成。
 repos:
-  basic-platform-service:          # 仓库名 = 空间内目录名
+  basic-platform-service:          # 仓库名 = repos/ 下目录名（Maven 多模块后端）
     url: <git remote url>
     kind: backend
     primary: true
-    baseBranch: develop            # 不配置则自动探测 develop/master/main/release
-  bps-web:
+    baseBranch: develop            # 基线主干（merge-base 锚点），不配置则自动探测 develop/master/main/release
+    branch: feature-iot-fanout     # 当前被测分支（测试模式①由用户提供并切换，每轮更新）
+  wukong:                          # 前端 monorepo：一个仓库含多个应用
     url: <git remote url>
-    kind: frontend                 # 前端主应用
+    kind: frontend
     baseBranch: master
-  bps-app-monitor:
-    url: <git remote url>
-    kind: frontend                 # 前端微应用
-    baseBranch: master
+    build: pnpm build              # 仓库级构建命令；nx 仓库可写 nx affected --target=build
+    apps:                          # monorepo 应用清单：独立部署单元
+      operation: { path: apps/operation, note: 运营后台 }
+      scada: { path: apps/scada, note: 组态大屏 }
+      h5: { path: apps/h5, note: 移动端 H5 }
+      # 共享包（packages-web/**）变更波及全部依赖应用，影响分析时注意
 
-language: <按仓库描述，如 backend: java-springcloud；frontend: vue>
-build: <按仓库描述，如 service: mvn -s settings.xml clean package -DskipTests；web: npm run build>
-toolVersion: 1.2.0     # 创建本空间所用 fulllink-test skill 版本
+# ── 第三方黑盒交付物（无源码，不 clone）：版本变化即变更，触发相关链路回归 ──
+externalComponents:
+  position-engine:                 # 定位引擎（jar 交付）
+    kind: binary                   # binary = 黑盒交付物；契约与启动方式见模块知识
+    version: "1.5-SNAPSHOT"        # 当前登记版本；测试模式比对环境实际版本
+    deployAt: 192.168.10.56        # 部署位置（细节见 docs/04-env-matrix.md）
+    start: <启动命令/脚本，如 java -jar locationServer.jar 或 start.cmd>
+    config: bootstrap-v6local.properties   # 配置来源（在组件部署目录）
+    module: position-engine        # 对应 docs/02-modules/position-engine/（黑盒模块）
 
-# 模块粗映射：仓库名:路径 glob → 功能域（影响分析的加速索引，细节看 docs/02-feature-map.md）
+language: "按仓库描述，如 basic-platform-service: java-springcloud；wukong: vue"
+build: "按仓库描述，如 service: mvn -s settings.xml clean package -DskipTests；web: pnpm build"
+toolVersion: 1.12.1     # 创建本空间所用 fulllink-test skill 版本
+
+# 模块粗映射：仓库名:路径 glob → 功能模块（与 docs/01-architecture/module-map.md、
+# docs/02-modules/<模块>/ 对齐；仓库在 repos/ 下，仓库名即目录名）
 modules:
   "basic-platform-service:application/**/monitor/**": [monitor-iot, monitor-forward]
   "basic-platform-service:application/**/order/**": [order]
   "bps-web:src/views/order/**": [order]
 
-# 部署单元与指纹获取方式（执行对账时按需参考/校验；跨仓库部署单元注明来源仓库）
+# 部署单元与指纹获取方式（执行对账时按需参考/校验；repo+app 双键定位，跨仓库部署单元注明来源）
 services:
   monitor:
     repo: basic-platform-service
     health: http://<host>:<port>/actuator/health
     fingerprint: http://<host>:<port>/actuator/git-commit-id
+  operation-web:                   # monorepo 应用的部署单元：repo + app
+    repo: wukong
+    app: operation
+    url: http://<host>/operation/
 
 # 本空间可用的 MCP 能力登记（agent 只用这里登记过的 server；未登记=不存在）
+# 默认工具源：AgentR 本地网关聚合的 MCP——四个语言后端各一个端点，约 90 个工具。
 mcp:
-  mysql:
-    server: <mcp server 名>
-    usage: [查询对账, 造数, 索引与EXPLAIN验证]
-  rabbitmq:
-    server: <mcp server 名>
-    usage: [队列状态, 单发消息, 消费确认]
-  mqtt:
-    server: <mcp server 名>
-    usage: [订阅topic, 收推送断言]
-  redis:
-    server: <mcp server 名>
-    usage: [缓存键断言, TTL验证]
-  nacos:
-    server: <mcp server 名>
-    usage: [实例存活, 配置读取]
+  agentr:
+    server: agentr                    # MCP server 名（agent 客户端中配置的名字）
+    endpoints:                        # 四端点（Nginx 网关 127.0.0.1:8319；init 时 tools/list 核对）
+      rust: http://127.0.0.1:8319/api/rust/mcp      # MySQL/Kingbase/SQLite/Redis/MQTT/WebSocket/HTTP
+      go: http://127.0.0.1:8319/api/go/mcp          # RabbitMQ/RocketMQ
+      node: http://127.0.0.1:8319/api/node/mcp      # SSH/TDEngine/网关自检
+      python: http://127.0.0.1:8319/api/python/mcp  # 定时任务 schedule
+    gatewayCheck: nginx_gateway_status # 网关自检工具；MCP 不通时先查
+    connectionNote: 工具用已保存连接的 connectionId；先 *_list_connections 查可用连接
+    usage: [DB查询对账, 表结构核对, 缓存断言, MQ队列状态与收发, MQTT收推, WebSocket推送验证,
+            HTTP调用, 定时任务触发, 远程命令行取证]
+  # 仅当 AgentR 之外另有专用 MCP server 时才另登记，例：
+  # nacos:
+  #   server: <mcp server 名>
+  #   usage: [实例存活, 配置读取]
 
 # 环境索引（环境信息台账见 docs/04-env-matrix.md，init 对话登记、后续可修改；default: true 为测试模式默认目标）
 environments:
   - name: "147"
     default: true
     note: 192.168.0.147 联调环境
+    executionMode: null             # 本轮必明确 local | existing；未知不得按地址推断
+    runtime:                        # 逐环境登记，详细流程见 runtime.md
+      sourceDir: runs/<主题>/tmp/runtime/src # 非 Git 构建副本，按本轮路径展开
+      components:                  # 以下仅为填写示例；按实际链路增删，不直接执行占位命令
+        backend:
+          repo: basic-platform-service
+          provision: start         # start=本轮启动；reuse=复用已启动服务
+          dependsOn: [rabbitmq]     # 按实际依赖图填写 DB/Redis/注册中心等
+          build: <项目实际构建命令，跳过仓库自带测试>
+          start: <项目实际启动命令，使用外置配置>
+          stop: <按本轮 PID 或容器 ID 停止的方式>
+          cwd: <非 Git 副本中实际工作目录>
+          config: <工作空间侧配置路径，不含明文凭据>
+          address: <实际服务入口>
+          readiness: <健康接口与所需 DB/MQ/注册连接检查>
+          timeoutSeconds: 120
+          log: <本轮启动日志路径>
+        nginx:
+          provision: start
+          dependsOn: [backend]
+          start: <配置校验通过后使用工作空间侧配置启动>
+          stop: <仅停止本轮实例>
+          readiness: <配置有效且实际代理入口路由正确>
+          timeoutSeconds: 30
+          log: <本轮 Nginx 日志路径>
+        rabbitmq:
+          provision: reuse          # 本地业务可复用已启动中间件，必须明确来源且实测
+          address: <实际 AMQP 地址与 vhost，凭据引用 env.secret.json>
+          readiness: <AMQP 认证连接及业务所需队列/交换机/绑定/消费者>
+          timeoutSeconds: 60

@@ -1,0 +1,17 @@
+# fulllink-test 工作空间 .gitignore 模板（init 时拷为 <空间>/.gitignore）
+# 空间版本化（git init + 私有备份仓）用于保护知识资产；以下内容永不入库：
+
+# 凭据（永不提交）
+assets/common/env.secret.json
+
+# 前端登录态缓存（playwright storage_state）
+assets/common/.auth/
+
+# 代码仓库（独立 git，不嵌套追踪）
+repos/
+
+# Node 依赖
+node_modules/
+
+# 本轮临时产物（plan/report 归档保留，tmp/ 不进版本库）
+runs/**/tmp/

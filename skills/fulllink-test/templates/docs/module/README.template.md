@@ -1,6 +1,7 @@
 # <模块名>（02-modules/<模块名>/README.md）
 
 > status: draft | reviewed
+> type: source | binary        # binary = 第三方黑盒交付物：无源码，只写外部可见行为与契约
 > 用途：模块知识目录入口——该模块的需求摘要 + 文档索引 + 探针索引。
 > 模块目录名与 assets/probes/<模块名>/ 对齐；小模块可把 feature/link/tech 合并进本文件。
 
@@ -8,7 +9,7 @@
 
 - **一句话**：<这个模块解决什么业务问题>
 - **业务边界**：<管什么、不管什么；与相邻模块的职责分界>
-- **相关仓库/代码**：repos/<仓库>/<路径 glob>
+- **相关仓库/代码**：repos/<仓库>/<路径 glob>（binary 组件写 — 无源码，登记在 workspace.yaml externalComponents）
 
 ## 文档索引
 

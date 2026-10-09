@@ -12,6 +12,7 @@
   W4 明文密钥扫描（yaml/json/docs 中 password 等赋实值）       (error)
   W5 env.secret.json 的 gitignore 提醒                         (warning)
   W6 repos/ 及空间根的 git 仓库目录未登记到 workspace.yaml     (warning)
+  W7 assets/probes 探针目录与 docs/02-modules 模块目录未对齐 (warning)
 退出码: 0=无 error（warning 需逐条确认） 1=存在 error 2=参数错误
 """
 from __future__ import annotations
@@ -185,6 +186,25 @@ def run_checks(ws: str) -> list[dict]:
             f"存在未在 workspace.yaml 登记的代码仓库目录：{unregistered}")
     else:
         add("W6", "warning", True, "空间内无代码仓库目录（可选，骨架期正常）", "")
+
+    # W7 探针目录与模块知识目录同名对齐（对齐后双向索引才有效）
+    probes_dir = os.path.join(ws, "assets", "probes")
+    modules_dir = os.path.join(ws, "docs", "02-modules")
+    probe_dirs: list[str] = []
+    if os.path.isdir(probes_dir):
+        try:
+            probe_dirs = [n for n in sorted(os.listdir(probes_dir))
+                          if os.path.isdir(os.path.join(probes_dir, n))]
+        except OSError:
+            pass
+    unmatched = [n for n in probe_dirs
+                 if not os.path.isdir(os.path.join(modules_dir, n))]
+    if probe_dirs:
+        add("W7", "warning", not unmatched,
+            f"assets/probes/ 下 {len(probe_dirs)} 个探针目录均已对齐模块知识目录",
+            f"探针目录无对应 docs/02-modules/<模块>：{unmatched}（对齐后互相索引才有效）")
+    else:
+        add("W7", "warning", True, "无沉淀探针（骨架期正常）", "")
 
     return checks
 

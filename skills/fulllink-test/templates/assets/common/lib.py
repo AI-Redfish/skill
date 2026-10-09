@@ -7,7 +7,7 @@
     import lib
 运行：推荐 uv run——探针脚本头部用 PEP 723 内联声明依赖，uv 自动安装：
     # /// script
-    # dependencies = ["pymysql>=1.1", "paho-mqtt>=2", "pika>=1.3"]
+    # dependencies = ["pymysql>=1.1,<2", "paho-mqtt>=2,<3", "pika>=1.3,<2"]
     # ///
     然后执行：uv run probes/<功能域>/check_xxx.py
     （也可自行 pip install 后用 python 运行；依赖只装在工作空间侧）
@@ -80,6 +80,32 @@ def connect_amqp(profile: dict | None = None):
         host=mq.get("host"), port=int(mq.get("port", 5672)),
         credentials=pika.PlainCredentials(mq.get("user", ""), mq["password"]),
     ))
+
+
+# ---------- RabbitMQ Management（HTTP API，纯标准库） ----------
+def mgmt_get(path: str, timeout: int = 10, profile: dict | None = None) -> dict:
+    """RabbitMQ Management HTTP API 只读查询（如队列深度/消费者数）。"""
+    import base64
+    import urllib.request
+    profile = profile or env
+    mq = profile.get("rabbitmq") or {}
+    if not mq.get("managementUrl"):
+        raise RuntimeError("rabbitmq.managementUrl 未配置（env.json envs.<环境>.rabbitmq.managementUrl）")
+    if not mq.get("password"):
+        raise RuntimeError("RabbitMQ 凭据未配置：请在 env.secret.json 填入 rabbitmq.password")
+    req = urllib.request.Request(mq["managementUrl"].rstrip("/") + path)
+    token = base64.b64encode(f'{mq.get("user", "")}:{mq["password"]}'.encode()).decode()
+    req.add_header("Authorization", f"Basic {token}")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def queue_state(queue: str, profile: dict | None = None) -> dict:
+    """查询指定队列当前状态（depth/unacked/consumers）——对账与冒烟常用。"""
+    from urllib.parse import quote
+    q = mgmt_get(f"/api/queues/%2F/{quote(queue, safe='')}", profile=profile)
+    return {"messages": q.get("messages", 0), "ready": q.get("messages_ready", 0),
+            "unacked": q.get("messages_unacknowledged", 0), "consumers": q.get("consumers", 0)}
 
 
 # ---------- MQTT（paho-mqtt>=2，懒加载） ----------
