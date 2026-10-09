@@ -12,14 +12,14 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
 无 uv 时可直接：
     python3 scripts/bugfix.py <子命令>
 
-配置文件：<项目工作空间>/.agents/.env（KEY=VALUE）：
+配置文件：<项目工作空间>/.agents/zentao-bugfix/routes.json 的 config 对象（字符串值）：
     ZENTAO_BASE_URL=http://host:port
     ZENTAO_ACCOUNT=xxx
     ZENTAO_PASSWORD=xxx
 
 子命令（一次调用完成尽量多的事情）：
     config-status [--project DIR]                 检查配置，输出 JSON
-    save-config KEY=VALUE... [--project DIR]      保存/合并写入 .env
+    save-config KEY=VALUE... [--project DIR]      保存/合并写入 routes.json
     get-bug <bugId> [--project DIR]               拉取禅道 bug（详情+评论+截图）
     worktree <bugId> [baseBranch] [--project DIR] [--reuse]
                                                   创建 bugfix worktree + 同步远端最新
@@ -28,11 +28,14 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
                                                   修复分支时停止（返回码 4），--reuse
                                                   显式复用继续（复用时不同步远端）
     prepare <bugId> [baseBranch] [--project DIR] [--reuse] [--force]
-                                                  一次完成：防重检查 + get-bug +
-                                                  worktree（含远端同步）+ 生成
+                                                  查询禅道 + routes.json 分流 +
+                                                  绑定工作区加锁或新建 worktree + 生成
                                                   analysis.md / solution.md 骨架
                                                   （报告目录 .agents/zentao-bugfix/
                                                   <bugId>/）
+    ready <bugId> [--project DIR]                绑定模式修复前校验并封存分析/方案
+    finish <bugId> --check-command CMD --files PATH... [--project DIR]
+                                                  验证并独立提交当前 Bug，成功释放锁
     report <bugId> [--project DIR] [--force]      生成 fix-report.md（含未提交
                                                   变更清单）+ 输出汇报摘要；自动定位
                                                   该 bugId 既有 worktree（跨日期）；
@@ -44,7 +47,8 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
 关键策略：
     - 所有 git 操作通过 subprocess 调用系统 git；
     - worktree 的 git 元数据改写为相对路径，WSL git 与 Windows git 均可识别；
-    - 全程不做 git commit（保留工作区改动等待人工 review）；
+    - 绑定模式通过 finish 验证并单 Bug 提交；新 worktree 默认不提交；均不 push；
+    - 匹配支持 Bug ID 和标题包含，工作区异常输出并打开 HTML，失败保留现场与锁；
     - 分析先行：analysis.md（完整分析报告）与 solution.md（解决方案）必须在
       实施任何代码修复之前由 AI 补全（prepare 在 <worktree>/.agents/
       zentao-bugfix/<bugId>/ 下生成两份骨架，保证文档目录一定存在）；
@@ -64,7 +68,8 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
 返回码：0 成功；2 配置/参数错误；3 bug 获取或 worktree 创建失败；
        4 该 bugId 已存在 worktree/修复分支（防重复处理，需人工决策）；
        5 远端基准分支合并失败/冲突（已自动 git merge --abort，worktree 保持
-       干净，人工决策后续）。
+       干净，人工决策后续）；6 分支/工作区占用等待；7 工作区异常 HTML；
+       8 分析封存、验证或提交失败，保留锁暂停。
 """
 import argparse
 import html as html_mod
@@ -83,6 +88,9 @@ import urllib.request
 _paths_spec = importlib.util.spec_from_file_location("worktree_paths", Path(__file__).with_name("worktree_paths.py"))
 _paths = importlib.util.module_from_spec(_paths_spec)
 _paths_spec.loader.exec_module(_paths)
+_routes_spec = importlib.util.spec_from_file_location("bugfix_routes", Path(__file__).with_name("bugfix_routes.py"))
+_routes = importlib.util.module_from_spec(_routes_spec)
+_routes_spec.loader.exec_module(_routes)
 
 REQUIRED_KEYS = ["ZENTAO_BASE_URL", "ZENTAO_ACCOUNT", "ZENTAO_PASSWORD"]
 TIMEOUT = 30
@@ -107,43 +115,13 @@ def run_git(args, cwd, check=True, capture=True):
 
 # ---------------------------------------------------------------- 配置
 
-def load_env(project_dir):
-    env_path = os.path.join(os.path.abspath(project_dir), ".agents", ".env")
-    cfg = {}
-    if os.path.isfile(env_path):
-        with open(env_path, encoding="utf-8-sig") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    k, v = line.split("=", 1)
-                    cfg[k.strip()] = v.strip()
-    return env_path, cfg
+def load_config(project_dir):
+    path = _routes.config_path(project_dir)
+    return str(path), _routes.load_config(path)
 
 
-def save_env(env_path, updates):
-    existing_lines = []
-    if os.path.isfile(env_path):
-        with open(env_path, encoding="utf-8-sig") as f:
-            existing_lines = f.read().splitlines()
-    replaced = set()
-    out = []
-    for line in existing_lines:
-        stripped = line.strip()
-        if "=" in stripped and not stripped.startswith("#"):
-            k = stripped.split("=", 1)[0].strip()
-            if k in updates:
-                out.append("%s=%s" % (k, updates[k]))
-                replaced.add(k)
-                continue
-        out.append(line)
-    for k, v in updates.items():
-        if k not in replaced:
-            out.append("%s=%s" % (k, v))
-    os.makedirs(os.path.dirname(env_path), exist_ok=True)
-    with open(env_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(out).rstrip("\n") + "\n")
+def save_config(path, updates):
+    _routes.save_config(path, updates)
 
 
 # ---------------------------------------------------------------- HTTP / 禅道
@@ -305,10 +283,10 @@ def render_bug_md(bug, actions, images, base_url, bug_id):
 
 def fetch_bug_full(project_dir, bug_id, out_dir=None):
     """拉取禅道 bug 全量数据，返回 (bug, actions, images, work_dir, base_url, md_text)。"""
-    env_path, cfg = load_env(project_dir)
+    config_path, cfg = load_config(project_dir)
     missing = [k for k in REQUIRED_KEYS if not cfg.get(k)]
     if missing:
-        log("ERROR: 配置不完整，缺少 %s，请先补充保存到 %s" % (", ".join(missing), env_path))
+        log("ERROR: 配置不完整，缺少 %s，请先补充保存到 %s" % (", ".join(missing), config_path))
         sys.exit(2)
     base_url = normalize_base_url(cfg["ZENTAO_BASE_URL"])
     account, password = cfg["ZENTAO_ACCOUNT"], cfg["ZENTAO_PASSWORD"]
@@ -980,7 +958,8 @@ def scaffold_fix_report(info, bug_id, title, diff_data, force=False):
     lines.append("- **修复分支**: `%s`（%s）" % (info["branch"], base_note))
     lines.append("- **修复日期**: %s-%s-%s" % (d[:4], d[4:6], d[6:]))
     lines.append("- **修复状态**: 已修复，待人工 review")
-    lines.append("- **变更状态**: **未提交**——改动保留在 worktree 工作区，等待人工 review 后由人工提交")
+    lines.append("- **变更状态**: 待 finish 验证并独立提交，禁止开始下一 Bug" if info.get("mode") == "inplace" else
+                 "- **变更状态**: **未提交**——改动保留在 worktree 工作区，等待人工 review 后由人工提交")
     lines.append("")
     lines.append("## 1. 修复内容")
     lines.append("")
@@ -1001,8 +980,7 @@ def scaffold_fix_report(info, bug_id, title, diff_data, force=False):
     lines.append("")
     lines.append("## 3. 修复验证")
     lines.append("")
-    lines.append("（待填写：编译命令与结果 / 静态走查结论；Maven 项目在 worktree 下编译需加 "
-                 "`-Dmaven.gitcommitid.skip=true`）")
+    lines.append("（待填写：实际编译/测试命令与结果、未覆盖项；Maven 插件问题先查 Git 指针，仅证实不兼容且项目允许时跳过插件）")
     lines.append("")
     lines.append("## 4. 测试建议（给 QA）")
     lines.append("")
@@ -1028,9 +1006,9 @@ def scaffold_fix_report(info, bug_id, title, diff_data, force=False):
 # ---------------------------------------------------------------- 子命令
 
 def cmd_config_status(args):
-    env_path, cfg = load_env(args.project)
+    config_path, cfg = load_config(args.project)
     missing = [k for k in REQUIRED_KEYS if not cfg.get(k)]
-    print(json.dumps({"env_path": env_path, "missing": missing,
+    print(json.dumps({"config_path": config_path, "missing": missing,
                       "complete": not missing}, ensure_ascii=False, indent=2))
     return 0 if not missing else 2
 
@@ -1045,13 +1023,13 @@ def cmd_save_config(args):
             log("ERROR: 参数格式错误（应为 KEY=VALUE）: %s" % p)
             return 2
         k, v = p.split("=", 1)
-        if k not in REQUIRED_KEYS:
-            log("ERROR: 未知配置项 %s（允许: %s）" % (k, ", ".join(REQUIRED_KEYS)))
+        if k not in REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH"]:
+            log("ERROR: 未知配置项 %s（允许: %s）" % (k, ", ".join(REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH"])))
             return 2
         updates[k] = v.strip()
-    env_path, _ = load_env(args.project)
-    save_env(env_path, updates)
-    log("[ok] 已保存到 %s" % env_path)
+    config_path, _ = load_config(args.project)
+    save_config(config_path, updates)
+    log("[ok] 已保存到 %s" % config_path)
     return 0
 
 
@@ -1075,12 +1053,95 @@ def cmd_worktree(args):
 
 
 def cmd_prepare(args):
-    """一次调用：防重检查 + 拉取 bug + 建 worktree + 生成 analysis.md / solution.md 骨架。"""
+    """Fetch once, route deterministically, reserve the workspace before exposing it."""
     require_bug_id(args.bug_id)
-    reuse_target = check_existing(args.project, args.bug_id, reuse=args.reuse)
+    current = getattr(args, "current_workspace", None) or args.project
+    previous = _routes.load_record(args.project, args.bug_id)
+    if previous and (previous.get("locks") or previous.get("status") not in ("workspace_error", "waiting")):
+        if previous.get("status") in ("committed", "no_change"):
+            _routes.release(previous)
+        if not args.reuse or previous.get("status") in ("committed", "no_change"):
+            print("EXISTS\nEXISTING_REPORT_DIR=%s" % previous.get("report_dir", ""))
+            return 4
     bug, actions, images, work_dir, base_url, md = fetch_bug_full(args.project, args.bug_id)
-    info = setup_worktree(args.project, args.bug_id, args.base_branch, reuse_target=reuse_target)
+    try:
+        route = _routes.select(args.project, args.bug_id, bug.get("title") or "")
+    except (ValueError, OSError, _routes.RouteError) as exc:
+        log("ERROR: 分流配置无效: %s" % exc)
+        return 2
+    if route["mode"] == "inplace":
+        try:
+            # Resuming must never redirect an unfinished repair to another target.
+            if previous and previous.get("mode") == "inplace" and previous.get("locks"):
+                if route["workspace"] != previous["route"]["workspace"] or route["branch"] != previous["route"]["branch"]:
+                    raise _routes.RouteError("未完成修复的目标发生变化，请恢复原规则并处理已有现场")
+            target_meta = Path(report_dir_for(route["workspace"], args.bug_id)) / "meta.json"
+            if target_meta.is_file() and not (previous and previous.get("run_id")):
+                print("EXISTS\nEXISTING_REPORT_DIR=%s" % target_meta.parent)
+                return 4
+            token, locks = _routes.reserve(args.project, args.bug_id, route, args.reuse)
+        except _routes.Busy as exc:
+            print("WAITING=%s" % exc)
+            return 6
+        except (_routes.RouteError, OSError) as exc:
+            result = _routes.error_report(current, args.bug_id, bug.get("title", ""), route, str(exc), base_url)
+            # Keep the original reservation when a previously prepared run fails validation.
+            if previous and previous.get("locks"):
+                original = dict(previous)
+                original.update(result)
+                original["route"] = previous["route"]
+                result = original
+            _routes.save(_routes.record_path(args.project, args.bug_id), result)
+            print("HTML_REPORT=%s\nBROWSER_OPENED=%s\nERROR=%s" % (result["html_report"], result["browser_opened"], exc))
+            if result.get("browser_error"):
+                print("BROWSER_ERROR=" + result["browser_error"])
+            return 7
+        workspace = route["workspace"]
+        report_dir = report_dir_for(workspace, args.bug_id)
+        os.makedirs(report_dir, exist_ok=True)
+        run = previous if previous and previous.get("run_id") == token else {
+            "bug_id": str(args.bug_id), "run_id": token}
+        run.update(mode="inplace", status="prepared", locks=locks, route=route,
+                   workspace=workspace, branch=route["branch"], report_dir=report_dir,
+                   title=bug.get("title", ""), project=os.path.abspath(args.project))
+        _routes.save(_routes.record_path(args.project, args.bug_id), run)
+        if "snapshot" not in run:
+            try:
+                run["snapshot"] = _routes.snapshot(workspace)
+                _routes.save(_routes.record_path(args.project, args.bug_id), run)
+            except (OSError, _routes.RouteError) as exc:
+                run.update(status="blocked", error=str(exc))
+                _routes.save(_routes.record_path(args.project, args.bug_id), run)
+                log("ERROR: 无法保存修复前快照；保留锁等待恢复: %s" % exc)
+                return 8
+        import shutil
+        for src in Path(work_dir).iterdir():
+            if src.is_file():
+                shutil.copy2(src, Path(report_dir) / src.name)
+        info = {"repo_root": workspace, "wt_path": workspace, "report_dir": report_dir,
+                "branch": route["branch"], "base_branch": route["branch"],
+                "head_short": run["snapshot"]["head"], "date": datetime.date.today().strftime("%Y%m%d"),
+                "mode": "inplace", "synced": False, "sync_reason": "复用开发工作区，不自动同步远端"}
+        _routes.save(Path(report_dir) / "meta.json", dict(info, bug_id=str(args.bug_id), run_id=token,
+                                                        status="prepared", route=route))
+    else:
+        # An in-flight bound run must not be silently abandoned by a config change.
+        if previous and previous.get("locks") and previous.get("status") not in ("committed", "no_change"):
+            log("ERROR: 已有绑定工作区修复未完成，请恢复规则并 --reuse；不创建新 worktree")
+            return 6
+        reuse_target = check_existing(args.project, args.bug_id, reuse=args.reuse)
+        _, cfg = load_config(args.project)
+        base = args.base_branch or cfg.get("BUGFIX_BASE_BRANCH")
+        info = setup_worktree(args.project, args.bug_id, base, reuse_target=reuse_target)
+        run = {"bug_id": str(args.bug_id), "run_id": __import__("uuid").uuid4().hex,
+               "mode": "worktree", "status": "prepared", "route": route,
+               "workspace": info["wt_path"], "report_dir": info["report_dir"], "branch": info["branch"]}
+        _routes.save(_routes.record_path(args.project, args.bug_id), run)
+        meta = _routes.read(Path(info["report_dir"]) / "meta.json")
+        meta.update(mode="worktree", run_id=run["run_id"], route=route)
+        _routes.save(Path(info["report_dir"]) / "meta.json", meta)
     info["project"] = args.project
+    print("MODE=%s\nRUN_ID=%s\nROUTE_REASON=%s" % (run["mode"], run["run_id"], route["reason"]))
     analysis_path = scaffold_analysis(bug, actions, images, info, base_url, args.bug_id,
                                       force=args.force)
     solution_path = scaffold_solution(bug, info, args.bug_id, force=args.force)
@@ -1091,8 +1152,8 @@ def cmd_prepare(args):
         "ANALYSIS_MD=%s" % analysis_path,
         "SOLUTION_MD=%s" % solution_path,
         "NEXT=先在 WORKTREE 中只读分析代码并补全 analysis.md 与 solution.md（输出"
-        "完整分析报告与解决方案，此阶段不改任何代码），再按 solution.md 方案实施"
-        "修复；完成后运行: report %s" % args.bug_id,
+        "完整分析报告与解决方案，此阶段不改任何代码），MODE=inplace 时先运行 ready；再按 solution.md 实施"
+        "修复并 report/补全；绑定模式最后 finish 验证提交，独立 worktree 不提交。Bug=%s" % args.bug_id,
     ])
     log("")
     log("[ok] bug 资料与 analysis.md / solution.md 骨架已就绪: %s" % info["report_dir"])
@@ -1121,12 +1182,18 @@ def solution_complete_status(report_dir):
 def cmd_report(args):
     """生成 fix-report.md（自动含未提交变更清单）并输出汇报摘要。"""
     require_bug_id(args.bug_id)
-    found = find_existing_worktrees(args.project, args.bug_id)
-    worktrees = sorted(found["worktrees"], key=lambda wb: os.path.basename(wb[0]))
-    if not worktrees:
-        log("ERROR: 未找到 bug #%s 的 worktree（先运行 prepare）" % args.bug_id)
-        return 2
-    info = info_from_worktree(args.project, args.bug_id, *worktrees[-1])
+    record = _routes.load_record(args.project, args.bug_id)
+    if record and record.get("mode") == "inplace":
+        _routes.validate_workspace(record["route"])
+        info = _routes.read(Path(record["report_dir"]) / "meta.json")
+        info["report_dir"] = record["report_dir"]
+    else:
+        found = find_existing_worktrees(args.project, args.bug_id)
+        worktrees = sorted(found["worktrees"], key=lambda wb: os.path.basename(wb[0]))
+        if not worktrees:
+            log("ERROR: 未找到 bug #%s 的 worktree（先运行 prepare）" % args.bug_id)
+            return 2
+        info = info_from_worktree(args.project, args.bug_id, *worktrees[-1])
     rc, _, _ = run_git(["rev-parse", "--git-dir"], info["wt_path"], check=False)
     if rc != 0:
         log("ERROR: worktree 不可用: %s（请人工修复）" % info["wt_path"])
@@ -1141,6 +1208,14 @@ def cmd_report(args):
                 title = m.group(1).strip()
     # 变更采集只做一次（两处复用），降低慢盘上 git 扫描次数
     diff_data = collect_diff(info["wt_path"])
+    if record and record.get("mode") == "inplace":
+        current = _routes.snapshot(info["wt_path"])
+        selected = set(_routes.changed(record["snapshot"], current))
+        files = [f for f in diff_data[0] if f["path"] in selected]
+        known = {f["path"] for f in files}
+        files.extend({"path": p, "add": "-", "del": "-", "untracked": False} for p in sorted(selected - known))
+        diff_data = (files, "%d 个本次变更文件；已有开发改动不计入" % len(files),
+                     "\n".join("%s | +%s / -%s" % (f["path"], f["add"], f["del"]) for f in files))
     path = scaffold_fix_report(info, args.bug_id, title, diff_data, force=args.force)
     files, diffstat, per_file = diff_data
     print("SUMMARY")
@@ -1179,7 +1254,8 @@ def cmd_report(args):
         print("ANALYSIS_INCOMPLETE=missing（analysis.md 不存在，请立即补建并补全，"
               "并在汇报中说明偏离）")
     print("CHANGED_FILES=%d" % len(files))
-    print("COMMITTED=no（改动保留在工作区，等待人工 review，不要自动 commit）")
+    print("COMMITTED=pending（绑定分支须 finish 验证并提交后才可开始下一 Bug）" if info.get("mode") == "inplace" else
+          "COMMITTED=no（改动保留在工作区，等待人工 review，不要自动 commit）")
     if per_file:
         print("---- 变更明细 ----")
         print(per_file)
@@ -1190,6 +1266,30 @@ def cmd_report(args):
         next_hint += "；⚠ 先补全 solution.md（方案偏离：%s）" % sstat
     print(next_hint)
     return 0
+
+
+def cmd_ready(args):
+    try:
+        result = _routes.ready(args.project, args.bug_id)
+        print("ANALYSIS_SEALED=yes\nRUN_ID=" + result["run_id"])
+        return 0
+    except (_routes.RouteError, OSError, ValueError) as exc:
+        log("ERROR: %s" % exc)
+        return 8
+
+
+def cmd_finish(args):
+    try:
+        result = _routes.finish(args.project, args.bug_id, args.files, args.check_command, args.no_change)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    except (_routes.RouteError, OSError, ValueError) as exc:
+        rec = _routes.load_record(args.project, args.bug_id)
+        if rec:
+            rec.update(status="blocked", ok=False, error=str(exc))
+            _routes.save(_routes.record_path(args.project, args.bug_id), rec)
+        log("ERROR: %s；保留现场与分支锁，后续 Bug 暂停" % exc)
+        return 8
 
 
 def cmd_download_image(args):
@@ -1210,14 +1310,17 @@ def cmd_download_image(args):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(description="zentao-bugfix skill 脚本（禅道 bug 自动修复流程）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("config-status", help="检查 .agents/.env 配置")
+    p = sub.add_parser("config-status", help="检查 .agents/zentao-bugfix/routes.json 配置")
     p.add_argument("--project", default=".")
     p.set_defaults(func=cmd_config_status)
 
-    p = sub.add_parser("save-config", help="保存配置到 .agents/.env")
+    p = sub.add_parser("save-config", help="保存配置到 .agents/zentao-bugfix/routes.json")
     p.add_argument("pairs", nargs="*", help="KEY=VALUE ...")
     p.add_argument("--project", default=".")
     p.set_defaults(func=cmd_save_config)
@@ -1235,13 +1338,27 @@ def main():
     p.add_argument("--reuse", action="store_true", help="复用该 bugId 已存在的 worktree 继续处理")
     p.set_defaults(func=cmd_worktree)
 
-    p = sub.add_parser("prepare", help="防重检查 + get-bug + worktree + analysis.md 骨架（推荐入口）")
+    p = sub.add_parser("prepare", help="拉取 Bug + 路由匹配 + 绑定工作区或新 worktree + 分析骨架")
     p.add_argument("bug_id")
     p.add_argument("base_branch", nargs="?", default=None)
     p.add_argument("--project", default=".")
     p.add_argument("--reuse", action="store_true", help="复用该 bugId 已存在的 worktree 继续处理")
     p.add_argument("--force", action="store_true", help="重新生成 analysis.md")
+    p.add_argument("--current-workspace", help="异常 HTML 报告所在的当前/监听启动工作区")
     p.set_defaults(func=cmd_prepare)
+
+    p = sub.add_parser("ready", help="绑定工作区修改代码前校验分析先行并封存文档")
+    p.add_argument("bug_id")
+    p.add_argument("--project", default=".")
+    p.set_defaults(func=cmd_ready)
+
+    p = sub.add_parser("finish", help="验证并提交绑定分支的单个 Bug，成功后释放队列锁")
+    p.add_argument("bug_id")
+    p.add_argument("--project", default=".")
+    p.add_argument("--files", nargs="*", default=[], help="本次修复的全部相对文件路径")
+    p.add_argument("--check-command", required=True, help="验证命令，直接执行，不通过 shell")
+    p.add_argument("--no-change", action="store_true", help="确认无需代码修改，不产生空提交")
+    p.set_defaults(func=cmd_finish)
 
     p = sub.add_parser("report", help="生成 fix-report.md 并输出汇报摘要")
     p.add_argument("bug_id")
@@ -1256,7 +1373,11 @@ def main():
     p.set_defaults(func=cmd_download_image)
 
     args = ap.parse_args()
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (ValueError, _routes.RouteError) as exc:
+        log("ERROR: 配置或流程错误: %s" % exc)
+        return 2
 
 
 if __name__ == "__main__":

@@ -33,10 +33,10 @@ Redis、注册/配置中心及其他第三方组件。不限于改动仓库；�
 
 1. **隔离构建**：从 repos.<名>.path 只读解析用户指定分支的 commit，无需切换当前
    HEAD 或 fetch；引用缺失提示用户准备。将确定的 commit 导出至
-   `runs/<主题>/tmp/runtime/src/<仓库>/` 的非 Git 副本（例如 git archive；
+   `runs/<run-id>/tmp/runtime/src/<仓库>/` 的非 Git 副本（例如 git archive；
    submodule/LFS 按实际项目要求导出并记录版本）。不使用带 .git 的 clone 作为构建目录，
    不复制用户未提交修改、旧构建产物或凭据。确保编译的是本轮指定 commit。
-   黑盒本地启动需把必要交付物只读复制到 runs/<主题>/tmp/runtime/components/<名>/，
+   黑盒本地启动需把必要交付物只读复制到 runs/<run-id>/tmp/runtime/components/<名>/，
    使用已确认参数将日志/缓存/输出留在副本；禁止直接调用会向原黑盒目录写文件的
    启动脚本。无法隔离写入则提示用户提供可启动方案，相关测试 BLOCKED。
    构建副本与原目录不得通过符号链接、硬链接或写入挂载共享可变文件。
@@ -79,6 +79,8 @@ Redis、注册/配置中心及其他第三方组件。不限于改动仓库；�
 
 ## 5. 留证与收尾
 
+- 使用 run-records.md 创建的唯一 run-id；持久日志/截图/trace 保存到
+  runs/<run-id>/evidence/<环境>/<模块>/<场景>/，勿只留 tmp/；构建副本仍在 tmp/runtime/。
 - plan/report 记录运行方式、构建 commit/产物、服务 start/reuse、地址、就绪结果、
   PID/容器 ID 与日志路径。即使本地准备失败，也生成 Markdown、HTML 报告并尝试打开。
 - 执行完清理本轮测试数据，停止本轮启动的进程/容器（依赖顺序反向）；若用户要求保留

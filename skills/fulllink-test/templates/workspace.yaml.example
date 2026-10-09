@@ -42,7 +42,7 @@ externalComponents:
 
 language: "按仓库描述，如 basic-platform-service: java-springcloud；wukong: vue"
 build: "按仓库描述，如 service: mvn -s settings.xml clean package -DskipTests；web: pnpm build"
-toolVersion: 1.14.0     # 创建本空间所用 fulllink-test skill 版本
+toolVersion: 1.16.0     # 创建本空间所用 fulllink-test skill 版本
 
 # 模块粗映射：仓库名:路径 glob → 功能模块（与 docs/01-architecture/module-map.md、
 # docs/02-modules/<模块>/ 对齐；登记名定位 repos.<名>.path，glob 相对实际仓库根）
@@ -88,7 +88,7 @@ environments:
     note: 192.168.0.147 联调环境
     executionMode: null             # 本轮必明确 local | existing；未知不得按地址推断
     runtime:                        # 逐环境登记，详细流程见 runtime.md
-      sourceDir: runs/<主题>/tmp/runtime/src # 非 Git 构建副本，按本轮路径展开
+      sourceDir: runs/<run-id>/tmp/runtime/src # 非 Git 构建副本，按本轮路径展开
       components:                  # 以下仅为填写示例；按实际链路增删，不直接执行占位命令
         backend:
           repo: basic-platform-service

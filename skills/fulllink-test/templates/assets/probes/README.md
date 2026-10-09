@@ -1,6 +1,6 @@
 # assets/probes/ — 沉淀测试脚本（按功能模块分目录，**Python/uv 优先**）
 
-从 `runs/<主题>/tmp/`（本轮临时脚本目录）沉淀出的可复用脚本。
+从 `runs/<run-id>/tmp/`（本轮临时脚本目录）沉淀出的可复用脚本。
 **目录按功能模块整理，与 `docs/02-modules/<模块名>/` 同名对齐**
 （模块清单见 `docs/01-architecture/module-map.md`）：
 
@@ -40,7 +40,10 @@ Git 仓库和黑盒组件均按实际 path 只读引用（空间内外皆可，�
    - Python → 探针头部 PEP 723 内联依赖（`# /// script` 块），`uv run <脚本>` 执行，
      脚本内 `sys.path` 加入 `common/` 后 `import lib`
    - Node → 空间根 `package.json` + `npm install`，脚本内 `require('../common/lib.js')`
-7. 每个探针头部注释写清：**用途、运行方式、依赖**（多文件探针配 README）
+7. 每个测试点编号关联实际 UI/非 UI 方式和证据；执行时记录脱敏数据来源、选样时间、
+   输入/前置状态、预期、实测到 evidence/<环境>/<模块>/<编号>/attempt-<序号>/，
+   不能只输出 PASS。页面流程预定 UI 未执行/未完成时报告具体原因、替代检查与缺口。
+8. 每个探针头部注释写清：**用途、运行方式、依赖**（多文件探针配 README）
 
 ## 运行示例
 
@@ -50,7 +53,7 @@ uv run assets/probes/monitor-iot/check_fanout.py
 
 # 前端页面 e2e（Vue 等优先 playwright；首次先装浏览器）
 uv run --with 'playwright>=1.40,<2' python -m playwright install chromium
-uv run assets/probes/order-operation/check_order_flow.py --run-dir runs/<主题> --attempt 1
+uv run assets/probes/order-operation/check_order_flow.py --run-dir runs/<run-id> --attempt 1
 
 # Node 探针（仅在 Python 不适合时）
 node assets/probes/monitor-iot/check_consume.js
@@ -61,7 +64,7 @@ node assets/probes/monitor-iot/check_consume.js
 - 头部 PEP 723 内联 `playwright` 依赖；页面目标地址从环境台账/env.json 取，不写死；
   测试账号等敏感输入从 env.secret.json 对应环境读
 - UI 自动化必须完整录屏，默认 slowMo 500ms、状态就绪后停留 1000ms；成功、失败及
-  重试均保留 `runs/<主题>/videos/<环境>/<场景>/<尝试>/`，finally 中关闭 context
+  重试均保留 `runs/<run-id>/videos/<环境>/<场景>/<尝试>/`，finally 中关闭 context
   后确认录像落盘。报告给出视频链接与待人工核对项，详见 skill 的 ui-recording.md。
 - 断言页面元素/交互流转，关键数据断言配合 MCP（websocket_read/http_send）或
   mysql_query 取证；退出码与 stdout 断言遵守通用契约，测后沉淀到
@@ -75,7 +78,7 @@ node assets/probes/monitor-iot/check_consume.js
 # dependencies = ["playwright>=1.40,<2"]
 # ///
 """页面冒烟与录屏示例；正式 E2E 需补齐业务操作与最终结果断言。
-uv run check_order_flow.py --run-dir <workspace>/runs/<主题> --attempt 1
+uv run check_order_flow.py --run-dir <workspace>/runs/<run-id> --attempt 1
 """
 import argparse, json, sys, time
 from pathlib import Path

@@ -4,7 +4,7 @@
 用法：
     import report
     report.check("队列有消费者", s["consumers"] > 0, f"consumers={s['consumers']}")
-    report.write_report("runs/<主题>/report-assert.md")
+    report.write_report("runs/<run-id>/report-assert.md")
     sys.exit(1 if report.summary()["failed"] else 0)   # 非0=FAIL
 证据要求见 skill 的 contracts/report-contract.md：L0 证据不算 PASS。
 """

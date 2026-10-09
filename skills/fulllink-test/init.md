@@ -22,7 +22,7 @@
 ├── assets/                     # ── 脚本层 ──
 │   ├── common/                 #   公共库 + env.json / env.secret.json
 │   └── probes/<模块>/          #   探针按模块分目录（与 02-modules 同名对齐）
-└── runs/                       # ── 记录层 ──
+└── runs/                       # 记录层：INDEX.md + by-module/ + 时间__模块__主题/ 
 ```
 
 一个测试空间仅对应一个业务项目；workspace.yaml `project` 只填写一个项目名。
@@ -94,7 +94,10 @@ monorepo 一个仓库可含多应用，黑盒只读引用实际交付物或现�
 | `assets/package.json` | 工作空间根（Node 探针依赖清单，仅当探针用 Node 时 `npm install`） |
 | `assets/probes/README.md` | 原样落位（探针按模块分目录的约定与多语言契约） |
 
-4. **空间版本化（推荐）**：`git init` 并推送到私有备份仓，保护越攒越厚的知识资产；
+4. 建立测试记录入口：按 [run-records.md](run-records.md) 运行
+   `python3 <skill_dir>/scripts/run_records.py reindex --workspace <空间>`，生成空的
+   runs/INDEX.md 与 by-module/；已有空间重建索引，旧记录原位保留。
+5. **空间版本化（推荐）**：`git init` 并推送到私有备份仓，保护越攒越厚的知识资产；
    把 `templates/gitignore.example` 拷为空间根 `.gitignore`（覆盖凭据/登录态/
    repos/ / node_modules / tmp 产物 / UI 录像）
 
@@ -174,7 +177,7 @@ feature 写外部可观察行为，link 只写与本系统的交互（调用/消
      （env.json `envs.<环境>.front`）；测试账号引导用户填入 env.secret.json 的
      `envs.<环境>.front.{username,password}`（值不进对话）
    - UI 录屏与操作节奏：env.json `envs.<环境>.uiAutomation` 使用默认慢速参数，
-     视频保存到本轮 runs/<主题>/videos/，按 ui-recording.md 登记人工核对要求
+     视频保存到本轮 runs/<run-id>/videos/，按 ui-recording.md 登记人工核对要求
    - MCP 工具：**默认登记 AgentR 本地网关**（`mcp.agentr`：四端点 rust/go/node/python
      + 用途映射），init 时逐端点调 `tools/list` 核对可用工具并更新登记，调
      `*_list_connections` 确认目标环境的连接已在 AgentR 侧登记（缺了提示用户在

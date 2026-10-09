@@ -18,4 +18,7 @@
 2. 优先选"配置齐全"的样本条件（多系统扇出、有点位、有分组），一台顶十台
 3. SQL 必须可重跑：排序/过滤条件稳定，环境重置后仍能挖到同类样本；
    挖不到时更新 SQL 并在 06-history 记录原因
-4. 探针用法：lib.fixtures['multiSystemDevice'] 取条件 → lib.open_db() 现查 -->
+4. 探针用法：lib.fixtures['multiSystemDevice'] 取条件 → lib.open_db() 现查
+5. 本轮实际样本、输入与预期/实测快照按测试点编号写 runs/<run-id>/evidence/，
+   报告记录选样环境/时间/策略和关键字段；凭据不记录、敏感数据脱敏。
+   本轮快照只是证据，不可固化进脚本/fixtures 供下轮复用；未执行不编造样本 -->

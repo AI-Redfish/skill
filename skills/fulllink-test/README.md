@@ -49,7 +49,7 @@ tech 技术文档，相当于需求+功能+技术文档）→ 全局链路（`03
   本地运行用隔离副本。启动或服务异常立即对话提示用户并记录阻断，不自动修复。
   脚本、录像及报告放组件目录外，执行前后记录 Git 与黑盒路径只读检查
 - **UI 自动化全程录屏，放慢操作供人工核对**：Playwright 等工具均适用，默认
-  slowMo 500ms、结果展示后停留 1000ms。视频保存在 runs/<主题>/videos/，失败及
+  slowMo 500ms、结果展示后停留 1000ms。视频保存在 runs/<run-id>/videos/，失败及
   重试也保留；报告提供视频链接与人工核对状态。详见 [ui-recording.md](ui-recording.md)
 - **尽量使用 E2E（端到端）测试**：前端优先 Playwright 用户流程，后端通过真实
   API/消息/任务入口贯穿链路并核对最终业务结果；单点检查作为补充，E2E 受阻时
@@ -70,8 +70,21 @@ tech 技术文档，相当于需求+功能+技术文档）→ 全局链路（`03
   SSH/TDEngine（node）、schedule（python）），用于一次性查询与取证；
   可复跑的验证一律沉淀为脚本
 - 凭据只存 `<workspace>/assets/common/env.secret.json`（gitignore），永不进 skill 包与报告
-- 对账标准与报告格式见 [contracts/report-contract.md](contracts/report-contract.md)
+- 报告逐测试点列**预定/实际方式**（UI 自动化、非 UI API/消息/DB 脚本等）、实际输入
+  数据及来源、预期/实测、证据；包括全部 PASS 项。应做 UI 而未完成时写具体原因、
+  替代检查与未覆盖 UI 环节，接口 PASS 不代表 UI 通过。
+  对账标准与报告格式见 [contracts/report-contract.md](contracts/report-contract.md)
 - init 流程详见 [init.md](init.md)
+
+## 测试记录与查找
+
+每次测试新建 `runs/YYYYMMDD-HHMMSS-ffffff__<模块或cross-module>__<主题>/`，
+内部固定 plan.md、report.md、report.html、run.json，录像与持久证据另放 videos/、
+evidence/。例如 `20261008-143025-123456__order__订单回归/`。
+
+打开 `runs/INDEX.md` 按时间查全部测试，或 `runs/by-module/<模块>.md` 查模块历史；
+跨模块测试在每个相关模块索引出现，完整范围以 run.json 为准。重跑新建记录、
+保留全部历史；旧目录不改名，在索引单列“旧记录”。详见 [run-records.md](run-records.md)。
 
 ## 脚本
 
@@ -79,6 +92,7 @@ tech 技术文档，相当于需求+功能+技术文档）→ 全局链路（`03
 |---|---|---|
 | `scripts/resolve_workspace.py` | 代码目录 → 所属空间定位（向上找 workspace.yaml）；空间外 git 仓库识别（mode: external）；创建项目空间 | `python3 scripts/resolve_workspace.py --repo-dir <代码目录>` 或 `--project <项目名> [--root <根>] [--save-root] [--create]` |
 | `scripts/workspace_check.py` | 工作空间结构完整性、密钥卫生与仓库登记一致性校验 | `python3 scripts/workspace_check.py --workspace <空间>` |
+| `scripts/run_records.py` | 创建独立轮次、更新状态和生成时间/模块索引 | `python3 scripts/run_records.py create/update/reindex ...`（详见 run-records.md） |
 | `scripts/report_html.py` | 测试报告 Markdown → 自包含 HTML（状态标色），默认自动打开 | `python3 scripts/report_html.py <report.md> [--no-open]` |
 
 均为 Python 3.9+ 纯标准库，JSON 输出。单测：`python3 -m unittest discover -s tests -v`

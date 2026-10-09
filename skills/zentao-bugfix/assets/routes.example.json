@@ -1,0 +1,33 @@
+{
+  "config": {
+    "ZENTAO_BASE_URL": "https://zentao.example.com",
+    "ZENTAO_ACCOUNT": "",
+    "ZENTAO_PASSWORD": "",
+    "BUGFIX_BASE_BRANCH": "",
+    "DWS_LISTEN_USERS": "",
+    "DWS_LISTEN_BOTS": "",
+    "TARGET_PROJECT_PATH": "",
+    "AGENT_TYPE": "",
+    "AGENT_MODEL": "",
+    "AGENT_CUSTOM_CMD": "",
+    "LISTEN_MODE": "auto",
+    "POLL_INTERVAL_SECONDS": "20",
+    "POLL_LOOKBACK_MINUTES": "10",
+    "POLL_MAX_CATCHUP_MINUTES": "60",
+    "LISTEN_AUTOSTART": "on"
+  },
+  "rules": [
+    {
+      "name": "指定 Bug",
+      "match": {"bug_id": "12345"},
+      "workspace": "D:/projects/order-service",
+      "target_branch": "feature/order"
+    },
+    {
+      "name": "订单改造测试",
+      "match": {"title_contains": "订单改造"},
+      "workspace": "D:/projects/order-service",
+      "target_branch": "feature/order"
+    }
+  ]
+}

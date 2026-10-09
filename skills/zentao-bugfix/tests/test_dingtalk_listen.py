@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "dingtalk_listen.py"
-# 模块常量（ENV_FILE/LOG_DIR）在 import 时锥定 cwd：测试进程先切到临时目录，
+# 模块常量（CONFIG_FILE/LOG_DIR）在 import 时锥定 cwd：测试进程先切到临时目录，
 # 避免从 skill 目录跑单测时把 .agents/logs 写进 skill 目录内
 TEST_CWD = tempfile.mkdtemp(prefix="dl_test_cwd_")
 atexit.register(shutil.rmtree, TEST_CWD, ignore_errors=True)
@@ -52,20 +52,21 @@ class TestJsonLoose(unittest.TestCase):
 class TestEnvRoundtrip(unittest.TestCase):
     def test_save_and_load(self):
         with tempfile.TemporaryDirectory() as td:
-            p = Path(td) / ".agents" / ".env"
-            dl.save_env(p, {"A": "1"})
-            dl.save_env(p, {"A": "2", "B": "x=y"})     # 覆盖 + 值含等号
-            cfg = dl.load_env(p)
+            p = Path(td) / ".agents" / "zentao-bugfix" / "routes.json"
+            dl.save_config(p, {"A": "1"})
+            dl.save_config(p, {"A": "2", "B": "x=y"})     # 覆盖 + 值含等号
+            cfg = dl.load_config(p)
             self.assertEqual(cfg["A"], "2")
             self.assertEqual(cfg["B"], "x=y")
 
-    def test_comments_preserved(self):
+    def test_rules_preserved_when_saving_config(self):
         with tempfile.TemporaryDirectory() as td:
-            p = Path(td) / "e.env"
-            p.write_text("# 注释\nK=1\n", encoding="utf-8")
-            dl.save_env(p, {"K": "9"})
-            self.assertIn("# 注释", p.read_text(encoding="utf-8"))
-            self.assertEqual(dl.load_env(p)["K"], "9")
+            p = Path(td) / "routes.json"
+            rules = [{"name": "订单", "match": {"bug_id": "123"}, "workspace": "/dev", "target_branch": "feature/order"}]
+            dl._routes.save(p, {"config": {"K": "1"}, "rules": rules})
+            dl.save_config(p, {"K": "9"})
+            self.assertEqual(dl._routes.read(p)["rules"], rules)
+            self.assertEqual(dl.load_config(p)["K"], "9")
 
 
 class TestPiSessionDetect(unittest.TestCase):
@@ -224,27 +225,32 @@ class TestExtractIntent(unittest.TestCase):
             dl.extract_bug_intent(dl.PiAdapter("m"), "李四", "x")
 
 
-class TestSyncZentaoEnv(unittest.TestCase):
+class TestSyncZentaoConfig(unittest.TestCase):
     def test_sync_and_gitignore(self):
         with tempfile.TemporaryDirectory() as td:
-            old = dl.ENV_FILE
+            old = dl.CONFIG_FILE
             try:
-                src = Path(td) / "skill.env"
-                dl.save_env(src, {"ZENTAO_BASE_URL": "http://z", "ZENTAO_ACCOUNT": "a",
+                src = Path(td) / "routes.json"
+                dl.save_config(src, {"ZENTAO_BASE_URL": "http://z", "ZENTAO_ACCOUNT": "a",
                                   "ZENTAO_PASSWORD": "p"})
-                dl.ENV_FILE = src
+                dl.CONFIG_FILE = src
                 repo = Path(td) / "repo"
                 (repo / ".git").mkdir(parents=True)
-                dl.sync_zentao_env_to_repo(repo)
-                cfg = dl.load_env(repo / ".agents" / ".env")
+                rules = [{"match": {"title_contains": "订单"}, "workspace": "/dev", "target_branch": "feature/order"}]
+                dl._routes.save(dl._routes.config_path(repo), {"rules": rules, "config": {"BUGFIX_BASE_BRANCH": "release", "ZENTAO_ACCOUNT": "old"}})
+                dl.sync_zentao_config_to_repo(repo)
+                cfg = dl.load_config(dl._routes.config_path(repo))
                 self.assertEqual(cfg["ZENTAO_BASE_URL"], "http://z")
-                self.assertIn(".agents/.env", (repo / ".gitignore").read_text(encoding="utf-8"))
+                self.assertEqual(cfg["ZENTAO_ACCOUNT"], "a")
+                self.assertEqual(cfg["BUGFIX_BASE_BRANCH"], "release")
+                self.assertEqual(dl._routes.read(dl._routes.config_path(repo))["rules"], rules)
+                self.assertIn(".agents/zentao-bugfix/routes.json", (repo / ".gitignore").read_text(encoding="utf-8"))
                 # 二次同步不重复追加 gitignore
-                dl.sync_zentao_env_to_repo(repo)
+                dl.sync_zentao_config_to_repo(repo)
                 text = (repo / ".gitignore").read_text(encoding="utf-8")
-                self.assertEqual(text.count(".agents/.env"), 1)
+                self.assertEqual(text.count(".agents/zentao-bugfix/routes.json"), 1)
             finally:
-                dl.ENV_FILE = old
+                dl.CONFIG_FILE = old
 
 
 class TestResolveRepo(unittest.TestCase):
@@ -256,8 +262,8 @@ class TestResolveRepo(unittest.TestCase):
             self.assertEqual(got, repo.resolve())
 
 
-class TestEnvLocation(unittest.TestCase):
-    """配置/日志锥定启动工作空间，不锥 skill 目录；旧位置只读兑底 + 自动迁移。"""
+class TestConfigLocation(unittest.TestCase):
+    """Only startup-workspace routes.json is read; old .env is never a fallback."""
 
     def test_anchors_to_cwd_not_skill_dir(self):
         with tempfile.TemporaryDirectory() as td:
@@ -268,59 +274,55 @@ class TestEnvLocation(unittest.TestCase):
                 dl2 = importlib.util.module_from_spec(spec2)
                 spec2.loader.exec_module(dl2)
                 base = Path(td).resolve()
-                self.assertEqual(dl2.ENV_FILE, base / ".agents" / ".env")
+                self.assertEqual(dl2.CONFIG_FILE, base / ".agents" / "zentao-bugfix" / "routes.json")
                 self.assertEqual(dl2.LOG_DIR, base / ".agents" / "logs")
                 # 不落在 skill 目录内（安装到 <工作空间>/.agents/skills/ 时会嵌套 .agents）
-                self.assertNotEqual(dl2.ENV_FILE, dl2.LEGACY_ENV_FILE)
-                self.assertFalse(str(dl2.ENV_FILE).startswith(
+                self.assertFalse(str(dl2.CONFIG_FILE).startswith(
                     str(dl2.SKILL_DIR / ".agents")))
             finally:
                 os.chdir(old_cwd)
 
-    def test_legacy_readonly_fallback_and_migration(self):
+    def test_legacy_env_not_read(self):
         with tempfile.TemporaryDirectory() as td:
-            old_env, old_legacy = dl.ENV_FILE, dl.LEGACY_ENV_FILE
+            old = dl.CONFIG_FILE
             try:
-                legacy = Path(td) / "legacy" / ".agents" / ".env"
-                legacy.parent.mkdir(parents=True)
-                legacy.write_text("A=1\n# 注释\n", encoding="utf-8")
-                dl.LEGACY_ENV_FILE = legacy
-                dl.ENV_FILE = Path(td) / "ws" / ".agents" / ".env"
-                # 新位置不存在 → 只读兑底读旧位置
-                self.assertEqual(dl.load_env(), {"A": "1"})
-                self.assertFalse(dl.ENV_FILE.is_file())
-                # 迁移：整体拷贝到工作空间，旧文件保留
-                dl.migrate_legacy_env()
-                self.assertTrue(dl.ENV_FILE.is_file())
-                self.assertIn("# 注释", dl.ENV_FILE.read_text(encoding="utf-8"))
-                self.assertTrue(legacy.is_file())
-                # 迁移后新位置生效，不再走兑底
-                dl.save_env(dl.ENV_FILE, {"B": "2"})
-                cfg = dl.load_env()
-                self.assertEqual(cfg, {"A": "1", "B": "2"})
+                project = Path(td)
+                (project / ".agents").mkdir()
+                (project / ".agents" / ".env").write_text("OLD=1\n", encoding="utf-8")
+                dl.CONFIG_FILE = dl._routes.config_path(project)
+                self.assertEqual(dl.load_config(), {})
+                dl.save_config(dl.CONFIG_FILE, {"NEW": "2"})
+                self.assertEqual(dl.load_config(), {"NEW": "2"})
+                self.assertEqual((project / ".agents" / ".env").read_text(), "OLD=1\n")
             finally:
-                dl.ENV_FILE, dl.LEGACY_ENV_FILE = old_env, old_legacy
+                dl.CONFIG_FILE = old
 
-    def test_new_env_wins_over_legacy(self):
+    def test_invalid_config_is_not_silently_ignored(self):
         with tempfile.TemporaryDirectory() as td:
-            old_env, old_legacy = dl.ENV_FILE, dl.LEGACY_ENV_FILE
-            try:
-                legacy = Path(td) / "legacy.env"
-                legacy.write_text("OLD=1\n", encoding="utf-8")
-                new = Path(td) / ".agents" / ".env"
-                new.parent.mkdir(parents=True)
-                new.write_text("NEW=1\n", encoding="utf-8")
-                dl.LEGACY_ENV_FILE, dl.ENV_FILE = legacy, new
-                self.assertEqual(dl.load_env(), {"NEW": "1"})   # 新位置优先，不合并旧键
-                # 新位置已存在时迁移不覆盖
-                legacy.write_text("OLD=2\n", encoding="utf-8")
-                dl.migrate_legacy_env()
-                self.assertEqual(new.read_text(encoding="utf-8"), "NEW=1\n")
-            finally:
-                dl.ENV_FILE, dl.LEGACY_ENV_FILE = old_env, old_legacy
+            p = Path(td) / "routes.json"
+            for content in ('not json', '{"config": []}', '{"config": {"KEY": 5}}'):
+                p.write_text(content, encoding="utf-8")
+                with self.assertRaises((ValueError, dl._routes.RouteError)):
+                    dl.load_config(p)
 
 
 class TestMissingAndMask(unittest.TestCase):
+    def test_config_status_masks_password_and_reports_json_path(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "routes.json"
+            dl.save_config(path, {"ZENTAO_PASSWORD": "test-password", "LISTEN_MODE": "poll"})
+            output = io.StringIO()
+            with patch.object(dl, "CONFIG_FILE", path), contextlib.redirect_stdout(output):
+                dl.cmd_config_status(None)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["config_file"], str(path))
+            self.assertNotIn("test-password", output.getvalue())
+            self.assertEqual(result["present"]["LISTEN_MODE"], "poll")
+
+
     def test_missing_keys(self):
         self.assertEqual(dl.missing_keys({"ZENTAO_BASE_URL": "x"},
                                          ["ZENTAO_BASE_URL", "DWS_LISTEN_USERS"]),
@@ -443,6 +445,91 @@ class TestFixPrompt(unittest.TestCase):
         self.assertLess(p.index("补全 analysis.md"), p.index("实施修复"))
         # 分析报告落盘位置指向 worktree 的 .agents/zentao-bugfix
         self.assertIn(".agents/zentao-bugfix/", p)
+
+
+class TestRoutedRuns(unittest.TestCase):
+    def test_prepared_prompt_does_not_prepare_twice(self):
+        prepared = {"mode": "inplace", "project": "/repo with space", "workspace": "/dev", "report_dir": "/dev/.agents/zentao-bugfix/1"}
+        p = dl.build_fix_prompt("1", prepared=prepared)
+        self.assertIn("禁止再次 prepare", p)
+        self.assertIn("ready 1", p)
+        self.assertIn("finish 1", p)
+        self.assertIn("--check-command", p)
+        self.assertLess(p.index("ready 1"), p.index("实施修复"))
+
+    def test_verify_requires_current_run_complete_reports_and_commit(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            rd = repo / "reports"
+            rd.mkdir()
+            rec = {"run_id": "new", "report_dir": str(rd), "workspace": str(repo), "mode": "worktree"}
+            dl._routes.save(dl._routes.record_path(repo, "1"), rec)
+            dl._routes.save(rd / "meta.json", {"run_id": "old"})
+            for name in ("analysis.md", "solution.md", "fix-report.md"):
+                (rd / name).write_text("完整", encoding="utf-8")
+            self.assertFalse(dl.verify_run("1", repo, "new")["ok"])
+            dl._routes.save(rd / "meta.json", {"run_id": "new"})
+            self.assertTrue(dl.verify_run("1", repo, "new")["ok"])
+            rec.update(mode="inplace", status="prepared")
+            dl._routes.save(dl._routes.record_path(repo, "1"), rec)
+            self.assertFalse(dl.verify_run("1", repo, "new")["ok"])
+            rec.update(status="no_change", validation={"returncode": 0})
+            dl._routes.save(dl._routes.record_path(repo, "1"), rec)
+            self.assertTrue(dl.verify_run("1", repo, "new")["ok"])
+            (rd / "fix-report.md").write_text("（待填写）", encoding="utf-8")
+            self.assertFalse(dl.verify_run("1", repo, "new")["ok"])
+
+    def test_listener_runs_agent_in_prepared_workspace_and_verifies_current_run(self):
+        from unittest.mock import patch
+        import subprocess
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "source"
+            repo.mkdir()
+            workspace = Path(td) / "dev"
+            workspace.mkdir()
+            rd = workspace / ".agents" / "zentao-bugfix" / "1"
+            rd.mkdir(parents=True)
+            rec = {"run_id": "current", "report_dir": str(rd), "workspace": str(workspace), "mode": "worktree"}
+            dl._routes.save(dl._routes.record_path(repo, "1"), rec)
+            dl._routes.save(rd / "meta.json", {"run_id": "current"})
+            for name in ("analysis.md", "solution.md", "fix-report.md"):
+                (rd / name).write_text("完整", encoding="utf-8")
+            adapter = dl.PiAdapter("m")
+            with patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "MODE=worktree", "")), patch.object(adapter, "fix", return_value=(["fake"], None)) as fix, patch.object(dl, "run_agent_cmd", return_value="done") as run:
+                result = dl.run_auto_fix(adapter, "1", repo)
+            self.assertTrue(result["ok"])
+            self.assertEqual(run.call_args.kwargs["cwd"], str(workspace))
+            self.assertEqual(fix.call_args.args[1], str(workspace))
+
+    def test_waiting_jobs_preserve_order_resume_and_persist(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            li = dl.Listener([], dl.PiAdapter("m"), Path(td))
+            path = Path(td) / "pending.json"
+            pending = ["101", "102", "103"]
+            with patch.object(dl, "run_auto_fix", side_effect=[
+                {"ok": True, "status": "committed"},
+                {"ok": False, "status": "waiting"},
+                {"ok": False, "status": "waiting"}]) as fix:
+                li._retry_waiting(pending, path)
+            self.assertEqual(pending, ["102", "103"])
+            self.assertEqual(dl._routes.read(path), ["102", "103"])
+            self.assertEqual([call.args[1] for call in fix.call_args_list], ["101", "102", "103"])
+            self.assertTrue(all(call.kwargs["reuse"] for call in fix.call_args_list))
+
+    def test_workspace_error_never_starts_agent(self):
+        from unittest.mock import patch
+        import subprocess
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            rec = {"status": "workspace_error", "html_report": str(repo / "error.html"), "error": "不存在"}
+            dl._routes.save(dl._routes.record_path(repo, "1"), rec)
+            adapter = dl.PiAdapter("m")
+            with patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 7, "HTML_REPORT=x", "")), patch.object(adapter, "fix") as fix:
+                result = dl.run_auto_fix(adapter, "1", repo)
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["status"], "workspace_error")
+            fix.assert_not_called()
 
 
 class TestCreationFlags(unittest.TestCase):

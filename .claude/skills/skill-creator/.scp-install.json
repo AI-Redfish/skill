@@ -1,0 +1,8 @@
+{
+  "managed_by": "skill-creator-plus",
+  "repo": "https://github.com/anthropics/skills",
+  "ref": "main",
+  "method": "git",
+  "commit": "683bc88e56f3e09ba94f7055977f3d3aa499f202",
+  "installed_at": "2026-10-08T17:49:29+0800"
+}
