@@ -79,6 +79,8 @@ def parse_args() -> argparse.Namespace:
                     help="作者邮箱(默认取仓库 user.email；传 all 不过滤)")
     ap.add_argument("--json-out", default=None,
                     help="额外将 JSON 写入该文件路径")
+    ap.add_argument("--status-timeout", type=float, default=45.0,
+                    help="单 worktree 未提交扫描超时秒数(默认 45，超时自动降级)")
     return ap.parse_args()
 
 
@@ -172,7 +174,7 @@ def branch_window_sets(repo: Path, branches: list[str],
     return result
 
 
-def get_uncommitted(wt_path: str, timeout: float = 90.0) -> tuple[list[dict], str]:
+def get_uncommitted(wt_path: str, timeout: float = 45.0) -> tuple[list[dict], str]:
     """两段降级：先含未跟踪全量扫描；超时则仅扫跟踪文件；再超时则放弃并标注。"""
     modes = (("--untracked-files=normal", ""),
              ("--untracked-files=no", "未跟踪文件未扫描(全量扫描超时降级)"))
@@ -272,7 +274,8 @@ def main() -> int:
         wt_infos = []
         uncommitted_total = 0
         for t in worktrees:
-            uncommitted, unote = get_uncommitted(t["path"])
+            uncommitted, unote = get_uncommitted(t["path"],
+                                                 timeout=args.status_timeout)
             uncommitted_total += len(uncommitted)
             sync = sync_state(repo, t["branch"])
             wt_infos.append({**t, "uncommitted": uncommitted,
