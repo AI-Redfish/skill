@@ -469,12 +469,18 @@ class TestRoutedRuns(unittest.TestCase):
                 (rd / name).write_text("完整", encoding="utf-8")
             self.assertFalse(dl.verify_run("1", repo, "new")["ok"])
             dl._routes.save(rd / "meta.json", {"run_id": "new"})
+            self.assertFalse(dl.verify_run("1", repo, "new")["ok"])  # HTML missing
+            dl._routes._reports.render_reports(rd, require_complete=True)
             self.assertTrue(dl.verify_run("1", repo, "new")["ok"])
             rec.update(mode="inplace", status="prepared")
             dl._routes.save(dl._routes.record_path(repo, "1"), rec)
             self.assertFalse(dl.verify_run("1", repo, "new")["ok"])
             rec.update(status="no_change", validation={"returncode": 0})
             dl._routes.save(dl._routes.record_path(repo, "1"), rec)
+            self.assertTrue(dl.verify_run("1", repo, "new")["ok"])
+            (rd / "fix-report.md").write_text("已完整，但正文变化", encoding="utf-8")
+            self.assertFalse(dl.verify_run("1", repo, "new")["ok"])  # stale HTML
+            dl._routes._reports.render_reports(rd, require_complete=True)
             self.assertTrue(dl.verify_run("1", repo, "new")["ok"])
             (rd / "fix-report.md").write_text("（待填写）", encoding="utf-8")
             self.assertFalse(dl.verify_run("1", repo, "new")["ok"])
@@ -494,6 +500,7 @@ class TestRoutedRuns(unittest.TestCase):
             dl._routes.save(rd / "meta.json", {"run_id": "current"})
             for name in ("analysis.md", "solution.md", "fix-report.md"):
                 (rd / name).write_text("完整", encoding="utf-8")
+            dl._routes._reports.render_reports(rd, require_complete=True)
             adapter = dl.PiAdapter("m")
             with patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "MODE=worktree", "")), patch.object(adapter, "fix", return_value=(["fake"], None)) as fix, patch.object(dl, "run_agent_cmd", return_value="done") as run:
                 result = dl.run_auto_fix(adapter, "1", repo)

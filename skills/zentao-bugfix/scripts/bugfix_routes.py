@@ -2,6 +2,7 @@
 """Routing, persistent reservations and per-bug commits (standard library only)."""
 from contextlib import contextmanager, ExitStack
 import hashlib
+import importlib.util
 import html
 import json
 import os
@@ -14,6 +15,11 @@ import tempfile
 import uuid
 import webbrowser
 from datetime import datetime
+
+
+_reports_spec = importlib.util.spec_from_file_location("report_html", Path(__file__).with_name("report_html.py"))
+_reports = importlib.util.module_from_spec(_reports_spec)
+_reports_spec.loader.exec_module(_reports)
 
 
 class RouteError(RuntimeError):
@@ -335,6 +341,8 @@ def ready(project, bug_id):
         raise RouteError("ready 仅用于绑定工作区")
     p = validate_workspace(rec["route"])
     if rec.get("analysis_sealed"):
+        rec["html_reports"] = _reports.render_reports(rec["report_dir"], names=("analysis.md", "solution.md"), require_complete=True)
+        save(record_path(project, bug_id), rec)
         return rec
     if snapshot(p) != rec["snapshot"]:
         raise RouteError("分析文档完成前代码或暂存区已改变，禁止开始修复")
@@ -345,7 +353,8 @@ def ready(project, bug_id):
         if not content.strip() or "（待填写" in content:
             raise RouteError(name + " 未完成")
         docs[name] = hashlib.sha256(content.encode()).hexdigest()
-    rec.update(analysis_sealed=docs, status="repairing")
+    html_reports = _reports.render_reports(rec["report_dir"], names=("analysis.md", "solution.md"), require_complete=True)
+    rec.update(analysis_sealed=docs, status="repairing", html_reports=html_reports)
     save(record_path(project, bug_id), rec)
     return rec
 
@@ -364,6 +373,8 @@ def _finish(project, bug_id, files, check_command, no_change=False):
     if not rec or rec.get("mode") != "inplace":
         raise RouteError("finish 仅用于已 prepare 的绑定工作区")
     if rec.get("status") in ("committed", "no_change"):
+        rec["html_reports"] = _reports.render_reports(rec["report_dir"], require_complete=True)
+        save(record_path(project, bug_id), rec)
         release(rec)
         return rec
     if not rec.get("analysis_sealed"):
@@ -377,6 +388,7 @@ def _finish(project, bug_id, files, check_command, no_change=False):
         doc = report / name
         if not doc.is_file() or not doc.read_text(encoding="utf-8").strip() or "（待填写" in doc.read_text(encoding="utf-8"):
             raise RouteError(name + " 尚未完整落盘")
+    rec["html_reports"] = _reports.render_reports(report, require_complete=True)
     before = rec["snapshot"]
     for name, digest in rec["analysis_sealed"].items():
         if hashlib.sha256((report / name).read_text(encoding="utf-8").encode()).hexdigest() != digest:
@@ -462,6 +474,9 @@ def _finish(project, bug_id, files, check_command, no_change=False):
     save(report / "meta.json", meta)
     with (report / "fix-report.md").open("a", encoding="utf-8") as f:
         f.write("\n\n## 最终提交结果\n\n状态：%s\n\nCommit：`%s`\n" % (rec["status"], rec.get("commit", "无需代码修改")))
+    rec["html_reports"] = _reports.render_reports(report, require_complete=True)
+    meta["html_reports"] = rec["html_reports"]
+    save(report / "meta.json", meta)
     save(record_path(project, bug_id), rec)
     release(rec)
     return rec

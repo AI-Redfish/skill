@@ -127,6 +127,8 @@ class RoutingTests(unittest.TestCase):
         (self.workspace / "one.txt").write_text("fix 101\n")
         first = r.finish(self.project, "101", ["one.txt"], self.check)
         self.assertEqual(first["status"], "committed")
+        self.assertTrue(all(r._reports.current_reports(first["report_dir"]).values()))
+        self.assertIn(first["commit"], (Path(first["report_dir"]) / "fix-report.html").read_text(encoding="utf-8"))
         self.assertEqual(git(self.workspace, "rev-parse", "HEAD^"), initial)
         self.assertEqual(self.prepare("102"), 0)
         self.docs("102")
@@ -207,6 +209,8 @@ class RoutingTests(unittest.TestCase):
         self.docs()
         rec = r.finish(self.project, "101", [], self.check, no_change=True)
         self.assertEqual(rec["status"], "no_change")
+        self.assertIn("无需代码修改", (Path(rec["report_dir"]) / "fix-report.html").read_text(encoding="utf-8"))
+        self.assertTrue(all(r._reports.current_reports(rec["report_dir"]).values()))
         self.assertEqual(git(self.workspace, "rev-list", "--count", "HEAD"), "1")
         self.assertEqual(self.prepare("102"), 0)
 
@@ -257,6 +261,29 @@ class RoutingTests(unittest.TestCase):
                                str(Path(self.tmp.name) / "another"), json.dumps(route)], capture_output=True)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn(b"Busy", proc.stderr)
+
+    def test_render_html_for_existing_worktree_and_analysis_only(self):
+        self.project = self.workspace
+        self.assertEqual(self.prepare(title="Unrelated failure"), 0)
+        rec = r.load_record(self.project, "101")
+        rd = Path(rec["report_dir"])
+        for name in ("analysis.md", "solution.md"):
+            (rd / name).write_text("# 完整分析或方案", encoding="utf-8")
+        args = SimpleNamespace(project=str(self.project), bug_id="101", analysis_only=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bf.cmd_render_html(args), 0)
+        self.assertTrue(r._reports.current_reports(rd)["analysis"])
+        self.assertFalse((rd / "fix-report.html").exists())
+        (rd / "fix-report.md").write_text("# 修复\n\n未提交待 review", encoding="utf-8")
+        args.analysis_only = False
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bf.cmd_render_html(args), 0)
+        self.assertTrue(all(r._reports.current_reports(rd).values()))
+        # Legacy discovery still works without a new run record.
+        r.record_path(self.project, "101").unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bf.cmd_render_html(args), 0)
+        self.assertEqual(git(self.workspace, "rev-list", "--count", "HEAD"), "1")
 
     def test_default_prepare_creates_worktree_and_reports_mode(self):
         # Default route still fetches the bug first, then creates an isolated worktree.

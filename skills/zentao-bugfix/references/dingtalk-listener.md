@@ -1,6 +1,6 @@
 # 钉钉消息监听器（dingtalk_listen.py）使用指南
 
-全自动链路：**钉钉消息 → Agent 提取 bugId → 监听器确定性执行 prepare（查询禅道并分流）→ Agent 补全分析/方案 → 绑定模式 ready → 修复 → report/补全 → 绑定模式 finish 验证并单 Bug 提交**。未匹配或规则冲突时仍创建独立 worktree，默认不提交。
+全自动链路：**钉钉消息 → Agent 提取 bugId → 监听器确定性执行 prepare（查询禅道并分流）→ Agent 补全分析/方案及配套 HTML → 绑定模式 ready → 修复 → report/补全 → 绑定模式 finish 验证并单 Bug 提交 → 同步最终 HTML**。未匹配或规则冲突时仍创建独立 worktree，默认不提交。
 本文是 `scripts/dingtalk_listen.py` 的完整参考；速览见 SKILL.md「钉钉消息自动触发」。
 
 ## 架构
@@ -25,7 +25,9 @@ dingtalk_listen.py 主控（纯标准库 Python）
 
 目标项目的 `.agents/zentao-bugfix/routes.json` 只支持 `bug_id` 精确匹配与 `title_contains` 普通子串匹配（英文忽略大小写），ID 优先。示例及完整约定见 [routing.md](routing.md)。无文件、无命中或同优先级规则冲突时默认创建独立 worktree。
 
-唯一匹配后使用配置的已有工作区和分支，不自动切分支或同步远端。同一仓库/分支及同一工作区使用跨进程持久锁；前一个 Bug 验证并通过 finish 独立提交后才释放锁并处理下一个。禁止夹带已有开发改动，不自动 push。失败锁保留，后续等待任务存 `.agents/logs/pending-bugs.json`，监听重启后继续等待；其他可用工作区仍可处理。
+唯一匹配后使用配置的已有工作区和分支，不自动切分支或同步远端。每个 Bug 输出 `analysis.md/html`、`solution.md/html`、`fix-report.md/html` 三组报告。HTML 与 MD 同目录，由脚本从完整 MD 生成，离线可读；finish 追加 commit 后更新修复 HTML。监听器在会话正常结束后再次渲染并校验，缺失或过期 HTML 不算完成。status.last_fix 提供 html_reports 和 report_html，普通报告不自动打开浏览器。
+
+同一仓库/分支及同一工作区使用跨进程持久锁；前一个 Bug 验证并通过 finish 独立提交后才释放锁并处理下一个。禁止夹带已有开发改动，不自动 push。失败锁保留，后续等待任务存 `.agents/logs/pending-bugs.json`，监听重启后继续等待；其他可用工作区仍可处理。
 
 指定目录不存在、不是 Git 根目录或当前分支不符时不开始修复、不回退 worktree。生成 `<启动工作区>/.agents/zentao-bugfix/<bugId>/errors/<运行标识>/report.html` 并自动打开默认浏览器；WSL 优先 Windows 浏览器。浏览器打开失败仍保留报告，status.last_fix 显示 html_report/browser_error。修复路径后执行 `retry <bugId>` 或发送新的 Bug 通知，不受旧消息去重影响。
 
@@ -111,7 +113,7 @@ save-config，再重新 start。
 | `start.log` | **启动全过程追踪**：配置检查→Agent 解析→仓库/目标解析→守护拉起/前台主循环；任何一步失败（含配置缺失、dws 未登录、目标解析失败）都会在此留下原因 |
 | `events.log` | 每条监听到的消息事件（原始 JSON） |
 | `listener.log` | 运行主日志（启动/命中/忽略/提取失败/拉取失败/错误，全量带时间戳落盘；即使 stdout 不可见也不丢） |
-| `fix-<bugId>.log` | prepare 分流输出、会话耗时和输出末尾 40 行，以及 **[VERIFY]** 本次运行记录/完整报告/绑定模式提交校验 |
+| `fix-<bugId>.log` | prepare 分流输出、会话耗时和输出末尾 40 行，以及 **[VERIFY]** 本次运行记录/完整 MD 与对应最新 HTML/绑定模式提交校验 |
 | `pending-bugs.json` | 等待分支或工作区释放的 Bug ID；监听重启后继续等待 |
 | `state.json` | status 数据源（5s 刷新，含 stats.last_fix） |
 | `processed-ids.json` | message_id 去重（环形，最近 1000 条） |

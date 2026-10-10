@@ -3,6 +3,7 @@
 
 Standard library only. Supports the report templates' headings, paragraphs, lists,
 pipe tables, fenced code, blockquotes, links, images and inline emphasis/code.
+Short single-line text fences with 3–7 arrow-separated steps render as offline SVG.
 It is a template-oriented renderer, not a complete CommonMark implementation.
 """
 from __future__ import annotations
@@ -48,6 +49,36 @@ def cells(line: str) -> list[str]:
     return [c.strip().replace('\\|', '|') for c in re.split(r'(?<!\\)\|', line.strip().strip('|'))]
 
 
+def render_flow(language: str, block: list[str]) -> str | None:
+    """Render short text arrow chains as an accessible offline SVG.
+
+    General code and complex/unknown diagrams remain verbatim code blocks.
+    """
+    if language not in {'', 'text', 'plaintext'} or len(block) != 1:
+        return None
+    nodes = [label.strip() for label in block[0].split('→')]
+    if not 3 <= len(nodes) <= 7 or any(not label or len(label) > 40 for label in nodes):
+        return None
+    height = len(nodes) * 106 - 26
+    shapes = []
+    for index, label in enumerate(nodes):
+        top = index * 106 + 8
+        lines = [label[start:start + 16] for start in range(0, len(label), 16)]
+        baseline = top + 36 - (len(lines) - 1) * 10
+        shapes.append(f'<rect x="20" y="{top}" width="340" height="64" rx="10" fill="#eaf1fb" stroke="#afc1d8"/>')
+        spans = ''.join(f'<tspan x="190" y="{baseline + row * 20}">{html.escape(chunk)}</tspan>' for row, chunk in enumerate(lines))
+        shapes.append(f'<text text-anchor="middle" fill="#182b43" font-size="16">{spans}</text>')
+        if index < len(nodes) - 1:
+            start = top + 70
+            end = top + 98
+            shapes.append(f'<path d="M190 {start} V{end} M184 {end - 6} L190 {end} L196 {end - 6}" fill="none" stroke="#2459ae" stroke-width="2"/>')
+    chain = html.escape(' → '.join(nodes))
+    return (f'<figure class="flowchart"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 {height}" '
+            f'role="img" aria-label="{html.escape(chr(0x2192).join(nodes), quote=True)}">'
+            f'<title>需求主流程</title><desc>{chain}</desc>{"".join(shapes)}</svg>'
+            f'<figcaption>{chain}</figcaption></figure>')
+
+
 def render_markdown(text: str) -> tuple[str, list[tuple[int, str, str]]]:
     lines = text.splitlines()
     parts: list[str] = []
@@ -73,7 +104,9 @@ def render_markdown(text: str) -> tuple[str, list[tuple[int, str, str]]]:
             while i < len(lines) and not lines[i].startswith('```'):
                 block.append(lines[i])
                 i += 1
-            parts.append(f'<pre data-language="{html.escape(language, quote=True)}"><code>{html.escape(chr(10).join(block))}</code></pre>')
+            flow = render_flow(language, block)
+            parts.append(flow if flow is not None else
+                         f'<pre data-language="{html.escape(language, quote=True)}"><code>{html.escape(chr(10).join(block))}</code></pre>')
             i += 1
             continue
         if i + 1 < len(lines) and '|' in line and re.match(r'^\s*\|?\s*:?-{3,}', lines[i + 1]):
@@ -120,6 +153,7 @@ STYLE = '''
 header{background:#152e50;color:white;padding:24px 5vw}header strong{font-size:24px}header p{margin:5px 0;color:#cbd9ee}header a{color:#e5efff}
 .layout{display:grid;grid-template-columns:270px minmax(0,1fr);max-width:1520px;margin:auto;gap:24px;padding:24px}nav{position:sticky;top:18px;max-height:94vh;overflow:auto;padding:16px;border:1px solid var(--line);border-radius:12px;background:white;align-self:start}nav a{display:block;text-decoration:none;color:var(--muted);font-size:13px;padding:5px 0;border-bottom:1px solid #f1f4f8}nav .level-3{padding-left:12px}nav strong{display:block;margin-bottom:8px}
 main{min-width:0;background:white;padding:30px 38px;border:1px solid var(--line);border-radius:12px}h1{font-size:30px;line-height:1.4}h2{margin-top:44px;border-bottom:2px solid #d8e5f8;padding-bottom:10px;font-size:23px;color:#174278}h3{margin-top:36px;font-size:19px;border-left:4px solid #3872c5;padding-left:12px;scroll-margin-top:18px}p{margin:15px 0}a{color:var(--blue);overflow-wrap:anywhere}code{background:#edf2f8;padding:2px 5px;border-radius:4px;font-size:13px;overflow-wrap:anywhere}pre{white-space:pre-wrap;padding:18px;background:#edf2f8;border-radius:8px;overflow:auto}pre code{padding:0}blockquote{margin:20px 0;background:#fff7e4;border-left:4px solid #d49920;padding:14px 18px}.table-scroll{max-width:100%;overflow-x:auto;margin:20px 0}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top;min-width:85px}th{background:#eaf1fb;white-space:nowrap}tr:nth-child(even){background:#fafcff}img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;margin:14px 0}li{margin:7px 0}button{border:1px solid #a9bddb;background:white;border-radius:6px;padding:7px 14px;cursor:pointer;color:#234d82}.toolbar{display:flex;gap:12px;align-items:center;margin-top:12px}input{padding:8px;border:1px solid #afc1d8;border-radius:6px;min-width:260px}mark{background:#ffdc82}footer{text-align:center;font-size:13px;color:var(--muted);padding:26px}.priority{font-weight:700}
+.flowchart{margin:24px 0;text-align:center}.flowchart svg{display:block;width:100%;max-width:380px;height:auto;margin:0 auto}.flowchart figcaption{color:var(--muted);font-size:14px;overflow-wrap:anywhere}.flowchart{break-inside:avoid}
 @media(max-width:950px){.layout{grid-template-columns:1fr;padding:12px}nav{position:static;max-height:220px}main{padding:20px}header{padding:20px}h1{font-size:25px}input{min-width:0;width:100%}}
 @media print{header,nav,.toolbar,footer{display:none}.layout{display:block;padding:0}main{border:0;padding:0}body{background:white;font-size:11pt}h2,h3{break-after:avoid}img,tr{break-inside:avoid}.table-scroll{overflow:visible}table{font-size:9pt}a{color:inherit;text-decoration:none}pre{white-space:pre-wrap}}
 '''

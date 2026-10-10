@@ -33,7 +33,9 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
                                                   analysis.md / solution.md 骨架
                                                   （报告目录 .agents/zentao-bugfix/
                                                   <bugId>/）
-    ready <bugId> [--project DIR]                绑定模式修复前校验并封存分析/方案
+    render-html <bugId> [--project DIR] [--analysis-only]
+                                                  从完整 MD 生成/更新同目录 HTML
+    ready <bugId> [--project DIR]                绑定模式修复前生成 HTML 并封存分析/方案
     finish <bugId> --check-command CMD --files PATH... [--project DIR]
                                                   验证并独立提交当前 Bug，成功释放锁
     report <bugId> [--project DIR] [--force]      生成 fix-report.md（含未提交
@@ -1153,10 +1155,13 @@ def cmd_prepare(args):
         "SOLUTION_MD=%s" % solution_path,
         "NEXT=先在 WORKTREE 中只读分析代码并补全 analysis.md 与 solution.md（输出"
         "完整分析报告与解决方案，此阶段不改任何代码），MODE=inplace 时先运行 ready；再按 solution.md 实施"
-        "修复并 report/补全；绑定模式最后 finish 验证提交，独立 worktree 不提交。Bug=%s" % args.bug_id,
+        "修复并 report/补全；绑定模式 finish 提交并更新 HTML，worktree 模式 render-html --analysis-only 在修复前生成"
+        "分析/方案 HTML，全部报告补全后 render-html 更新三份最终 HTML，不提交。Bug=%s" % args.bug_id,
     ])
     log("")
-    log("[ok] bug 资料与 analysis.md / solution.md 骨架已就绪: %s" % info["report_dir"])
+    for name, target in _routes._reports.render_reports(info["report_dir"]).items():
+        print("%s_HTML=%s" % (name.upper().replace("-", "_"), target))
+    log("[ok] bug 资料与分析/方案的 MD 和 HTML 骨架已就绪: %s" % info["report_dir"])
     return 0
 
 
@@ -1259,7 +1264,9 @@ def cmd_report(args):
     if per_file:
         print("---- 变更明细 ----")
         print(per_file)
-    next_hint = "NEXT=补全 fix-report.md 中（待填写）章节后向用户汇报"
+    for name, target in _routes._reports.render_reports(info["report_dir"]).items():
+        print("%s_HTML=%s" % (name.upper().replace("-", "_"), target))
+    next_hint = "NEXT=补全 fix-report.md；绑定模式 finish 会更新 HTML，worktree 模式运行 render-html 后再汇报"
     if astat != "no":
         next_hint += "；⚠ 先补全 analysis.md（分析先行偏离：%s）" % astat
     if sstat != "no":
@@ -1268,10 +1275,32 @@ def cmd_report(args):
     return 0
 
 
+def cmd_render_html(args):
+    require_bug_id(args.bug_id)
+    record = _routes.load_record(args.project, args.bug_id)
+    if record and record.get("report_dir"):
+        directory = record["report_dir"]
+    else:
+        found = find_existing_worktrees(args.project, args.bug_id)
+        worktrees = sorted(found["worktrees"], key=lambda wb: os.path.basename(wb[0]))
+        if not worktrees:
+            log("ERROR: 未找到报告目录，请先 prepare")
+            return 2
+        directory = resolve_report_dir(worktrees[-1][0], args.bug_id)
+    names = ("analysis.md", "solution.md") if args.analysis_only else _routes._reports.REPORT_NAMES
+    targets = _routes._reports.render_reports(directory, names=names, require_complete=True)
+    if record:
+        record.setdefault("html_reports", {}).update(targets)
+        _routes.save(_routes.record_path(args.project, args.bug_id), record)
+    print(json.dumps({"report_dir": directory, "html_reports": targets}, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_ready(args):
     try:
         result = _routes.ready(args.project, args.bug_id)
         print("ANALYSIS_SEALED=yes\nRUN_ID=" + result["run_id"])
+        print(json.dumps({"html_reports": result["html_reports"]}, ensure_ascii=False))
         return 0
     except (_routes.RouteError, OSError, ValueError) as exc:
         log("ERROR: %s" % exc)
@@ -1346,6 +1375,12 @@ def main():
     p.add_argument("--force", action="store_true", help="重新生成 analysis.md")
     p.add_argument("--current-workspace", help="异常 HTML 报告所在的当前/监听启动工作区")
     p.set_defaults(func=cmd_prepare)
+
+    p = sub.add_parser("render-html", help="从已补全的 MD 生成/更新对应离线 HTML（不打开浏览器）")
+    p.add_argument("bug_id")
+    p.add_argument("--project", default=".")
+    p.add_argument("--analysis-only", action="store_true", help="修复前仅更新 analysis/solution HTML")
+    p.set_defaults(func=cmd_render_html)
 
     p = sub.add_parser("ready", help="绑定工作区修改代码前校验分析先行并封存文档")
     p.add_argument("bug_id")

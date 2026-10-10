@@ -45,7 +45,7 @@
     {"id": 8, "prompt": "项目 routes.json 将 bug_id 101 绑定到现有 feature/order 分支工作区，标题 Order 的 Bug 也绑定这里。依次修 Bug 101 和 102，102 标题是 Order 保存失败。",
      "expected_output": "两个 Bug 在同一绑定工作区依次完成分析、ready、修复、report、finish，每个 Bug 验证并提交成功后才处理下一个，不新建 worktree，不 push",
      "files": [],
-     "expectations": ["Bug ID 优先于标题包含匹配，实际标题来自禅道", "同一分支和工作区加锁；前一 Bug 完成提交后才开始下一 Bug", "ready 在改代码前封存完整分析和方案", "每个 commit 仅一个 Bug，已有开发改动保留", "报告记录实际验证及 commit ID"]},
+     "expectations": ["Bug ID 优先于标题包含匹配，实际标题来自禅道", "同一分支和工作区加锁；前一 Bug 完成提交后才开始下一 Bug", "ready 在改代码前封存完整分析和方案", "每个 commit 仅一个 Bug，已有开发改动保留", "报告记录实际验证及 commit ID，三份 MD 均有对应 HTML，最终 fix-report.html 包含提交结果"]},
     {"id": 9, "prompt": "routes.json 命中了 Bug 103，但指定工作区 D:/missing/order 不存在。监听器在 D:/listener 启动。",
      "expected_output": "停止该 Bug，不创建目标目录或 worktree，报告写 D:/listener/.agents/zentao-bugfix/103/errors/<运行标识>/report.html，并自动打开本机默认浏览器",
      "files": [],
@@ -53,6 +53,10 @@
     {"id": 10, "prompt": "routes.json 中两条标题关键字规则同时命中 Bug 104，但指向不同开发分支。修复该 Bug。",
      "expected_output": "记录同一优先级规则冲突并使用独立 worktree 默认流程，不自动提交",
      "files": [],
-     "expectations": ["不凭标题猜目标，不使用任务/需求等额外条件", "回退默认 worktree，并报告冲突原因"]}
+     "expectations": ["不凭标题猜目标，不使用任务/需求等额外条件", "回退默认 worktree，并报告冲突原因"]},
+    {"id": 11, "prompt": "修复禅道 Bug 105，未命中 routes.json 的规则。分析、解决方案和修复报告都需要 MD 和 HTML。",
+     "expected_output": "独立 worktree 保留未提交修复，修复前补全分析/方案并 render-html --analysis-only，修复后 report/补全，再 render-html，交付三组同名配对报告",
+     "files": [],
+     "expectations": ["analysis.md/html、solution.md/html、fix-report.md/html 位于实际工作区同一报告目录", "HTML 从同一 MD 生成、正文完整、离线可读且外部文字转义", "补全 MD 后更新 HTML，不把准备阶段骨架或旧 HTML 当最终产物", "普通报告只生成不自动打开，工作区异常的自动打开规则仍保留", "最终汇报 MD 和 HTML 路径，不自动提交或 push"]}
   ]
 }

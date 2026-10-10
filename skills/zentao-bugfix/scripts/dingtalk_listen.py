@@ -491,12 +491,14 @@ def build_fix_prompt(bug_id, base_branch=None, prepared=None):
                 "python %s ready %s --project %s，成功后才能依据 solution.md 实施修复。\n"
                 "读取 snapshot.dirty，禁止修改已有开发改动的文件。不得自行切分支、pull、stash、reset、commit 或 push。\n"
                 "运行 python %s report %s --project %s，补全 fix-report.md。\n"
+                "所有报告须有内容一致的 HTML。绑定模式 ready/finish 自动更新 HTML；worktree 模式补全分析/方案后 "
+                "运行 python %s render-html %s --project %s --analysis-only，修复报告补全后再运行同命令（去掉 --analysis-only）。\n"
                 "若 mode=inplace，必须运行 python %s finish %s --project %s "
                 "--check-command '<本项目实际验证命令>' --files <本次全部相对代码路径>。"
                 "确认无需代码改动时改用 --no-change，仍须提供验证命令。验证失败不得绕过。"
                 "finish 成功提交后才算完成；否则保留现场、停止。mode=worktree 时不提交。\n" %
                 (SKILL_DIR, bug_id, json.dumps(prepared, ensure_ascii=False),
-                 script, bug_id, project, script, bug_id, project, script, bug_id, project))
+                 script, bug_id, project, script, bug_id, project, script, bug_id, project, script, bug_id, project))
     return ("请使用 zentao-bugfix skill 修复禅道 bug %s。\n"
             "skill 目录：%s（先读其中 SKILL.md 了解完整流程）。\n"
             "%s\n"
@@ -505,7 +507,8 @@ def build_fix_prompt(bug_id, base_branch=None, prepared=None):
             "与 solution.md（解决方案），两份文档落盘在 worktree 的 .agents/zentao-bugfix/"
             "<bugId>/ 下；此阶段禁止修改任何代码文件；"
             "3) 依据 solution.md 中的方案实施修复（禁止 commit/push）；"
-            "4) 运行 report 子命令生成修复报告并补全（待填写）章节。"
+            "4) 运行 report 子命令生成修复报告并补全（待填写）章节；"
+            "5) 运行 render-html <bugId> --project . 更新三份对应 HTML，正文必须一致；绑定模式 finish 自动更新含提交结果的 HTML。"
             "全程遵守 SKILL.md 的边界约束，完成后输出根因一句话与报告路径。\n"
             % (bug_id, SKILL_DIR, branch_note,
                SKILL_DIR / "scripts" / "bugfix.py", bug_id, barg))
@@ -563,7 +566,9 @@ def verify_run(bug_id, repo, run_id):
         content = p.read_text(encoding="utf-8") if p.is_file() else ""
         complete[name] = bool(content.strip()) and "（待填写" not in content
     meta = _routes.read(rd / "meta.json") if (rd / "meta.json").is_file() else {}
-    ok = rec.get("run_id") == run_id == meta.get("run_id") and all(complete.values())
+    html_complete = _routes._reports.current_reports(rd)
+    ok = (rec.get("run_id") == run_id == meta.get("run_id") and
+          all(complete.values()) and all(html_complete.values()))
     if rec.get("mode") == "inplace":
         ok = ok and rec.get("status") in ("committed", "no_change") and rec.get("validation", {}).get("returncode") == 0
         if rec.get("status") == "committed":
@@ -574,6 +579,9 @@ def verify_run(bug_id, repo, run_id):
     return {"ok": bool(ok), "worktree": rec.get("workspace"), "report_dir": str(rd),
             "report": str(rd / "fix-report.md") if complete["fix-report"] else None,
             "analysis_complete": complete["analysis"], "solution_complete": complete["solution"],
+            "html_complete": html_complete,
+            "html_reports": {name: str(rd / (name + ".html")) for name, current in html_complete.items() if current},
+            "report_html": str(rd / "fix-report.html") if html_complete["fix-report"] else None,
             "status": rec.get("status"), "commit": rec.get("commit")}
 
 
@@ -616,6 +624,8 @@ def _run_auto_fix(adapter, bug_id, repo, base_branch=None, reuse=False):
     try:
         with _routes.active_execution(prepared):
             out = run_agent_cmd(cmd, cwd=prepared["workspace"], timeout=FIX_TIMEOUT, stdin_text=stdin_text)
+            # Final refresh is deterministic even if the Agent forgot render-html.
+            _routes._reports.render_reports(prepared["report_dir"], require_complete=True)
     except _routes.Busy as exc:
         return {"bug_id": bug_id, "ok": False, "status": "waiting", "error": str(exc)}
     except (subprocess.TimeoutExpired, RuntimeError) as exc:
@@ -625,7 +635,7 @@ def _run_auto_fix(adapter, bug_id, repo, base_branch=None, reuse=False):
     write_log("fix-%s.log" % bug_id, "[耗时] %.0fs\n[输出末尾]\n%s\n[VERIFY] %s" %
               (time.time() - t0, "\n".join(out.strip().splitlines()[-40:]), json.dumps(v, ensure_ascii=False)))
     return dict(v, bug_id=bug_id, mode=prepared["mode"], elapsed=int(time.time() - t0),
-                error=None if v["ok"] else "本次报告或提交未完成；保留现场与分支锁")
+                error=None if v["ok"] else "本次 MD/HTML 报告或提交未完成；保留现场与分支锁")
 
 
 # ---------------------------------------------------------------- 目标解析
