@@ -17,6 +17,11 @@ python3 <skill_dir>/scripts/report_html.py <report.md>
 系统浏览器打开供人查看；CI/无界面场景加 `--no-open`。report-assert.md（探针
 断言表）可同法转换。
 
+**落盘精简**：`runs/<run-id>/` 只沉淀契约规定的产物（run.json、plan.md、
+report.md/html、report-assert.md、探针脚本与录屏等资产按资产沉淀规则归位）；
+过程查询结果、临时探针输出、中间草稿不落盘（确需保留的收进 `work/` 类子目录），
+目录顶层不出现契约之外的文件。
+
 ## 测试方式、数据与 UI 覆盖约定
 
 每个测试点使用稳定编号（如 T001），从计划到执行明细、结果、数据和录像都用同一编号。

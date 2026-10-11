@@ -233,6 +233,12 @@ def check(skill: Path, workdir: Path) -> dict:
     c.add("body.loop_output_review", "error", loop2,
           "输出审查闭环已内嵌 | 缺少输出审查闭环规则（审查-修正循环/95%/复述+假设+不确定性标注）",
           "同上，整段写入双闭环模板（含最终输出要求）")
+    minimalism = ("输出精简" in body) and ("只落盘" in body or "落盘" in body) and \
+                 ("中间产物" in body)
+    c.add("body.output_minimalism", "error", minimalism,
+          "输出精简约束已内嵌 | 缺少输出精简约束章节（只落盘有用产物/中间产物隔离/落盘前自问/答复精简）",
+          "按 references/authoring-standards.md 的「输出精简约束」模板整段写入 SKILL.md，"
+          "含针对本 skill 交付物的第 5 条约束")
     has_ref_dir = (skill / "references").is_dir()
     if lines > LONG_BODY_NO_REF and not has_ref_dir:
         c.add("body.progressive_disclosure", "warn", False,

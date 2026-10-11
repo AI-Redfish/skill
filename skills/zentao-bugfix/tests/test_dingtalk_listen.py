@@ -435,14 +435,15 @@ class TestFixPrompt(unittest.TestCase):
         self.assertNotIn("基准分支必须", p)
 
     def test_analysis_first_ordering(self):
-        """分析先行：提示词必须先补全 analysis.md/solution.md（不改代码）再实施修复。"""
+        """分析先行：提示词必须先补全 analysis-report.md 第一/二部分（不改代码）再实施修复。"""
         p = dl.build_fix_prompt("12345")
-        self.assertIn("补全 analysis.md", p)
-        self.assertIn("solution.md", p)
+        self.assertIn("补全 analysis-report.md", p)
+        self.assertIn("第一部分", p)
+        self.assertIn("第二部分", p)
         self.assertIn("禁止修改任何代码文件", p)
-        self.assertIn("依据 solution.md", p)
-        # 顺序：补全 analysis.md 的步骤先于实施修复的步骤
-        self.assertLess(p.index("补全 analysis.md"), p.index("实施修复"))
+        self.assertIn("依据第二部分方案", p)
+        # 顺序：补全 analysis-report.md 的步骤先于实施修复的步骤
+        self.assertLess(p.index("补全 analysis-report.md"), p.index("实施修复"))
         # 分析报告落盘位置指向 worktree 的 .agents/zentao-bugfix
         self.assertIn(".agents/zentao-bugfix/", p)
 

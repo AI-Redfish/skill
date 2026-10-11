@@ -291,6 +291,14 @@ metadata:
 - 演示一下
 ## 错误处理
 见退出码表。
+## 输出精简约束（所有落盘产物与答复通用）
+1. **只落盘有用的**：只把用户会直接使用的产物写到磁盘；过程稿、中间草稿、
+   重复副本、无人引用的说明文件一律不落盘。
+2. **中间产物隔离**：确需保留的中间产物收进专门子目录或 `.agents/` 隐藏目录，
+   不与交付产物混放；交付目录顶层只出现用户要的文件。
+3. **落盘前自问**：写文件前先问“用户会直接使用它吗”；不会就不写，改为文字说明。
+4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
+5. **本 skill 针对性约束**：交付物只有 yyy；中间产物放 `.agents/work/`。
 ## 不适用场景
 - 非演示任务
 """
@@ -342,6 +350,19 @@ class TestReviewChecklist(unittest.TestCase):
                 r.stdout[r.stdout.index("{"):])["checks"] if c["status"] == "fail"}
             self.assertIn("body.loop_understanding", ids)
             self.assertIn("body.loop_output_review", ids)
+
+    def test_missing_output_minimalism_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            # 整段删除输出精简约束章节 → error 级拦截
+            start = GOOD_SKILL_MD.index("## 输出精简约束")
+            end = GOOD_SKILL_MD.index("## 不适用场景")
+            bad = GOOD_SKILL_MD[:start] + GOOD_SKILL_MD[end:]
+            sk = self._make(Path(td), bad)
+            r = run_script("review_checklist.py", "--skill", str(sk), "--workdir", td)
+            self.assertEqual(r.returncode, 1)
+            ids = {c["id"] for c in json.loads(
+                r.stdout[r.stdout.index("{"):])["checks"] if c["status"] == "fail"}
+            self.assertIn("body.output_minimalism", ids)
 
     def test_env_inside_skill_rejected(self):
         with tempfile.TemporaryDirectory() as td:

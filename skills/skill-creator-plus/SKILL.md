@@ -128,7 +128,7 @@ uv run <skill_dir>/scripts/gate.py show                              # 随时查
 
 骨架：依赖能力表有 `init`（旧版官方脚本）则调用；否则直接按
 [references/authoring-standards.md](references/authoring-standards.md) 的目录模板与
-SKILL.md 模板创建。**六条硬规范**（评审门会检查）：
+SKILL.md 模板创建。**七条硬规范**（评审门会检查）：
 
 1. **双闭环内嵌**：SKILL.md 正文靠前位置必须包含双闭环规则章节（先提问/每次只问一个/
    十要素/双 95%/最终输出格式），缺失为 error 级问题；不得与 skill 自身默认值矛盾
@@ -143,6 +143,9 @@ SKILL.md 模板创建。**六条硬规范**（评审门会检查）：
    指令清晰可判定、数据与指令用语义化标签分离、输出格式模板化、示例格式统一、
    含防幻觉条款（允许“不确定”）、关键指令放开头或章节结尾；
    细则见 [references/prompt-engineering.md](references/prompt-engineering.md)
+7. **输出精简内嵌**：SKILL.md 必须包含「输出精简约束」章节（模板见
+   references/authoring-standards.md），约束生成的 skill 只落盘用户会直接使用的产物、
+   中间产物收进专门子目录、不复述过程日志；缺失为 error 级问题
 
 SKILL.md 正文 ≤500 行（>300 行时把细节外置到 `references/`）。写完执行
 `gate.py init`（若未初始化），进入评审门。
@@ -236,6 +239,17 @@ uv run <skill_dir>/scripts/gen_test_report.py --workspace <workspace> \
 - 本 skill 的脚本一律 JSON 到 stdout（`status/data/error`），日志到 stderr；先看退出码与 JSON 再行动
 - 每个门禁阶段结束，向用户简报：本轮做了什么、结论、下一步
 - 报告与评审记录统一放 `<workspace>/`，不在 skill 目录里堆过程产物（`evals/` 除外）
+
+## 输出精简约束（所有落盘产物与答复通用）
+
+1. **只落盘有用的**：只把用户会直接使用的产物写到磁盘；过程稿、中间草稿、
+   重复副本、无人引用的说明文件一律不落盘。
+2. **中间产物隔离**：确需保留的中间产物收进专门子目录或 `.agents/` 隐藏目录，
+   不与交付产物混放；交付目录顶层只出现用户要的文件。
+3. **落盘前自问**：写文件前先问"用户会直接使用它吗"；不会就不写，改为文字说明。
+4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
+5. **本 skill 针对性约束**：交付物只有被开发的 skill 本身与测试报告；
+   评审轮次、清单 JSON 等过程记录放 `<workspace>/`，不散落到 skill 目录或用户工作区。
 
 ## 触发示例
 
