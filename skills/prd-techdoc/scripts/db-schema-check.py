@@ -83,7 +83,7 @@ def main() -> int:
     if missing:
         print(f"MISSING_ENV keys={','.join(missing)}")
         print(f"请在 {env_file} 中配置：DB_HOST / DB_PORT(默认3306) / DB_USER / DB_PASSWORD / DB_NAME")
-        print("由主调用方提示用户输入后写入；用户拒绝则跳过真实库核对并在文档“待确认与需求冲突”段注明")
+        print("由主调用方提示用户输入后写入；用户拒绝则跳过真实库核对并在文档“口径裁决与范围声明”段注明")
         return 2
 
     if args.tables.strip():

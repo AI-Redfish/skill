@@ -99,7 +99,7 @@ uv run scripts/db-schema-check.py --tables "t_a,t_b" --work-dir $work
 python scripts/db-schema-check.py --work-dir $work
 ```
 
-- 需要 `.agents/.env` 配置 `DB_*`；优先 pymysql（uv 依赖隔离），降级本机 `mysql` 客户端；两者都缺失时脚本退出码 2 并给出 `MISSING_ENV` / `MISSING_TOOL` 提示——此时提示用户输入配置或确认跳过，并在“待确认与需求冲突”段注明“未连接真实库核对 schema，建表/迁移前需以目标库实际结构为准”。
+- 需要 `.agents/.env` 配置 `DB_*`；优先 pymysql（uv 依赖隔离），降级本机 `mysql` 客户端；两者都缺失时脚本退出码 2 并给出 `MISSING_ENV` / `MISSING_TOOL` 提示——此时提示用户输入配置或确认跳过，并在“口径裁决与范围声明”段注明“未连接真实库核对 schema，建表/迁移前需以目标库实际结构为准”。
 - 通过标准：文档中每个“新增/变更”表都能在真实库中得到预期结果（新表不存在、变更表结构与文档一致）。
 - 口令经环境变量（pymysql 参数 / `MYSQL_PWD`）传递，不出现在命令行。
 

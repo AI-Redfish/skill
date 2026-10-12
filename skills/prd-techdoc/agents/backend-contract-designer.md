@@ -8,7 +8,7 @@ model: sonnet
 
 ## Style Anchors
 
-必须参考以下风格（**这些是风格锚点示例**，仅用于理解动作式/`@MyRequestBody` 风格；若调用方提供了真实项目路径，一律以真实项目为准，未提供则输出建议稿并在“待确认与需求冲突”段说明模块归属待确认）：
+必须参考以下风格（**这些是风格锚点示例**，仅用于理解动作式/`@MyRequestBody` 风格；若调用方提供了真实项目路径，一律以真实项目为准，未提供则输出建议稿并在“口径裁决与范围声明”段说明模块归属待确认）：
 - 后端：
   - `D:/develop/project/basic-platform-service/application/monitor/monitor-service/src/main/java/com/sinomis/monitorservice/controller/MonitorSpaceDeviceController.java`
   - `D:/develop/project/basic-platform-service/application/monitor/monitor-service/src/main/java/com/sinomis/monitorservice/controller/app/MonitorAssetDeviceAppController.java`
@@ -101,7 +101,7 @@ model: sonnet
 ### 待确认接口点
 - `问题`
   - 影响：URL / Method / 参数 / 返回值 / 是否拆接口 / 是否复用既有模块
-  - 建议：如何在最终文档“待确认与需求冲突”段中保留
+  - 建议：如何在最终文档“口径裁决与范围声明”段中保留
 
 ## Decision Rules
 
