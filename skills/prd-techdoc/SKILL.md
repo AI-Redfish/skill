@@ -113,6 +113,16 @@ uv run scripts/db-schema-check.py --tables "t_a,t_b"  # uv 自动隔离安装 py
 python scripts/db-schema-check.py                      # 无 uv/无 pymysql 时降级 mysql CLI
 ```
 
+WSL/Windows 环境补充（实测有效）：
+
+- WSL 内通常没有 `node`、`pip`、`uv`、`mysql`：改用 Windows 侧 uv 运行脚本，例如
+  `cmd.exe /c "C:\Users\<user>\.local\bin\uv.exe run <脚本 Windows 路径> --work-dir <Windows 临时目录>"`。
+- `--work-dir` 指向 Windows 本地临时目录；指向 UNC 路径（`\\wsl.localhost\...`）时脚本读不到 `.agents/.env`，会误报 `MISSING_ENV`。
+- Mermaid 真实渲染：WSL 内直接调 mmdc 会因缺少 `node` 失败；改在 Windows 侧执行
+  `mmdc.cmd -p puppeteer.json -i a.mmd -o a.svg`，`puppeteer.json` 用 `executablePath` 指定本机 Chrome 路径。
+  cmd 中设置环境变量必须写成 `set "VAR=value"`，否则值会带尾随空格导致找不到浏览器。
+- 真实渲染失败属渲染环境问题：按本文件降级为结构化 lint，并在答复中说明“未做真实渲染”。
+
 脚本只读不写被检文档，以非零退出码表示发现问题（`1` = 检查未通过；`2` = 输入或环境缺失，属降级场景）：
 
 | 脚本 | 替代项 | 依赖 |
@@ -224,6 +234,14 @@ python scripts/db-schema-check.py                      # 无 uv/无 pymysql 时�
 - 发现可复用的共享状态机（如多个单据共用审批流程状态机）时单独说明“复用”而不是为每个实体重复画同图。
 
 文档模板见 `templates/techdoc-template.md`。
+
+### 交付路径约定
+
+- 默认输出：`<当前 Agent 工作空间>/.agents/techdoc/yyyy-MM-DD/<需求名称>-后端技术文档.md`；`yyyy-MM-DD` 取创建交付目录时的本机日期。
+- 用户明确指定其他路径时以用户为准；未指定时不要写入被分析的 PRD、原型或前后端项目仓库。
+- 交付目录只放最终技术文档；PRD 原文、渲染产物、校验输出等中间产物放系统临时目录，交付前清理。
+- 同一需求同一天重复生成时用 `-02`、`-03` 后缀独立目录，不覆盖旧文档。
+- 生成完成后在答复中给出文档路径，并附 `check-doc.py` / `check-mermaid.py` / `db-schema-check.py` 的数字结果。
 
 ### 输出精简约束（所有落盘产物与答复通用）
 
