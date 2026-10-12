@@ -64,6 +64,20 @@ python scripts/check-mermaid.py --md $md --work-dir $work
 - `flowchart` 连线引用了未定义的节点编号（例如改图时漏改中间节点）
 - `erDiagram` 实体块 `{`/`}` 不配对、属性行/关系行语法错误
 
+## 2.1 HTML 版本生成与核对（P0）
+
+```bash
+python scripts/render-html.py $md --work-dir $work                  # 渲染器可用时直接内联 SVG
+python scripts/render-html.py $md --svg-dir <预渲染SVG目录> --force   # 图已在别处渲染时传入预渲染目录
+python scripts/render-html.py $md --no-mermaid --force              # 明确不做图渲染，保留源码块
+```
+
+- 输出为与 Markdown 同目录同名的 `.html`；已存在时需显式加 `--force` 覆盖。
+- 图渲染顺序与文档中 Mermaid 代码块顺序一致；`--svg-dir` 下文件命名为 `b01.svg`、`b02.svg` …。
+- 通过标准：脚本输出 `failures=0`，且 HTML 中不存在 `.diagram-fallback` 与“Mermaid 未渲染”字样；HTML 不引用 CDN。
+- 脚本输出 `mermaid_mode` 与 `mermaid_blocks=N failures=N`，写入最终答复的检查数字。
+- WSL 内无法直接跑 mmdc 时，先在 Windows 侧渲染 SVG，再用 `--svg-dir` 生成 HTML；临时目录在交付前删除。
+
 ## 3. 脚本未覆盖的必做人工核对（P0，人工）
 
 对本次会话新增的每条口径变更，逐项确认六处已同步：
@@ -96,6 +110,7 @@ python scripts/db-schema-check.py --work-dir $work
 ```text
 - 结构自检（check-doc.py）：h1=6 order=OK forbidden=0；状态机 count=N bad_headings=0 bad_notes=0；字典 missing=0 orphan=0 duplicate=0；悬空引用 0；非 MySQL 方言 0；ER/SQL 对应缺失 0
 - Mermaid（check-mermaid.py）：mode=render|lint blocks=N failures=0
+- HTML 副本（render-html.py）：mermaid_mode=svg-dir|mmdc|source blocks=N failures=0；无降级源码块
 - 真实库核对（db-schema-check.py）：done(pymysql|mysql cli)|skipped（原因）
 - 重复状态字段：N（应为 0，人工确认）
 - 关键写接口缺失权限/状态/幂等或最小测试依据：0

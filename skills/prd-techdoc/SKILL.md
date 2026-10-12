@@ -129,6 +129,7 @@ WSL/Windows 环境补充（实测有效）：
 | --- | --- | --- |
 | `scripts/check-mermaid.py` | mmdc + Chrome 渲染校验 | 无（渲染模式下调用 mmdc 为可选增强） |
 | `scripts/check-doc.py` | 结构自检（原 verification-recipes 机器化步骤） | 无 |
+| `scripts/render-html.py` | 技术文档的离线 HTML 副本（Mermaid 内联 SVG） | 无（mmdc 为可选增强） |
 | `scripts/db-schema-check.py` | `mcp:@bytebase/dbhub` | pymysql（uv 管理，缺失时降级 mysql CLI） |
 | （内置替代） | `mcp:@upstash/context7-mcp` | 由内置 `references/*` 与真实项目路径替代 |
 
@@ -237,11 +238,19 @@ WSL/Windows 环境补充（实测有效）：
 
 ### 交付路径约定
 
-- 默认输出：`<当前 Agent 工作空间>/.agents/techdoc/yyyy-MM-DD/<需求名称>-后端技术文档.md`；`yyyy-MM-DD` 取创建交付目录时的本机日期。
+- 交付物是**配对的 Markdown 与 HTML**：`<当前 Agent 工作空间>/.agents/techdoc/yyyy-MM-DD/<需求名称>-后端技术文档.md` 与同名 `.html`；`yyyy-MM-DD` 取创建交付目录时的本机日期。
+- HTML 由 `scripts/render-html.py` 生成，与 Markdown 内容一致，样式内嵌、离线可读、Mermaid 以内联 SVG 展示。
 - 用户明确指定其他路径时以用户为准；未指定时不要写入被分析的 PRD、原型或前后端项目仓库。
-- 交付目录只放最终技术文档；PRD 原文、渲染产物、校验输出等中间产物放系统临时目录，交付前清理。
+- 交付目录只放这一对文档；PRD 原文、渲染产物、校验输出等中间产物放系统临时目录，交付前清理。
 - 同一需求同一天重复生成时用 `-02`、`-03` 后缀独立目录，不覆盖旧文档。
-- 生成完成后在答复中给出文档路径，并附 `check-doc.py` / `check-mermaid.py` / `db-schema-check.py` 的数字结果。
+- 生成完成后在答复中给出两份文档路径，并附 `check-doc.py` / `check-mermaid.py` / `render-html.py` / `db-schema-check.py` 的数字结果。
+
+### HTML 版本要求
+
+- HTML 与 Markdown 必须来自同一份正文，不得只给摘要或修改问题编号。
+- 所有 Mermaid 图在 HTML 中以内联 SVG 呈现；确实无法渲染时，保留源码并在图位显示可见的渲染失败提示，不得静默略过。
+- 不得依赖外部 CDN、在线字体或联网脚本；表格横向滚动、窄屏阅读与打印均需可用。
+- 实测有效的渲染方式：① `--svg-dir` 传入预渲染目录（`b01.svg`、`b02.svg` … 按代码块顺序）；② `--mmdc` 或 `.agents/.env` 的 `MMDC_PATH`，配合 `CHROME_PATH` 或 `--puppeteer-config` 指定 Chrome。WSL 内直接调 mmdc 会因缺 `node` 失败，详见《本地脚本》的 WSL/Windows 环境补充。
 
 ### 输出精简约束（所有落盘产物与答复通用）
 
@@ -336,7 +345,7 @@ WSL/Windows 环境补充（实测有效）：
 8. 完整读取 `agents/schema-sql-dict-designer.md` 并按该角色规则执行，产出 ER、仅 MySQL 的增量 SQL、字典和流程引擎边界分类；同时核对存量迁移、历史回填和查询字段的索引需求是否需要进入待确认项；若 `.agents/.env` 已配置 `DB_*`，运行 `scripts/db-schema-check.py` 核对涉及表的真实结构。
 9. 按模板汇总；不新增一级章节，按 Output Contract 的信息落位规则写入现有章节。Mode B 先合并去重既有结论。全文按 Concise Writing Rules 压缩重复和泛化说明。
 10. 完整读取 `agents/techdoc-structure-validator.md` 并按该角色规则检查结构、简洁性、架构、安全、性能与一致性（机器可判定的部分直接采用脚本结果）；Mode A/C 再完整读取 `agents/techdoc-content-checker.md` 按 PRD/原型事实域抽检。修正后复检。
-11. 按 `references/verification-recipes.md` 运行本地脚本做机器化自检：`scripts/check-doc.py`（状态机标题/图后说明、字典映射、重复状态字段、一级标题、悬空引用、非 MySQL 方言、ER/SQL 对应）与 `scripts/check-mermaid.py`（Mermaid 全量校验）；需要时按 DB 核对结果补跑 `scripts/db-schema-check.py`。优先 `uv run` 隔离运行，无 uv 时纯标准库脚本可直接 `python` 运行。最终答复给出数字结果。
+11. 按 `references/verification-recipes.md` 运行本地脚本做机器化自检：`scripts/check-doc.py`（状态机标题/图后说明、字典映射、重复状态字段、一级标题、悬空引用、非 MySQL 方言、ER/SQL 对应）与 `scripts/check-mermaid.py`（Mermaid 全量校验）；需要时按 DB 核对结果补跑 `scripts/db-schema-check.py`。优先 `uv run` 隔离运行，无 uv 时纯标准库脚本可直接 `python` 运行。自检通过后用 `scripts/render-html.py` 生成 HTML 副本，并确认两份内容一致。最终答复给出数字结果。
 12. 修订既有文档时遵守 Hard Invariants 第 7 条：编辑前重读目标段落，不整篇覆盖；口径变化同步六处后再收尾。
 
 ## Agent Dispatch（本地串行 Role Execution）
@@ -402,6 +411,7 @@ WSL/Windows 环境补充（实测有效）：
 - 全文无背景复述、通用技术常识和章节总结；普通说明不超过 3 句，结构化内容优先表格，重复约束只定义一次
 - 接口风格看起来像来自当前仓库，而不是通用脚手架
 - 字典枚举与 SQL 注释、接口、状态机用词一致
+- 交付包含内容一致的 Markdown 与 HTML；HTML 中 Mermaid 全部以内联 SVG 呈现，离线可读、可打印
 
 ## Failure Mode
 
