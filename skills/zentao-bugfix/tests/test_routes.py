@@ -49,7 +49,7 @@ class RoutingTests(unittest.TestCase):
     def prepare(self, bug="101", title="ORDER failure", reuse=False):
         cache = self.project / ".agents" / "bugfix-work" / bug
         cache.mkdir(parents=True, exist_ok=True)
-        (cache / "bug.md").write_text("# Bug\n- **标题**: " + title, encoding="utf-8")
+        (cache / "bug.md").write_text("# Bug\n- **标题**: " + title)
         args = SimpleNamespace(project=str(self.project), bug_id=bug, base_branch=None,
                                reuse=reuse, force=False, current_workspace=str(self.project))
         with patch.object(bf, "fetch_bug_full", return_value=({"title": title}, [], [], str(cache), "https://zentao.test", "bug")), contextlib.redirect_stdout(io.StringIO()):
@@ -57,10 +57,8 @@ class RoutingTests(unittest.TestCase):
 
     def docs(self, bug="101"):
         rec = r.load_record(self.project, bug)
-        (Path(rec["report_dir"]) / r._reports.REPORT_NAME).write_text(
-            "# 分析报告\n\n## 第一部分：根因分析\n\n根因（src/a.py:1）\n\n"
-            "## 第二部分：修复方案\n\n改 src/a.py。\n\n"
-            "## 第三部分：修复结果与验证\n\n已验证。\n", encoding="utf-8")
+        for name in ("analysis.md", "solution.md", "fix-report.md"):
+            (Path(rec["report_dir"]) / name).write_text("完整的分析、方案或验证记录", encoding="utf-8")
         r.ready(self.project, bug)
         return rec
 
@@ -130,7 +128,7 @@ class RoutingTests(unittest.TestCase):
         first = r.finish(self.project, "101", ["one.txt"], self.check)
         self.assertEqual(first["status"], "committed")
         self.assertTrue(all(r._reports.current_reports(first["report_dir"]).values()))
-        self.assertIn(first["commit"], (Path(first["report_dir"]) / r._reports.REPORT_NAME.replace(".md", ".html")).read_text(encoding="utf-8"))
+        self.assertIn(first["commit"], (Path(first["report_dir"]) / "fix-report.html").read_text(encoding="utf-8"))
         self.assertEqual(git(self.workspace, "rev-parse", "HEAD^"), initial)
         self.assertEqual(self.prepare("102"), 0)
         self.docs("102")
@@ -211,7 +209,7 @@ class RoutingTests(unittest.TestCase):
         self.docs()
         rec = r.finish(self.project, "101", [], self.check, no_change=True)
         self.assertEqual(rec["status"], "no_change")
-        self.assertIn("无需代码修改", (Path(rec["report_dir"]) / r._reports.REPORT_NAME.replace(".md", ".html")).read_text(encoding="utf-8"))
+        self.assertIn("无需代码修改", (Path(rec["report_dir"]) / "fix-report.html").read_text(encoding="utf-8"))
         self.assertTrue(all(r._reports.current_reports(rec["report_dir"]).values()))
         self.assertEqual(git(self.workspace, "rev-list", "--count", "HEAD"), "1")
         self.assertEqual(self.prepare("102"), 0)
@@ -224,8 +222,8 @@ class RoutingTests(unittest.TestCase):
         rec = r.load_record(self.project, "101")
         report = Path(rec["html_report"])
         self.assertTrue(report.is_relative_to(self.project / ".agents"))
-        self.assertIn("&lt;script&gt;", report.read_text(encoding="utf-8"))
-        self.assertNotIn("<script>", report.read_text(encoding="utf-8"))
+        self.assertIn("&lt;script&gt;", report.read_text())
+        self.assertNotIn("<script>", report.read_text())
         opened.assert_called_once_with(report)
         self.assertFalse(missing.exists())
         self.rules([self.rule])
@@ -269,23 +267,18 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(self.prepare(title="Unrelated failure"), 0)
         rec = r.load_record(self.project, "101")
         rd = Path(rec["report_dir"])
-        rep = r._reports
-        # 第一/二部分完整、第三部分占位 → 可渲染；fix-report.html 不存在（新布局无此文件）
-        (rd / rep.REPORT_NAME).write_text(
-            "# 分析报告\n\n## 第一部分：根因分析\n\n根因\n\n"
-            "## 第二部分：修复方案\n\n方案\n\n"
-            "## 第三部分：修复结果与验证\n\n（待填写）\n", encoding="utf-8")
+        for name in ("analysis.md", "solution.md"):
+            (rd / name).write_text("# 完整分析或方案", encoding="utf-8")
         args = SimpleNamespace(project=str(self.project), bug_id="101", analysis_only=True)
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(bf.cmd_render_html(args), 0)
-        self.assertTrue(rep.current_reports(rd)["analysis-report"])
+        self.assertTrue(r._reports.current_reports(rd)["analysis"])
         self.assertFalse((rd / "fix-report.html").exists())
-        text = (rd / rep.REPORT_NAME).read_text(encoding="utf-8").replace("（待填写）", "已验证")
-        (rd / rep.REPORT_NAME).write_text(text, encoding="utf-8")
+        (rd / "fix-report.md").write_text("# 修复\n\n未提交待 review", encoding="utf-8")
         args.analysis_only = False
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(bf.cmd_render_html(args), 0)
-        self.assertTrue(all(rep.current_reports(rd).values()))
+        self.assertTrue(all(r._reports.current_reports(rd).values()))
         # Legacy discovery still works without a new run record.
         r.record_path(self.project, "101").unlink()
         with contextlib.redirect_stdout(io.StringIO()):
@@ -307,10 +300,10 @@ class RoutingTests(unittest.TestCase):
         self.docs()
         (self.workspace / "one.txt").write_text("fixed\n")
         rec = r.load_record(self.project, "101")
-        (Path(rec["report_dir"]) / r._reports.REPORT_NAME).unlink()
+        (Path(rec["report_dir"]) / "fix-report.md").unlink()
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(bf.cmd_report(SimpleNamespace(project=str(self.project), bug_id="101", force=False)), 0)
-        content = (Path(rec["report_dir"]) / r._reports.REPORT_NAME).read_text(encoding="utf-8")
+        content = (Path(rec["report_dir"]) / "fix-report.md").read_text()
         self.assertIn("one.txt", content)
         self.assertNotIn("developer.txt", content)
 

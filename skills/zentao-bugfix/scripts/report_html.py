@@ -11,48 +11,7 @@ import re
 from urllib.parse import urlsplit
 import uuid
 
-REPORT_NAME = "analysis-report.md"
-REPORT_NAMES = (REPORT_NAME,)
-# 单报告三部分标记：第一/二部分修复前补全并由 ready 封存；第三部分修复后补全
-PART12_END_MARK = "## 第三部分"
-LEGACY_NAMES = ("analysis.md", "solution.md", "fix-report.md")
-
-
-def split_report(text):
-    """按『## 第三部分』切分 analysis-report.md，返回 (第一二部分, 第三部分)。
-
-    第一/二部分在修复前补全并由 ready 封存（digest 只覆盖这两部分）；
-    第三部分在修复后由 report 命令与 AI 填写，不参与封存。
-    """
-    idx = text.find(PART12_END_MARK)
-    if idx < 0:
-        return text, ""
-    return text[:idx], text[idx:]
-
-
-def part12_complete(directory, name=REPORT_NAME):
-    """第一/二部分是否已补全（无『（待填写』标记）。文件缺失返回 False。"""
-    source = Path(directory) / name
-    if not source.is_file():
-        return False
-    part12, _ = split_report(source.read_text(encoding="utf-8-sig"))
-    return bool(part12.strip()) and "（待填写" not in part12
-
-
-def report_complete(directory, name=REPORT_NAME):
-    """交付报告是否已完整落盘：新布局检查全文；旧布局三份均完整才算完整。"""
-    source = Path(directory) / name
-    if source.is_file():
-        content = source.read_text(encoding="utf-8-sig")
-        return bool(content.strip()) and "（待填写" not in content
-    states = []
-    for n in LEGACY_NAMES:
-        p = Path(directory) / n
-        if not p.is_file():
-            return False
-        c = p.read_text(encoding="utf-8-sig")
-        states.append(bool(c.strip()) and "（待填写" not in c)
-    return all(states)
+REPORT_NAMES = ("analysis.md", "solution.md", "fix-report.md")
 
 
 def safe_url(value):
@@ -199,12 +158,8 @@ def generate(source):
     return str(target)
 
 
-def render_reports(directory, names=None, require_complete=False):
+def render_reports(directory, names=REPORT_NAMES, require_complete=False):
     directory = Path(directory)
-    if names is None:
-        # 未显式指定时自判断：旧版三文件布局（--reuse 复用旧 worktree）渲染三份，
-        # 新布局只渲染唯一交付报告
-        names = LEGACY_NAMES if any((directory / n).is_file() for n in LEGACY_NAMES) else REPORT_NAMES
     sources = []
     # Validate the complete set before refreshing any HTML.
     for name in names:
@@ -221,11 +176,9 @@ def render_reports(directory, names=None, require_complete=False):
 
 
 def current_reports(directory):
-    directory = Path(directory)
-    names = LEGACY_NAMES if any((directory / n).is_file() for n in LEGACY_NAMES) else REPORT_NAMES
     result = {}
-    for name in names:
-        source = directory / name
+    for name in REPORT_NAMES:
+        source = Path(directory) / name
         target = source.with_suffix(".html")
         result[source.stem] = (source.is_file() and target.is_file() and
                                target.read_text(encoding="utf-8") == page(source))

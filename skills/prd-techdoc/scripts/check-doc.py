@@ -25,7 +25,7 @@ DATA_ROW_3 = re.compile(r"^\|[^|]*\|[^|]*\|[^|]*\|\s*$")
 STATUS_COL = re.compile(r"^\s+(\w*status\w*)\s+(varchar|tinyint|int|char)\b", re.IGNORECASE)
 DIALECT = re.compile(r"kingbase|postgres|oracle|dm8|达梦|sqlserver|sql\s+server|方言|其他数据库", re.IGNORECASE)
 ER_ENTITY = re.compile(r"^\s{4}[A-Z][A-Z0-9_]+ \{")
-CREATE_TABLE = re.compile(r"^CREATE TABLE (\w+)", re.IGNORECASE)
+CREATE_TABLE = re.compile(r"^CREATE TABLE (?:IF NOT EXISTS\s+)?[`\"\[]?(\w+)", re.IGNORECASE)
 
 
 def main() -> int:

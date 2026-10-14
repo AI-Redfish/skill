@@ -1,6 +1,6 @@
 # 钉钉消息监听器（dingtalk_listen.py）使用指南
 
-全自动链路：**钉钉消息 → Agent 提取 bugId → 监听器确定性执行 prepare（查询禅道并分流）→ Agent 补全分析/方案及配套 HTML → 绑定模式 ready → 修复 → report/补全 → 绑定模式 finish 验证并单 Bug 提交 → 同步最终 HTML**。未匹配或规则冲突时仍创建独立 worktree，默认不提交。
+全自动链路：**钉钉消息 → Agent 提取 bugId → 只读查询当前 confirmed → 仅未确认 Bug 进入 prepare（再次检查、查询禅道并分流）→ Agent 补全分析/方案及配套 HTML → 绑定模式 ready → 修复 → report/补全 → 绑定模式 finish 验证并单 Bug 提交 → 同步最终 HTML → 钉钉结果通知本人**。未匹配或规则冲突时仍创建独立 worktree，默认不提交。
 本文是 `scripts/dingtalk_listen.py` 的完整参考；速览见 SKILL.md「钉钉消息自动触发」。
 
 ## 架构
@@ -15,11 +15,26 @@ DWS_LISTEN_USERS / DWS_LISTEN_BOTS（routes.json config 名单）
         ▼
 dingtalk_listen.py 主控（纯标准库 Python）
   ├─ reader/poll 线程 × N：事件归一化 → 去重 → 事件队列(串行)
-  ├─ worker：Agent 提取意图 → 同步配置 → prepare 查询禅道/匹配 routes.json
+  ├─ worker：Agent 提取意图 → 查询 confirmed（只允许未确认）→ 同步配置 → prepare 再检查/匹配 routes.json
   │    → 绑定已有工作区或新 worktree → Agent 分析/修复/报告 → 绑定分支 finish 提交
   │    → 验证本次 run_id、完整报告、绑定模式 commit；占用任务持久排队
+  │    → 跳过/成功/失败/首次等待结果通知本人；通知失败持久化补发
   └─ 守护管理：start(后台)/status/stop；日志与状态全在启动工作空间 .agents/logs/
 ```
+
+## 确认状态过滤与本人结果通知
+
+- 两自动入口共享 `run_auto_fix`。先读取当前禅道 API，不依赖历史缓存。`confirmed=0`、`"0"` 或 `unconfirmed` 表示未确认；`1`、`"1"` 或 `confirmed` 表示已确认。布尔、空值和未知值不放行。
+- 已确认 Bug 返回 `skipped_confirmed`，不同步目标配置、不创建 worktree、不生成修复报告。prepare 的 `--only-unconfirmed` 在写资料/下载截图前再次检查，防止首次查询后状态变化。该选项返回 9 表示已确认，10 表示状态未知。
+- 等待任务恢复和监听器 `retry` 也检查当前状态。手动 `bugfix.py` 不传该选项时保持原流程。不会自动确认 Bug，也不会撤销已有现场或锁。
+- 本文“定时拉取”指钉钉消息兜底轮询，不是禅道 Bug 定时扫描。
+- 用户已授权结果通知。使用 `dws auth status --format json` 取得启动时登录账户，通过 `chat +messages-send --as user --user <本人ID>` 单聊发送，并固定组织和账户。通知不发给消息来源机器人或其他人员。
+- Bug 跳过、修复成功、修复失败、提取失败及首次等待均通知。非修复闲聊不通知。成功仍以完整报告和绑定模式提交校验为准，不能把 Agent 退出码 0 当作修复完成。
+- 消息包含 Bug ID、结果和可用报告/工作区/提交信息。通知不复制 Bug 原文或原始异常，避免泄露凭据。通知前缀 `[禅道自动处理结果]` 在 worker 中过滤，避免通知回流触发修复。
+- 原子 `message_id` 占用防止 stream/poll 并发重复入队。通知使用稳定幂等键与本地 outbox；无法承诺跨系统绝对一次投递，服务端契约标记幂等能力为 unknown。
+- `.agents/logs/result-notifications.json` 在发送前持久化收件人和消息。失败记录保留，监听在线时每分钟补发。存在 `openTaskId` 时只查询 `+messages-query-send-status`，`sendStatus=SUCCESS` 才记为送达。查询失败不会重新发送。永久失败或账户失效需人工排障，不放宽收件人。
+- 通知失败不把已完成修复改为失败。`status.stats.last_fix.notification` 显示首次通知结果；后续补发以 outbox 的 `sent` 和 `status.notification_pending` 为准。
+- 参考：[dws 消息深度指南](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/blob/main/skills/multi/dingtalk-chat/references/chat.md)。借鉴官方 CLI 的身份选择、幂等键和异步投递查询。confirmed 映射依据本项目真实 API 数据；当前环境无法访问 GitHub 禅道源码，未声称在线核验其源码。
 
 ## 修复位置、顺序提交与异常报告
 
@@ -114,6 +129,7 @@ save-config，再重新 start。
 | `events.log` | 每条监听到的消息事件（原始 JSON） |
 | `listener.log` | 运行主日志（启动/命中/忽略/提取失败/拉取失败/错误，全量带时间戳落盘；即使 stdout 不可见也不丢） |
 | `fix-<bugId>.log` | prepare 分流输出、会话耗时和输出末尾 40 行，以及 **[VERIFY]** 本次运行记录/完整 MD 与对应最新 HTML/绑定模式提交校验 |
+| `result-notifications.json` | 本人结果通知 outbox：固定收件人、幂等键、发送任务、实际投递状态和待补发记录 |
 | `pending-bugs.json` | 等待分支或工作区释放的 Bug ID；监听重启后继续等待 |
 | `state.json` | status 数据源（5s 刷新，含 stats.last_fix） |
 | `processed-ids.json` | message_id 去重（环形，最近 1000 条） |
@@ -123,24 +139,26 @@ save-config，再重新 start。
 
 ## 系统级开机自启（跨平台，首次 start 自动创建）
 
-**行为**：首次 `start` 成功后自动创建系统级自启任务，之后每次开机/登录自动拉起监听
-（入口固定为 `<解释器> <脚本> start --foreground`，工作目录=启动时的工作空间）；
+**行为**：首次后台 `start` 成功后自动创建系统级自启任务。Windows 注册开机和当前用户登录两个触发器，并使用当前用户的交互凭据。重启后登录安装任务的用户，监听自动恢复；关闭终端不影响监听。**未登录阶段不保证运行**：开机触发器不等于具备非交互运行凭据。不要改用 SYSTEM 或 S4U 来绕过凭据要求；前者不能直接复用用户登录，后者限制网络和加密文件访问。需要未登录运行时，由用户在任务计划程序配置有网络访问能力的任务账户，并验证 dws、Agent 和 Git 访问，不把 Windows 密码写入 routes.json 或日志。任务失败后每分钟重试，共三次；这不等于无限自愈。入口固定为 `<解释器> <脚本> start --foreground`，工作目录=启动时的工作空间。macOS LaunchAgent 在用户登录时运行；Linux 使用 systemd 用户服务或 cron `@reboot`。
 重复 `start` 幂等覆盖为最新工作空间。`--no-autostart` 可单次跳过，`routes.json config` 配
 `LISTEN_AUTOSTART=off` 可永久关闭自动创建；`stop` 只停当前进程不卸载自启，
 `autostart remove` 才彻底移除（remove 不影响正在运行的监听）。
 
 | 平台 | 机制 | 落点 | 说明 |
 |---|---|---|---|
-| Windows | 任务计划程序（登录触发） | 任务名 `zentao-bugfix-listener` | 优先 `Register-ScheduledTask`（当前用户、无 72h 执行时限、电池供电不中断、pythonw 无黑窗）；PowerShell 不可用时回退 `schtasks /SC ONLOGON` + 启动 bat |
+| Windows | 任务计划程序（开机和登录双触发） | 任务名 `zentao-bugfix-listener` | 优先 `Register-ScheduledTask`（开机与登录触发、错过触发后尽快运行、失败自动重试、无 72h 执行时限、电池供电不中断、pythonw 无黑窗）；PowerShell 不可用时回退 `schtasks /SC ONSTART` 与 `/SC ONLOGON` 两个任务 + 启动 bat |
 | macOS | LaunchAgent | `~/Library/LaunchAgents/com.ai-redfish.zentao-bugfix-listener.plist` | `RunAtLoad=true`、`KeepAlive=false`（stop 后不被拉起）；bootstrap 失败自动回退 `launchctl load -w` |
 | Linux | systemd 用户服务 | `~/.config/systemd/user/zentao-bugfix-listener.service` | `enable`（+尽力 `loginctl enable-linger` 免登录自启）；无 systemd（部分 WSL/容器）自动回退 **cron `@reboot`**（托管块成对标记包裹，remove 只删自己的块） |
 
 - 解释器选择：Windows 优先 `pythonw.exe`；uv/venv 环境回退基础解释器（脚本零第三方依赖，避免缓存 venv 被清理后自启失效）。
 - Linux 可用环境变量 `AUTOSTART_MECHANISM=cron` 强制走 cron（默认自动探测 systemd 可用性）。
 - 开机时若配置缺失（`routes.json` 不在/config 缺键），自启拉起的监听会以退出码 2 结束并留日志
- `start.log`，补齐配置后下次登录/重启即恢复正常。
+ `start.log`。修正配置后，Windows 可等待登录触发，或手动执行 `start`。
 - 手动验证：`autostart status` 看 `installed/mechanism/entry/config_ok`；
  `listener.status` 的 JSON 也带 `autostart` 字段。
+
+- 自启验收必须检查实际任务的账户、登录类型、触发器、工作目录、禁用状态和执行结果。`installed=true` 只说明任务存在，不能代替启动验证。不得未经授权重启电脑；未执行真实重启时，明确注明未覆盖重启验收。
+- 参考：[New-ScheduledTaskTrigger](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasktrigger)、[Principal.LogonType](https://learn.microsoft.com/en-us/windows/win32/taskschd/principal-logontype)。借鉴系统持久化触发器和账户约束，不依赖当前终端存活。
 
 ## Windows 无黑窗说明
 
@@ -173,4 +191,4 @@ save-config，再重新 start。
 | 目标解析失败（重名/不存在） | `dws contact user search --query 名字` / `dws chat bot find --query 名字` 人工核对唯一性，改用精确姓名 |
 | 想立即停掉一切 | `stop` 后确认 `status` running=false；残留 dws 进程可 `taskkill /IM dws.exe /F`（Windows） |
 | 不想重启后监听自动运行 | `autostart remove` 移除系统级自启（`stop` 只停当前进程）；或 `routes.json config` 配 `"LISTEN_AUTOSTART": "off"` 后重新 start（不再自动创建）；Windows 也可在任务计划程序里禁用 `zentao-bugfix-listener` |
-| 自启创建了但重启后没拉起 | `autostart status` 确认 installed 与 entry 路径；查工作空间 `.agents/logs/start.log`（开机拉起失败的原因，如配置缺失/dws 未登录） |
+| 自启创建了但重启后没拉起 | `autostart status` 确认 installed 与 entry 路径；Windows 查任务计划程序中的启动/登录触发器与上次运行结果，再查 `.agents/logs/start.log`（常见原因：配置缺失、dws 未登录、开机时网络尚未就绪） |

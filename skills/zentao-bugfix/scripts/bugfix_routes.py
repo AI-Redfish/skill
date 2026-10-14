@@ -228,14 +228,10 @@ def active_execution(record):
         for name in sorted(record.get("locks", [])):
             handle = stack.enter_context(Path(name + ".active").open("a+b"))
             handle.seek(0)
-            try:
-                # Windows 上另一进程持有 msvcrt 锁时读操作也报 PermissionError，视为锁被占
-                if not handle.read(1):
-                    handle.write(b"0")
-                    handle.flush()
-                handle.seek(0)
-            except PermissionError as exc:
-                raise Busy("当前 Bug 的修复会话仍在运行，等待其结束") from exc
+            if not handle.read(1):
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
             try:
                 if os.name == "nt":
                     import msvcrt
@@ -334,15 +330,6 @@ def snapshot(repo):
             "dirty": sorted(n for n in dirty if not operational(n))}
 
 
-def report_meta_path(report):
-    """报告目录下 meta.json 路径：新版在 work/ 下；旧布局回退顶层（只读兼容）。"""
-    report = Path(report)
-    new = report / "work" / "meta.json"
-    if new.is_file() or not (report / "meta.json").is_file():
-        return new
-    return report / "meta.json"
-
-
 def changed(before, after):
     return sorted(n for n in set(before["entries"]) | set(after["entries"])
                   if before["entries"].get(n) != after["entries"].get(n))
@@ -354,30 +341,19 @@ def ready(project, bug_id):
         raise RouteError("ready 仅用于绑定工作区")
     p = validate_workspace(rec["route"])
     if rec.get("analysis_sealed"):
-        # 已封存过：直接重渲染（新布局第三部分可能尚未填写，完整性已在首次 ready 校验）
-        rec["html_reports"] = _reports.render_reports(rec["report_dir"], require_complete=False)
+        rec["html_reports"] = _reports.render_reports(rec["report_dir"], names=("analysis.md", "solution.md"), require_complete=True)
         save(record_path(project, bug_id), rec)
         return rec
     if snapshot(p) != rec["snapshot"]:
         raise RouteError("分析文档完成前代码或暂存区已改变，禁止开始修复")
-    # 新布局：唯一交付报告 analysis-report.md，第一/二部分修复前补全并封存；
-    # 旧布局（--reuse 复用旧 worktree）：analysis.md + solution.md 两份均须完整
-    report_md = Path(rec["report_dir"]) / _reports.REPORT_NAME
-    if report_md.is_file():
-        content = report_md.read_text(encoding="utf-8")
-        part12, _ = _reports.split_report(content)
-        if not content.strip() or "（待填写" in part12:
-            raise RouteError(_reports.REPORT_NAME + " 第一/二部分未完成（分析先行）")
-        docs = {_reports.REPORT_NAME: hashlib.sha256(part12.encode()).hexdigest()}
-    else:
-        docs = {}
-        for name in ("analysis.md", "solution.md"):
-            path = Path(rec["report_dir"]) / name
-            content = path.read_text(encoding="utf-8") if path.is_file() else ""
-            if not content.strip() or "（待填写" in content:
-                raise RouteError(name + " 未完成")
-            docs[name] = hashlib.sha256(content.encode()).hexdigest()
-    html_reports = _reports.render_reports(rec["report_dir"], require_complete=False)
+    docs = {}
+    for name in ("analysis.md", "solution.md"):
+        path = Path(rec["report_dir"]) / name
+        content = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if not content.strip() or "（待填写" in content:
+            raise RouteError(name + " 未完成")
+        docs[name] = hashlib.sha256(content.encode()).hexdigest()
+    html_reports = _reports.render_reports(rec["report_dir"], names=("analysis.md", "solution.md"), require_complete=True)
     rec.update(analysis_sealed=docs, status="repairing", html_reports=html_reports)
     save(record_path(project, bug_id), rec)
     return rec
@@ -408,20 +384,15 @@ def _finish(project, bug_id, files, check_command, no_change=False):
         if read(Path(name) / "owner.json").get("run_id") != rec["run_id"]:
             raise RouteError("工作区锁不属于本次运行")
     report = Path(rec["report_dir"])
-    # 封存校验：第一/二部分（或旧布局两份文档）与 ready 时一致；全文（含第三部分）须完整落盘
-    for name, digest in rec["analysis_sealed"].items():
+    for name in ("analysis.md", "solution.md", "fix-report.md"):
         doc = report / name
-        if not doc.is_file():
-            raise RouteError(name + " 不存在")
-        content = doc.read_text(encoding="utf-8")
-        if name == _reports.REPORT_NAME:
-            content, _ = _reports.split_report(content)
-        if hashlib.sha256(content.encode()).hexdigest() != digest:
-            raise RouteError("分析/方案在 ready 后发生变化；请复核并保留现场，不自动提交")
-    if not _reports.report_complete(report):
-        raise RouteError(_reports.REPORT_NAME + " 尚未完整落盘（含第三部分）；旧布局需三份报告均完整")
+        if not doc.is_file() or not doc.read_text(encoding="utf-8").strip() or "（待填写" in doc.read_text(encoding="utf-8"):
+            raise RouteError(name + " 尚未完整落盘")
     rec["html_reports"] = _reports.render_reports(report, require_complete=True)
     before = rec["snapshot"]
+    for name, digest in rec["analysis_sealed"].items():
+        if hashlib.sha256((report / name).read_text(encoding="utf-8").encode()).hexdigest() != digest:
+            raise RouteError("分析/方案在 ready 后发生变化；请复核并保留现场，不自动提交")
     if not check_command:
         raise RouteError("必须提供 --check-command 验证命令；禁止绕过验证提交")
     # On Windows preserve backslashes in paths; remove only surrounding quotes.
@@ -431,13 +402,11 @@ def _finish(project, bug_id, files, check_command, no_change=False):
     if not cmd:
         raise RouteError("验证命令不能为空")
     result = subprocess.run(cmd, cwd=str(p), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    work_dir = report / "work"
-    work_dir.mkdir(parents=True, exist_ok=True)
-    (work_dir / "validation.log").write_bytes(result.stdout)
+    (report / "validation.log").write_bytes(result.stdout)
     rec["validation"] = {"command": cmd, "returncode": result.returncode}
     save(record_path(project, bug_id), rec)
     if result.returncode:
-        raise RouteError("验证失败，分支队列暂停；详见 work/validation.log")
+        raise RouteError("验证失败，分支队列暂停；详见 validation.log")
     after = snapshot(p)
     if after["head"] != before["head"]:
         raise RouteError("HEAD 已被外部修改，分支队列暂停")
@@ -500,19 +469,14 @@ def _finish(project, bug_id, files, check_command, no_change=False):
             Path(index_name).unlink(missing_ok=True)
             Path(index_name + ".lock").unlink(missing_ok=True)
     rec["ok"] = True
-    meta_path = report_meta_path(report)
-    meta = read(meta_path)
+    meta = read(report / "meta.json")
     meta.update(status=rec["status"], commit=rec.get("commit"), run_id=rec["run_id"], validation=rec["validation"], analysis_sealed=rec["analysis_sealed"])
-    save(meta_path, meta)
-    # 追加最终提交结果到唯一交付报告（新布局 analysis-report.md；旧布局 fix-report.md）
-    final_doc = report / _reports.REPORT_NAME
-    if not final_doc.is_file():
-        final_doc = report / "fix-report.md"
-    with final_doc.open("a", encoding="utf-8") as f:
+    save(report / "meta.json", meta)
+    with (report / "fix-report.md").open("a", encoding="utf-8") as f:
         f.write("\n\n## 最终提交结果\n\n状态：%s\n\nCommit：`%s`\n" % (rec["status"], rec.get("commit", "无需代码修改")))
-    rec["html_reports"] = _reports.render_reports(report, require_complete=False)
+    rec["html_reports"] = _reports.render_reports(report, require_complete=True)
     meta["html_reports"] = rec["html_reports"]
-    save(meta_path, meta)
+    save(report / "meta.json", meta)
     save(record_path(project, bug_id), rec)
     release(rec)
     return rec

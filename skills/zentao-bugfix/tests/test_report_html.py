@@ -11,47 +11,25 @@ spec.loader.exec_module(rh)
 
 
 class ReportHtmlTests(unittest.TestCase):
-    def test_single_report_same_directory_and_current_after_regeneration(self):
+    def test_three_reports_same_directory_and_current_after_regeneration(self):
         with tempfile.TemporaryDirectory(prefix="bug报告 ") as td:
             directory = Path(td)
-            (directory / rh.REPORT_NAME).write_text(
-                "# 中文报告\n\n## 第一部分：根因分析\n\n证据：`src/app.py:10`\n\n"
-                "## 第二部分：修复方案\n\n改 `src/app.py`。\n\n"
-                "## 第三部分：修复结果与验证\n\n（待填写）\n", encoding="utf-8")
-            result = rh.render_reports(directory, require_complete=False)
-            self.assertEqual(set(result), {"analysis-report"})
-            self.assertTrue(all(rh.current_reports(directory).values()))
-            # 第一/二部分已完整（可封存），全文因第三部分待填写不算完整
-            self.assertTrue(rh.part12_complete(directory))
-            self.assertFalse(rh.report_complete(directory))
-            path = directory / rh.REPORT_NAME
-            with path.open("a", encoding="utf-8") as f:
-                f.write("\n## 最终提交结果\n\nCommit：`abc123`\n")
-            self.assertFalse(rh.current_reports(directory)["analysis-report"])
-            rh.render_reports(directory, require_complete=False)
-            self.assertIn("abc123", (directory / "analysis-report.html").read_text(encoding="utf-8"))
-            self.assertTrue(all(rh.current_reports(directory).values()))
-
-    def test_split_report_parts(self):
-        text = "A\n## 第一部分：x\nB\n## 第三部分：y\nC\n"
-        p12, p3 = rh.split_report(text)
-        self.assertIn("## 第三部分", p3)
-        self.assertNotIn("## 第三部分", p12)
-        self.assertEqual(p12, "A\n## 第一部分：x\nB\n")
-
-    def test_legacy_three_reports_still_render(self):
-        with tempfile.TemporaryDirectory() as td:
-            directory = Path(td)
-            for name in rh.LEGACY_NAMES:
-                (directory / name).write_text("# 旧版报告\n\n内容\n", encoding="utf-8")
+            for name in rh.REPORT_NAMES:
+                (directory / name).write_text("# 中文报告\n\n## 根因\n\n证据：`src/app.py:10`\n", encoding="utf-8")
             result = rh.render_reports(directory, require_complete=True)
             self.assertEqual(set(result), {"analysis", "solution", "fix-report"})
             self.assertTrue(all(rh.current_reports(directory).values()))
-            self.assertTrue(rh.report_complete(directory))
+            path = directory / "fix-report.md"
+            with path.open("a", encoding="utf-8") as f:
+                f.write("\n## 最终提交结果\n\nCommit：`abc123`\n")
+            self.assertFalse(rh.current_reports(directory)["fix-report"])
+            rh.render_reports(directory, require_complete=True)
+            self.assertIn("abc123", (directory / "fix-report.html").read_text(encoding="utf-8"))
+            self.assertTrue(all(rh.current_reports(directory).values()))
 
     def test_tables_evidence_code_images_and_links_offline(self):
         with tempfile.TemporaryDirectory() as td:
-            source = Path(td) / "analysis-report.md"
+            source = Path(td) / "analysis.md"
             source.write_text('''# Bug #123 分析
 
 ## 代码证据

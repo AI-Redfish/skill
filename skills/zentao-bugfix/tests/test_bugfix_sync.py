@@ -96,7 +96,7 @@ class TestSyncNewWorktree(unittest.TestCase):
             # 本地基准分支引用未被改动、主工作空间无 g.txt
             self.assertFalse((Path(local) / "g.txt").exists())
             # meta.json 记录同步状态
-            meta = json.loads(Path(bf.meta_path_for(info["report_dir"])).read_text(encoding="utf-8"))
+            meta = json.loads(Path(info["report_dir"], "meta.json").read_text(encoding="utf-8"))
             self.assertTrue(meta["synced"])
             self.assertEqual(meta["sync_remote_branch"], "origin/main")
 
@@ -113,7 +113,7 @@ class TestSyncNewWorktree(unittest.TestCase):
             info = bf.setup_worktree(str(repo), "113", "main")
             self.assertFalse(info["synced"])
             self.assertIn("未配置远程", info["sync_reason"])
-            meta = json.loads(Path(bf.meta_path_for(info["report_dir"])).read_text(encoding="utf-8"))
+            meta = json.loads(Path(info["report_dir"], "meta.json").read_text(encoding="utf-8"))
             self.assertFalse(meta["synced"])
 
     def test_degrade_fetch_failure(self):

@@ -30,21 +30,20 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
     prepare <bugId> [baseBranch] [--project DIR] [--reuse] [--force]
                                                   查询禅道 + routes.json 分流 +
                                                   绑定工作区加锁或新建 worktree + 生成
-                                                  analysis-report.md 骨架（报告目录
-                                                  .agents/zentao-bugfix/<bugId>/，
-                                                  中间产物收进 work/）
+                                                  analysis.md / solution.md 骨架
+                                                  （报告目录 .agents/zentao-bugfix/
+                                                  <bugId>/）
     render-html <bugId> [--project DIR] [--analysis-only]
                                                   从完整 MD 生成/更新同目录 HTML
-                                                  （--analysis-only 仅兼容旧参数，
-                                                  新布局只有一份报告）
     ready <bugId> [--project DIR]                绑定模式修复前生成 HTML 并封存分析/方案
     finish <bugId> --check-command CMD --files PATH... [--project DIR]
                                                   验证并独立提交当前 Bug，成功释放锁
-    report <bugId> [--project DIR] [--force]      更新 analysis-report.md 第三部分
-                                                  （含未提交变更清单）+ 输出汇报摘要；
-                                                  自动定位该 bugId 既有 worktree
-                                                  （跨日期）；校验第一/二部分完成度
-                                                  并输出 ANALYSIS_INCOMPLETE 字段
+    report <bugId> [--project DIR] [--force]      生成 fix-report.md（含未提交
+                                                  变更清单）+ 输出汇报摘要；自动定位
+                                                  该 bugId 既有 worktree（跨日期）；
+                                                  校验 analysis.md / solution.md 完成
+                                                  度并输出 ANALYSIS_INCOMPLETE /
+                                                  SOLUTION_INCOMPLETE 字段
     download-image <url> <dest> [--cookie SID]    内部使用：下载附件图片
 
 关键策略：
@@ -52,12 +51,12 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
     - worktree 的 git 元数据改写为相对路径，WSL git 与 Windows git 均可识别；
     - 绑定模式通过 finish 验证并单 Bug 提交；新 worktree 默认不提交；均不 push；
     - 匹配支持 Bug ID 和标题包含，工作区异常输出并打开 HTML，失败保留现场与锁；
-    - 分析先行：唯一交付报告 analysis-report.md 的第一部分（根因分析）与第二部分
-      （修复方案）必须在实施任何代码修复之前由 AI 补全（prepare 在 <worktree>/.agents/
-      zentao-bugfix/<bugId>/ 下生成三部分合一的骨架，保证文档一定存在；中间产物
-      全部收进 work/ 子目录，可验证脚本放 scripts/）；
-      prepare 的 NEXT 提示与 report 的 ANALYSIS_INCOMPLETE / REPORT_INCOMPLETE
-      字段负责校验提醒，不硬失败，保持流程可恢复。
+    - 分析先行：analysis.md（完整分析报告）与 solution.md（解决方案）必须在
+      实施任何代码修复之前由 AI 补全（prepare 在 <worktree>/.agents/
+      zentao-bugfix/<bugId>/ 下生成两份骨架，保证文档目录一定存在）；
+      prepare 的 NEXT 提示与 report 的 ANALYSIS_INCOMPLETE / SOLUTION_INCOMPLETE
+      字段（no=已完整 / yes=仍有（待填写）章节 / missing=文件不存在）负责校验
+      提醒，不硬失败，保持流程可恢复。
     - 幂等防重：同一 bugId 重复 prepare/worktree 时，检测到已有 worktree/修复
       分支（不限日期）即停止并输出 EXISTS 摘要（返回码 4）；--reuse 可显式复用
       既有 worktree 继续处理；report 自动定位既有 worktree。
@@ -97,43 +96,6 @@ _routes_spec.loader.exec_module(_routes)
 
 REQUIRED_KEYS = ["ZENTAO_BASE_URL", "ZENTAO_ACCOUNT", "ZENTAO_PASSWORD"]
 TIMEOUT = 30
-
-# 报告布局（v2.3+）：报告目录顶层只放交付报告与 scripts/；中间产物全部收进 work/
-REPORT_NAME = "analysis-report.md"      # 唯一交付报告（三部分：根因分析/修复方案/修复结果与验证）
-WORK_SUBDIR = "work"                    # 中间产物子目录（bug.md、bug-raw.json、截图、meta.json、validation.log）
-SCRIPTS_SUBDIR = "scripts"              # 修复中产出的可复现/验证脚本（AI 写入，报告引用）
-LEGACY_REPORT_FILES = ("analysis.md", "solution.md", "fix-report.md")  # v2.2 及更早布局（只读兼容）
-
-
-def work_dir_for(report_dir):
-    """中间产物子目录：<报告目录>/work/。"""
-    return os.path.join(report_dir, WORK_SUBDIR)
-
-
-def scripts_dir_for(report_dir):
-    """可验证脚本子目录：<报告目录>/scripts/。"""
-    return os.path.join(report_dir, SCRIPTS_SUBDIR)
-
-
-def legacy_report_dir(report_dir):
-    """判断是否旧版三文件布局（含 analysis.md 等任一遗留报告）。"""
-    return any(os.path.isfile(os.path.join(report_dir, n)) for n in LEGACY_REPORT_FILES)
-
-
-def meta_path_for(report_dir):
-    """meta.json 路径：新版在 work/ 下；旧版直接在报告目录（只读兼容）。"""
-    new = os.path.join(work_dir_for(report_dir), "meta.json")
-    if os.path.isfile(new) or not os.path.isfile(os.path.join(report_dir, "meta.json")):
-        return new
-    return os.path.join(report_dir, "meta.json")
-
-
-def bug_md_path_for(report_dir):
-    """bug.md 快照路径：新版在 work/ 下；旧版直接在报告目录（只读兼容）。"""
-    new = os.path.join(work_dir_for(report_dir), "bug.md")
-    if os.path.isfile(new) or not os.path.isfile(os.path.join(report_dir, "bug.md")):
-        return new
-    return os.path.join(report_dir, "bug.md")
 
 
 def log(msg):
@@ -321,7 +283,23 @@ def render_bug_md(bug, actions, images, base_url, bug_id):
     return "\n".join(lines)
 
 
-def fetch_bug_full(project_dir, bug_id, out_dir=None):
+def confirmation_state(value):
+    """Known API values only; missing/unknown never means unconfirmed."""
+    if type(value) is int and value in (0, 1):
+        return "unconfirmed" if value == 0 else "confirmed"
+    if isinstance(value, str):
+        return {"0": "unconfirmed", "1": "confirmed",
+                "unconfirmed": "unconfirmed", "confirmed": "confirmed"}.get(value.strip().lower())
+    return None
+
+
+class ConfirmationStop(RuntimeError):
+    def __init__(self, state):
+        super().__init__("Bug 已确认" if state == "confirmed" else "confirmed 字段缺失或未知")
+        self.state = state
+
+
+def fetch_bug_full(project_dir, bug_id, out_dir=None, only_unconfirmed=False):
     """拉取禅道 bug 全量数据，返回 (bug, actions, images, work_dir, base_url, md_text)。"""
     config_path, cfg = load_config(project_dir)
     missing = [k for k in REQUIRED_KEYS if not cfg.get(k)]
@@ -360,6 +338,10 @@ def fetch_bug_full(project_dir, bug_id, out_dir=None):
         actions = [a for a in acts if isinstance(a, dict)]
         actions.sort(key=lambda a: str(a.get("date") or ""))
 
+    if only_unconfirmed:
+        state = confirmation_state(bug.get("confirmed"))
+        if state != "unconfirmed":
+            raise ConfirmationStop(state)
     html_chunks = [bug.get("steps") or ""] + [a.get("comment") or "" for a in actions]
     rel_urls = extract_image_urls(*html_chunks)
     work_dir = os.path.abspath(out_dir or os.path.join(project_dir, ".agents", "bugfix-work", bug_id))
@@ -535,8 +517,8 @@ def check_existing(project_dir, bug_id, reuse=False):
         if worktrees:
             log("ERROR: bug #%s 已存在修复 worktree: %s" % (bug_id, worktrees[-1][0]))
             log("该 bug 已创建过修复工作区——可能已修复待人工 review，或仍在处理中；为避免重复处理，停止执行。")
-            log("查看既有结果: %s 下的 %s（及 scripts/ 可验证脚本）"
-                % (resolve_report_dir(worktrees[-1][0], bug_id), REPORT_NAME))
+            log("查看既有结果: %s 下的 analysis.md / solution.md / fix-report.md"
+                % resolve_report_dir(worktrees[-1][0], bug_id))
             log("继续该工作区: 加 --reuse 重新运行；彻底重来: 先人工清理"
                 "（git worktree remove <path>，必要时 git branch -D <分支>）后重试。")
         else:
@@ -562,8 +544,8 @@ def check_existing(project_dir, bug_id, reuse=False):
 
 
 def load_meta(report_dir):
-    """读取 worktree 创建时写入的 meta.json（分支/基准分支/日期）；新版在 work/ 下。"""
-    p = meta_path_for(report_dir)
+    """读取 worktree 创建时写入的 meta.json（分支/基准分支/日期）。"""
+    p = os.path.join(report_dir, "meta.json")
     if os.path.isfile(p):
         try:
             with open(p, encoding="utf-8") as f:
@@ -597,19 +579,16 @@ def info_from_worktree(project_dir, bug_id, wt_path, wt_branch=""):
     meta = load_meta(report_dir)
     if meta:
         base_branch = meta.get("base_branch") or ""
-    if not base_branch:  # 兼容旧版未写 meta 的 worktree：从分析报告解析分析基线
-        for cand in (os.path.join(work_dir_for(report_dir), "analysis-report.md"),
-                     os.path.join(report_dir, "analysis-report.md"),
-                     os.path.join(report_dir, "analysis.md")):
-            if os.path.isfile(cand):
-                try:
-                    with open(cand, encoding="utf-8") as f:
-                        mm = re.search(r"分析基线\**: 分支 `([^`]+)`", f.read())
-                    if mm:
-                        base_branch = mm.group(1).strip()
-                        break
-                except OSError:
-                    pass
+    if not base_branch:  # 兼容旧版未写 meta 的 worktree：从 analysis.md 解析分析基线
+        am = os.path.join(report_dir, "analysis.md")
+        if os.path.isfile(am):
+            try:
+                with open(am, encoding="utf-8") as f:
+                    mm = re.search(r"分析基线\**: 分支 `([^`]+)`", f.read())
+                if mm:
+                    base_branch = mm.group(1).strip()
+            except OSError:
+                pass
     if not base_branch:
         rc, out, _ = run_git(["branch", "--show-current"], repo_root, check=False)
         base_branch = out.strip() or "HEAD"
@@ -778,11 +757,9 @@ def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None)
         if sync.get("base_commit"):
             info["head_short"] = sync["base_commit"]
 
-    # 拷贝 bug 资料（中间产物收进 work/ 子目录，不与交付报告混放）
+    # 拷贝 bug 资料
     report_dir = info["report_dir"]
     os.makedirs(report_dir, exist_ok=True)
-    os.makedirs(work_dir_for(report_dir), exist_ok=True)
-    os.makedirs(scripts_dir_for(report_dir), exist_ok=True)
     src_dir = os.path.join(os.path.abspath(project_dir), ".agents", "bugfix-work", str(bug_id))
     if os.path.isdir(src_dir):
         for name in os.listdir(src_dir):
@@ -791,13 +768,13 @@ def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None)
                 try:
                     with open(src, "rb") as f:
                         data = f.read()
-                    with open(os.path.join(work_dir_for(report_dir), name), "wb") as f:
+                    with open(os.path.join(report_dir, name), "wb") as f:
                         f.write(data)
                 except OSError as e:
                     log("[warn] 拷贝 %s 失败: %s" % (name, e))
 
-    # 记录创建元数据（report 与后续复用据此还原实际分支/基准/日期/同步状态；存 work/ 下）
-    meta_path = meta_path_for(report_dir)
+    # 记录创建元数据（report 与后续复用据此还原实际分支/基准/日期/同步状态）
+    meta_path = os.path.join(report_dir, "meta.json")
     if not os.path.isfile(meta_path):
         meta = {"bug_id": str(bug_id), "branch": info["branch"],
                 "base_branch": info["base_branch"], "date": info["date"],
@@ -822,7 +799,7 @@ def wt_win_path(path):
 
 
 def sync_status_text(info):
-    """渲染分析基线的远端同步状态说明（报告与汇报共用）。"""
+    """渲染分析基线的远端同步状态说明（analysis/fix-report/汇报共用）。"""
     if info.get("synced") is True:
         return "已同步远端 `%s`（基线提交 `%s`）" % (
             info.get("sync_remote_branch") or "-", info.get("head_short") or "HEAD")
@@ -857,39 +834,26 @@ def print_kv(info, extra=None):
 
 # ---------------------------------------------------------------- 报告骨架
 
-def scaffold_report(bug, actions, images, info, base_url, bug_id, force=False):
-    """生成 analysis-report.md 骨架：三部分合一（根因分析/修复方案/修复结果与验证）。
-
-    机械字段自动填好，分析性章节留待填写。存在即跳过（--force 覆盖）。
-    第一/二部分修复前补全（ready/render-html 校验并封存）；
-    第三部分修复后由 report 命令更新自动小节、AI 补全其余。
-    """
-    path = os.path.join(info["report_dir"], REPORT_NAME)
+def scaffold_analysis(bug, actions, images, info, base_url, bug_id, force=False):
+    """生成 analysis.md 骨架：机械字段自动填好，分析性章节留待填写。存在即跳过。"""
+    path = os.path.join(info["report_dir"], "analysis.md")
     if os.path.exists(path) and not force:
-        log("[info] %s 已存在，不覆盖: %s" % (REPORT_NAME, path))
+        log("[info] analysis.md 已存在，不覆盖: %s" % path)
         return path
-    d = info["date"]
     lines = []
-    lines.append("# BUG #%s 分析报告" % bug_id)
+    lines.append("# BUG #%s 问题分析报告" % bug_id)
     lines.append("")
     lines.append("- **Bug 标题**: %s" % (bug.get("title") or "-"))
-    lines.append("- **日期**: %s-%s-%s" % (d[:4], d[4:6], d[6:]))
-    lines.append("- **分析基线**: 分支 `%s` @ `%s`，%s"
-                 % (info["base_branch"], info["head_short"] or "HEAD", sync_status_text(info)))
-    lines.append("- **修复分支**: `%s`（基于 `%s`）" % (info["branch"], info["base_branch"]))
-    lines.append("- **修复模式**: %s" % ("绑定工作区（finish 验证并独立提交）" if info.get("mode") == "inplace"
-                                      else "独立 worktree（默认不提交，待人工 review）"))
+    lines.append("- **分析日期**: %s" % info["date"][:4] + "-" + info["date"][4:6] + "-" + info["date"][6:])
+    lines.append("- **分析基线**: 分支 `%s` @ `%s`" % (info["base_branch"], info["head_short"] or "HEAD"))
+    lines.append("- **远端同步**: %s" % sync_status_text(info))
     lines.append("- **禅道链接**: %s/bug-view-%s.html" % (base_url, bug_id))
-    lines.append("- **禅道快照与运行数据**: `work/`（中间产物，非交付物）")
-    lines.append("- **可验证脚本**: `scripts/`（修复中产出的复现/验证脚本存此目录，报告中引用）")
     lines.append("")
-    lines.append("> **流程要求（分析先行）**：第一、二部分必须在实施任何代码修复**之前**补全"
-                 "（无（待填写）残留）并生成 HTML；第三部分在修复完成后填写。"
-                 "全文是唯一交付报告，MD 为正文唯一来源，HTML 由脚本渲染。")
+    lines.append("> **流程要求（分析先行）**：本报告与 `solution.md`（解决方案）必须在"
+                 "实施任何代码修复**之前**补全——先输出完整分析报告与解决方案，"
+                 "再按 solution.md 改代码。")
     lines.append("")
-    lines.append("## 第一部分：根因分析")
-    lines.append("")
-    lines.append("### 1. 问题描述")
+    lines.append("## 1. 问题描述")
     lines.append("")
     lines.append("- **状态**: %s    **严重程度**: %s    **优先级**: %s    **类型**: %s"
                  % (bug.get("status") or "-", bug.get("severity") or "-",
@@ -897,11 +861,11 @@ def scaffold_report(bug, actions, images, info, base_url, bug_id, force=False):
     lines.append("- **创建人**: %s    **指派给**: %s"
                  % (user_name(bug.get("openedBy")), user_name(bug.get("assignedTo"))))
     lines.append("")
-    steps = html_to_text(bug.get("steps") or "") or "（见 work/bug.md）"
+    steps = html_to_text(bug.get("steps") or "") or "（见 bug.md）"
     lines.append(steps)
     if actions:
         lines.append("")
-        lines.append("评论/操作历史要点（完整内容见 work/bug.md）：")
+        lines.append("评论/操作历史要点（完整内容见 bug.md）：")
         for a in actions:
             c = html_to_text(a.get("comment") or "")
             if c:
@@ -909,115 +873,60 @@ def scaffold_report(bug, actions, images, info, base_url, bug_id, force=False):
                                                    c.replace("\n", " ")[:120]))
     if images:
         lines.append("")
-        lines.append("附件截图: %s" % "、".join("`work/%s`" % fn for _, fn in images))
+        lines.append("附件截图: %s" % "、".join("`%s`" % fn for _, fn in images))
     lines.append("")
-    part1 = [
+    sections = [
         "关键信息提取（业务场景 / 涉及接口 / 日志报错 / 环境）",
         "代码定位过程",
         "根因分析（确认的根因 / 推断（注明置信度）/ 排除的猜测 / 存疑待验证）",
-        "遗留问题 / 待确认",
+        "遗留问题 / 待确认（解决方案见 solution.md）",
     ]
-    for i, title in enumerate(part1, start=2):
-        lines.append("### %d. %s" % (i, title))
+    for i, title in enumerate(sections, start=2):
+        lines.append("## %d. %s" % (i, title))
         lines.append("")
         lines.append("（待填写）")
         lines.append("")
-    lines.append("## 第二部分：修复方案")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return path
+
+
+def scaffold_solution(bug, info, bug_id, force=False):
+    """生成 solution.md（解决方案）骨架：机械字段自动填好，方案章节留待填写。
+
+    与 analysis.md 同批生成、同属“分析先行”硬性约束：两者均完整落盘
+    （无（待填写）残留）之前禁止修改任何代码。存在即跳过（--force 覆盖）。
+    """
+    path = os.path.join(info["report_dir"], "solution.md")
+    if os.path.exists(path) and not force:
+        log("[info] solution.md 已存在，不覆盖: %s" % path)
+        return path
+    lines = []
+    lines.append("# BUG #%s 解决方案" % bug_id)
     lines.append("")
-    part2 = [
+    lines.append("- **Bug 标题**: %s" % (bug.get("title") or "-"))
+    lines.append("- **方案日期**: %s-%s-%s" % (info["date"][:4], info["date"][4:6], info["date"][6:]))
+    lines.append("- **修复分支**: `%s`（基于 `%s`，%s）" % (
+        info["branch"], info["base_branch"], sync_status_text(info)))
+    lines.append("- **关联分析**: analysis.md（根因结论以其为准，方案逐条对应根因）")
+    lines.append("")
+    lines.append("> **流程要求（分析先行）**：analysis.md 与本方案均补全（无（待填写）残留）"
+                 "**之前**，禁止修改任何代码；修复实施严格按本方案执行。")
+    lines.append("")
+    sections = [
         "方案对比与取舍（至少考虑两种候选方案：改动面 / 风险 / 可维护性）",
         "最终方案设计（改动点与涉及文件，逐条对应根因）",
         "影响面评估（受影响功能 / 接口 / 配置 / 数据）",
         "风险与回滚（风险等级与理由；未提交状态回滚方式）",
         "验证计划（编译 / 静态走查 / 自测用例）",
     ]
-    for i, title in enumerate(part2, start=1):
-        lines.append("### %d. %s" % (i, title))
+    for i, title in enumerate(sections, start=1):
+        lines.append("## %d. %s" % (i, title))
         lines.append("")
         lines.append("（待填写）")
         lines.append("")
-    lines.append("## 第三部分：修复结果与验证")
-    lines.append("")
-    lines.append("### 1. 修复内容（对应第一部分根因与第二部分方案）")
-    lines.append("")
-    lines.append("（待填写）")
-    lines.append("")
-    lines.append("### 2. 代码变更清单")
-    lines.append("")
-    lines.append("<!--REPORT-AUTO:diff-->")
-    lines.append("")
-    lines.append("（修复后运行 `report` 命令自动生成本小节；如需说明改动原因，写在第三部分第 1 节）")
-    lines.append("")
-    lines.append("### 3. 修复验证（实际编译/测试命令与结果、未覆盖项）")
-    lines.append("")
-    lines.append("（待填写）")
-    lines.append("")
-    lines.append("### 4. 测试建议（给 QA）")
-    lines.append("")
-    lines.append("（待填写）")
-    lines.append("")
-    lines.append("### 5. 产物位置")
-    lines.append("")
-    lines.append("<!--REPORT-AUTO:assets-->")
-    lines.append("")
-    lines.append("（修复后运行 `report` 命令自动生成本小节）")
-    lines.append("")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
-    return path
-
-
-def update_report_part3(info, bug_id, title, diff_data):
-    """更新 analysis-report.md 第三部分的自动小节（变更清单/产物位置）。
-
-    只替换 <!--REPORT-AUTO:...--> 标记后的自动内容，不触碰 AI 填写的章节；
-    报告不存在时先建骨架再更新。返回报告路径。
-    """
-    path = os.path.join(info["report_dir"], REPORT_NAME)
-    if not os.path.isfile(path):
-        scaffold_report({}, [], [], info, "", bug_id)
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
-    files, diffstat, _per_file = diff_data
-
-    diff_lines = []
-    if files:
-        diff_lines.append("| # | 文件 | 变更 |")
-        diff_lines.append("|---|------|------|")
-        for i, fitem in enumerate(files, 1):
-            mark = "新增未跟踪" if fitem["untracked"] else "+%s / -%s" % (fitem["add"], fitem["del"])
-            diff_lines.append("| %d | `%s` | %s |" % (i, fitem["path"], mark))
-        diff_lines.append("")
-        diff_lines.append("（%s）" % diffstat)
-    else:
-        diff_lines.append("**未检测到代码改动**——若确已修改，请确认保存在 worktree：%s"
-                          % info["wt_path"])
-
-    def _rel(name):
-        return os.path.relpath(os.path.join(info["report_dir"], name), info["wt_path"]).replace(os.sep, "/")
-
-    asset_lines = [
-        "- 分析报告（本文件）: `%s` / `%s`" % (_rel(REPORT_NAME), _rel(REPORT_NAME.replace(".md", ".html"))),
-        "- 可验证脚本: `%s/`" % _rel(SCRIPTS_SUBDIR),
-        "- 禅道 bug 快照（含截图）: `%s`" % _rel(os.path.join(WORK_SUBDIR, "bug.md")),
-        "- worktree: `%s`" % wt_win_path(info["wt_path"]),
-    ]
-    status_line = ("- **变更状态**: 待 finish 验证并独立提交，禁止开始下一 Bug" if info.get("mode") == "inplace"
-                   else "- **变更状态**: **未提交**——改动保留在 worktree 工作区，等待人工 review 后由人工提交")
-
-    def _replace(marker, body_lines):
-        nonlocal text
-        pat = re.compile(r"(<!--REPORT-AUTO:%s-->)\n.*?(?=\n### |\n## |\Z)" % re.escape(marker), re.S)
-        body = "\n".join(body_lines)
-        replacement = ("\n\n" + status_line + "\n\n" + body) if marker == "diff" else ("\n\n" + body)
-        text, n = pat.subn(lambda m: m.group(1) + replacement, text, count=1)
-        if n == 0:
-            log("[warn] 未找到自动小节标记 REPORT-AUTO:%s，跳过更新" % marker)
-
-    _replace("diff", diff_lines)
-    _replace("assets", asset_lines)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
     return path
 
 
@@ -1051,7 +960,69 @@ def collect_diff(wt_path):
     return files, diffstat, per_file
 
 
-# fix-report 生成逻辑已并入 update_report_part3（v2.3 单报告三部分布局）
+def scaffold_fix_report(info, bug_id, title, diff_data, force=False):
+    """生成 fix-report.md（自动含未提交变更清单），存在即跳过（--force 覆盖）。"""
+    path = os.path.join(info["report_dir"], "fix-report.md")
+    if os.path.exists(path) and not force:
+        log("[info] fix-report.md 已存在，不覆盖（--force 可重新生成）: %s" % path)
+        return path
+    files, diffstat, per_file = diff_data
+    d = info["date"]
+    lines = []
+    lines.append("# BUG #%s 修复报告" % bug_id)
+    lines.append("")
+    lines.append("- **Bug 标题**: %s" % (title or "-"))
+    base_note = "基于 `%s`" % info["base_branch"]
+    if info.get("synced") is True:
+        base_note += "，已同步远端 `%s`" % (info.get("sync_remote_branch") or "-")
+    elif info.get("synced") is False:
+        base_note += "，未同步远端（%s）" % (info.get("sync_reason") or "原因未记录")
+    lines.append("- **修复分支**: `%s`（%s）" % (info["branch"], base_note))
+    lines.append("- **修复日期**: %s-%s-%s" % (d[:4], d[4:6], d[6:]))
+    lines.append("- **修复状态**: 已修复，待人工 review")
+    lines.append("- **变更状态**: 待 finish 验证并独立提交，禁止开始下一 Bug" if info.get("mode") == "inplace" else
+                 "- **变更状态**: **未提交**——改动保留在 worktree 工作区，等待人工 review 后由人工提交")
+    lines.append("")
+    lines.append("## 1. 修复内容")
+    lines.append("")
+    lines.append("（待填写：修复思路，对应 analysis.md 中的根因与 solution.md 中的方案）")
+    lines.append("")
+    lines.append("## 2. 代码变更清单")
+    lines.append("")
+    if files:
+        lines.append("| # | 文件 | 变更 |")
+        lines.append("|---|------|------|")
+        for i, fitem in enumerate(files, 1):
+            mark = "新增未跟踪" if fitem["untracked"] else "+%s / -%s" % (fitem["add"], fitem["del"])
+            lines.append("| %d | `%s` | %s |" % (i, fitem["path"], mark))
+        lines.append("")
+        lines.append("（%s）" % diffstat)
+    else:
+        lines.append("**（未检测到代码改动**——若确已修改，请确认保存在 worktree：%s）" % info["wt_path"])
+    lines.append("")
+    lines.append("## 3. 修复验证")
+    lines.append("")
+    lines.append("（待填写：实际编译/测试命令与结果、未覆盖项；Maven 插件问题先查 Git 指针，仅证实不兼容且项目允许时跳过插件）")
+    lines.append("")
+    lines.append("## 4. 测试建议（给 QA）")
+    lines.append("")
+    lines.append("（待填写）")
+    lines.append("")
+    lines.append("## 5. 风险与回滚")
+    lines.append("")
+    lines.append("（待填写：风险等级与理由；未提交状态下回滚即 `git checkout -- <文件>` / 删除未跟踪文件）")
+    lines.append("")
+    lines.append("## 6. 产物位置")
+    lines.append("")
+    def _rel(name):
+        return os.path.relpath(os.path.join(info["report_dir"], name), info["wt_path"])
+    lines.append("- 问题分析报告: `%s`" % _rel("analysis.md"))
+    lines.append("- 解决方案: `%s`" % _rel("solution.md"))
+    lines.append("- 禅道 bug 快照: `%s`（含截图）" % _rel("bug.md"))
+    lines.append("- worktree: `%s`" % wt_win_path(info["wt_path"]))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return path
 
 
 # ---------------------------------------------------------------- 子命令
@@ -1114,7 +1085,15 @@ def cmd_prepare(args):
         if not args.reuse or previous.get("status") in ("committed", "no_change"):
             print("EXISTS\nEXISTING_REPORT_DIR=%s" % previous.get("report_dir", ""))
             return 4
-    bug, actions, images, work_dir, base_url, md = fetch_bug_full(args.project, args.bug_id)
+    if getattr(args, "only_unconfirmed", False):
+        try:
+            bug, actions, images, work_dir, base_url, md = fetch_bug_full(
+                args.project, args.bug_id, only_unconfirmed=True)
+        except ConfirmationStop as exc:
+            print("CONFIRMATION_STOP=%s" % (exc.state or "unknown"))
+            return 9 if exc.state == "confirmed" else 10
+    else:
+        bug, actions, images, work_dir, base_url, md = fetch_bug_full(args.project, args.bug_id)
     try:
         route = _routes.select(args.project, args.bug_id, bug.get("title") or "")
     except (ValueError, OSError, _routes.RouteError) as exc:
@@ -1166,18 +1145,15 @@ def cmd_prepare(args):
                 log("ERROR: 无法保存修复前快照；保留锁等待恢复: %s" % exc)
                 return 8
         import shutil
-        work_target = Path(work_dir_for(report_dir))
-        work_target.mkdir(parents=True, exist_ok=True)
-        Path(scripts_dir_for(report_dir)).mkdir(parents=True, exist_ok=True)
         for src in Path(work_dir).iterdir():
             if src.is_file():
-                shutil.copy2(src, work_target / src.name)
+                shutil.copy2(src, Path(report_dir) / src.name)
         info = {"repo_root": workspace, "wt_path": workspace, "report_dir": report_dir,
                 "branch": route["branch"], "base_branch": route["branch"],
                 "head_short": run["snapshot"]["head"], "date": datetime.date.today().strftime("%Y%m%d"),
                 "mode": "inplace", "synced": False, "sync_reason": "复用开发工作区，不自动同步远端"}
-        _routes.save(Path(meta_path_for(report_dir)), dict(info, bug_id=str(args.bug_id), run_id=token,
-                                                           status="prepared", route=route))
+        _routes.save(Path(report_dir) / "meta.json", dict(info, bug_id=str(args.bug_id), run_id=token,
+                                                        status="prepared", route=route))
     else:
         # An in-flight bound run must not be silently abandoned by a config change.
         if previous and previous.get("locks") and previous.get("status") not in ("committed", "no_change"):
@@ -1191,28 +1167,29 @@ def cmd_prepare(args):
                "mode": "worktree", "status": "prepared", "route": route,
                "workspace": info["wt_path"], "report_dir": info["report_dir"], "branch": info["branch"]}
         _routes.save(_routes.record_path(args.project, args.bug_id), run)
-        meta = _routes.read(Path(meta_path_for(info["report_dir"])))
+        meta = _routes.read(Path(info["report_dir"]) / "meta.json")
         meta.update(mode="worktree", run_id=run["run_id"], route=route)
-        _routes.save(Path(meta_path_for(info["report_dir"])), meta)
+        _routes.save(Path(info["report_dir"]) / "meta.json", meta)
     info["project"] = args.project
     print("MODE=%s\nRUN_ID=%s\nROUTE_REASON=%s" % (run["mode"], run["run_id"], route["reason"]))
-    report_path = scaffold_report(bug, actions, images, info, base_url, args.bug_id,
-                                  force=args.force)
+    analysis_path = scaffold_analysis(bug, actions, images, info, base_url, args.bug_id,
+                                      force=args.force)
+    solution_path = scaffold_solution(bug, info, args.bug_id, force=args.force)
     print(md)
     print("")
     print_kv(info, extra=[
         "BUG_TITLE=%s" % (bug.get("title") or ""),
-        "REPORT_MD=%s" % report_path,
-        "NEXT=先在 WORKTREE 中只读分析代码，补全 %s 第一部分（根因分析）与第二部分（修复方案）"
-        "（无（待填写）残留，此阶段不改任何代码），可验证脚本存报告目录 scripts/ 下；"
-        "MODE=inplace 时先运行 ready，worktree 模式运行 render-html --analysis-only；"
-        "再按第二部分方案实施修复，report 命令更新第三部分并补全；绑定模式 finish 提交，"
-        "worktree 模式 render-html 更新最终 HTML，不提交。Bug=%s" % (REPORT_NAME, args.bug_id),
+        "ANALYSIS_MD=%s" % analysis_path,
+        "SOLUTION_MD=%s" % solution_path,
+        "NEXT=先在 WORKTREE 中只读分析代码并补全 analysis.md 与 solution.md（输出"
+        "完整分析报告与解决方案，此阶段不改任何代码），MODE=inplace 时先运行 ready；再按 solution.md 实施"
+        "修复并 report/补全；绑定模式 finish 提交并更新 HTML，worktree 模式 render-html --analysis-only 在修复前生成"
+        "分析/方案 HTML，全部报告补全后 render-html 更新三份最终 HTML，不提交。Bug=%s" % args.bug_id,
     ])
     log("")
     for name, target in _routes._reports.render_reports(info["report_dir"]).items():
         print("%s_HTML=%s" % (name.upper().replace("-", "_"), target))
-    log("[ok] bug 资料收进 work/，报告骨架已就绪: %s" % info["report_dir"])
+    log("[ok] bug 资料与分析/方案的 MD 和 HTML 骨架已就绪: %s" % info["report_dir"])
     return 0
 
 
@@ -1225,44 +1202,23 @@ def doc_complete_status(report_dir, name):
         return "yes" if "（待填写" in f.read() else "no"
 
 
-def report_part12_status(report_dir):
-    """校验 analysis-report.md 第一/二部分（修复前应完成）的完成度。
-
-    旧版三文件布局（--reuse 复用旧 worktree）回退为校验 analysis.md + solution.md。
-    返回：no=已完整；yes=仍有（待填写）；missing=不存在。
-    """
-    if not os.path.isfile(os.path.join(report_dir, REPORT_NAME)):
-        if legacy_report_dir(report_dir):
-            a = doc_complete_status(report_dir, "analysis.md")
-            s = doc_complete_status(report_dir, "solution.md")
-            if a == "no" and s == "no":
-                return "no"
-            return "missing" if "missing" in (a, s) else "yes"
-        return "missing"
-    with open(os.path.join(report_dir, REPORT_NAME), encoding="utf-8", errors="replace") as f:
-        part12, _ = _routes._reports.split_report(f.read())
-    return "yes" if "（待填写" in part12 else "no"
+def analysis_complete_status(report_dir):
+    """校验 analysis.md（分析报告）完成度，返回值语义同 doc_complete_status。"""
+    return doc_complete_status(report_dir, "analysis.md")
 
 
-def report_full_status(report_dir):
-    """校验 analysis-report.md 全文（含第三部分）完成度；旧布局回退三文件全检。"""
-    if not os.path.isfile(os.path.join(report_dir, REPORT_NAME)):
-        if legacy_report_dir(report_dir):
-            states = [doc_complete_status(report_dir, n) for n in LEGACY_REPORT_FILES]
-            if all(s == "no" for s in states):
-                return "no"
-            return "missing" if "missing" in states else "yes"
-        return "missing"
-    return doc_complete_status(report_dir, REPORT_NAME)
+def solution_complete_status(report_dir):
+    """校验 solution.md（解决方案）完成度，返回值语义同 doc_complete_status。"""
+    return doc_complete_status(report_dir, "solution.md")
 
 
 def cmd_report(args):
-    """更新 analysis-report.md 第三部分（含未提交变更清单）并输出汇报摘要。"""
+    """生成 fix-report.md（自动含未提交变更清单）并输出汇报摘要。"""
     require_bug_id(args.bug_id)
     record = _routes.load_record(args.project, args.bug_id)
     if record and record.get("mode") == "inplace":
         _routes.validate_workspace(record["route"])
-        info = _routes.read(_routes.report_meta_path(Path(record["report_dir"])))
+        info = _routes.read(Path(record["report_dir"]) / "meta.json")
         info["report_dir"] = record["report_dir"]
     else:
         found = find_existing_worktrees(args.project, args.bug_id)
@@ -1275,9 +1231,9 @@ def cmd_report(args):
     if rc != 0:
         log("ERROR: worktree 不可用: %s（请人工修复）" % info["wt_path"])
         return 3
-    # 从 work/ 下的 bug 快照读标题（资料由 prepare 拷贝；旧布局直接在报告目录）
+    # 从报告目录读 bug 标题（资料由 prepare 拷贝）
     title = ""
-    bug_md = bug_md_path_for(info["report_dir"])
+    bug_md = os.path.join(info["report_dir"], "bug.md")
     if os.path.isfile(bug_md):
         with open(bug_md, encoding="utf-8") as f:
             m = re.search(r"\*\*标题\*\*: (.+)", f.read())
@@ -1293,7 +1249,7 @@ def cmd_report(args):
         files.extend({"path": p, "add": "-", "del": "-", "untracked": False} for p in sorted(selected - known))
         diff_data = (files, "%d 个本次变更文件；已有开发改动不计入" % len(files),
                      "\n".join("%s | +%s / -%s" % (f["path"], f["add"], f["del"]) for f in files))
-    path = update_report_part3(info, args.bug_id, title, diff_data)
+    path = scaffold_fix_report(info, args.bug_id, title, diff_data, force=args.force)
     files, diffstat, per_file = diff_data
     print("SUMMARY")
     print("BUG_ID=%s" % args.bug_id)
@@ -1309,20 +1265,27 @@ def cmd_report(args):
     print("WORKTREE=%s" % info["wt_path"])
     print("WORKTREE_WIN=%s" % wt_win_path(info["wt_path"]))
     print("REPORT_DIR=%s" % info["report_dir"])
-    print("REPORT_MD=%s" % path)
-    astat = report_part12_status(info["report_dir"])
-    fstat = report_full_status(info["report_dir"])
-    print("REPORT_PART12=%s（no=第一/二部分已完整，符合分析先行；yes=仍有（待填写）；missing=不存在）" % astat)
-    if astat == "no":
-        print("ANALYSIS_INCOMPLETE=no（分析报告第一/二部分已完整，符合分析先行要求）")
-    elif astat == "yes":
-        print("ANALYSIS_INCOMPLETE=yes（analysis-report.md 第一/二部分仍有（待填写）章节——流程要求"
-              "根因分析与修复方案先于修复完成，请立即补全，再补全第三部分，并在汇报中说明偏离）")
+    print("FIX_REPORT=%s" % path)
+    astat = analysis_complete_status(info["report_dir"])
+    sstat = solution_complete_status(info["report_dir"])
+    print("ANALYSIS_MD=%s" % os.path.join(info["report_dir"], "analysis.md"))
+    print("SOLUTION_MD=%s" % os.path.join(info["report_dir"], "solution.md"))
+    if sstat == "no":
+        print("SOLUTION_INCOMPLETE=no（解决方案已完整，符合分析先行要求）")
+    elif sstat == "yes":
+        print("SOLUTION_INCOMPLETE=yes（solution.md 仍有（待填写）章节——请立即补全"
+              "解决方案，再补全 fix-report.md，并在汇报中说明偏离）")
     else:
-        print("ANALYSIS_INCOMPLETE=missing（analysis-report.md 不存在，请立即补建并补全，"
+        print("SOLUTION_INCOMPLETE=missing（solution.md 不存在，请立即补建并补全，"
               "并在汇报中说明偏离）")
-    if fstat == "yes":
-        print("REPORT_INCOMPLETE=yes（第三部分仍有（待填写）章节——请立即补全后再汇报）")
+    if astat == "no":
+        print("ANALYSIS_INCOMPLETE=no（分析报告已完整，符合分析先行要求）")
+    elif astat == "yes":
+        print("ANALYSIS_INCOMPLETE=yes（analysis.md 仍有（待填写）章节——流程要求分析报告"
+              "先于修复完成，请立即补全 analysis.md，再补全 fix-report.md，并在汇报中说明偏离）")
+    else:
+        print("ANALYSIS_INCOMPLETE=missing（analysis.md 不存在，请立即补建并补全，"
+              "并在汇报中说明偏离）")
     print("CHANGED_FILES=%d" % len(files))
     print("COMMITTED=pending（绑定分支须 finish 验证并提交后才可开始下一 Bug）" if info.get("mode") == "inplace" else
           "COMMITTED=no（改动保留在工作区，等待人工 review，不要自动 commit）")
@@ -1331,9 +1294,11 @@ def cmd_report(args):
         print(per_file)
     for name, target in _routes._reports.render_reports(info["report_dir"]).items():
         print("%s_HTML=%s" % (name.upper().replace("-", "_"), target))
-    next_hint = "NEXT=补全 analysis-report.md 第三部分；绑定模式 finish 会更新 HTML，worktree 模式运行 render-html 后再汇报"
+    next_hint = "NEXT=补全 fix-report.md；绑定模式 finish 会更新 HTML，worktree 模式运行 render-html 后再汇报"
     if astat != "no":
-        next_hint += "；⚠ 先补全第一/二部分（分析先行偏离：%s）" % astat
+        next_hint += "；⚠ 先补全 analysis.md（分析先行偏离：%s）" % astat
+    if sstat != "no":
+        next_hint += "；⚠ 先补全 solution.md（方案偏离：%s）" % sstat
     print(next_hint)
     return 0
 
@@ -1350,20 +1315,8 @@ def cmd_render_html(args):
             log("ERROR: 未找到报告目录，请先 prepare")
             return 2
         directory = resolve_report_dir(worktrees[-1][0], args.bug_id)
-    rep = _routes._reports
-    src = Path(directory) / rep.REPORT_NAME
-    if legacy_report_dir(directory):
-        # 旧版三文件布局（--reuse 复用旧 worktree）：仍按旧语义渲染
-        names = ("analysis.md", "solution.md") if args.analysis_only else rep.LEGACY_NAMES
-        targets = rep.render_reports(directory, names=names, require_complete=True)
-    elif args.analysis_only:
-        # 修复前渲染：只要第一/二部分完整（第三部分尚未填写）
-        part12, _ = rep.split_report(src.read_text(encoding="utf-8-sig")) if src.is_file() else ("", "")
-        if not part12.strip() or "（待填写" in part12:
-            raise ValueError("第一/二部分尚未完整，不能在修复前渲染: " + str(src))
-        targets = rep.render_reports(directory, names=rep.REPORT_NAMES, require_complete=False)
-    else:
-        targets = rep.render_reports(directory, names=rep.REPORT_NAMES, require_complete=True)
+    names = ("analysis.md", "solution.md") if args.analysis_only else _routes._reports.REPORT_NAMES
+    targets = _routes._reports.render_reports(directory, names=names, require_complete=True)
     if record:
         record.setdefault("html_reports", {}).update(targets)
         _routes.save(_routes.record_path(args.project, args.bug_id), record)
@@ -1447,14 +1400,15 @@ def main():
     p.add_argument("base_branch", nargs="?", default=None)
     p.add_argument("--project", default=".")
     p.add_argument("--reuse", action="store_true", help="复用该 bugId 已存在的 worktree 继续处理")
-    p.add_argument("--force", action="store_true", help="重新生成 analysis-report.md 骨架")
+    p.add_argument("--force", action="store_true", help="重新生成 analysis.md")
     p.add_argument("--current-workspace", help="异常 HTML 报告所在的当前/监听启动工作区")
+    p.add_argument("--only-unconfirmed", action="store_true", help="自动入口使用：写资料及准备工作区前只允许未确认 Bug")
     p.set_defaults(func=cmd_prepare)
 
     p = sub.add_parser("render-html", help="从已补全的 MD 生成/更新对应离线 HTML（不打开浏览器）")
     p.add_argument("bug_id")
     p.add_argument("--project", default=".")
-    p.add_argument("--analysis-only", action="store_true", help="兼容旧参数；新布局仅一份报告，行为不变")
+    p.add_argument("--analysis-only", action="store_true", help="修复前仅更新 analysis/solution HTML")
     p.set_defaults(func=cmd_render_html)
 
     p = sub.add_parser("ready", help="绑定工作区修改代码前校验分析先行并封存文档")
@@ -1470,10 +1424,10 @@ def main():
     p.add_argument("--no-change", action="store_true", help="确认无需代码修改，不产生空提交")
     p.set_defaults(func=cmd_finish)
 
-    p = sub.add_parser("report", help="更新 analysis-report.md 第三部分并输出汇报摘要")
+    p = sub.add_parser("report", help="生成 fix-report.md 并输出汇报摘要")
     p.add_argument("bug_id")
     p.add_argument("--project", default=".")
-    p.add_argument("--force", action="store_true", help="兼容旧参数（自动小节总是更新）")
+    p.add_argument("--force", action="store_true", help="覆盖已有 fix-report.md")
     p.set_defaults(func=cmd_report)
 
     p = sub.add_parser("download-image", help="下载附件图片")

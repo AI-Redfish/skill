@@ -435,15 +435,14 @@ class TestFixPrompt(unittest.TestCase):
         self.assertNotIn("基准分支必须", p)
 
     def test_analysis_first_ordering(self):
-        """分析先行：提示词必须先补全 analysis-report.md 第一/二部分（不改代码）再实施修复。"""
+        """分析先行：提示词必须先补全 analysis.md/solution.md（不改代码）再实施修复。"""
         p = dl.build_fix_prompt("12345")
-        self.assertIn("补全 analysis-report.md", p)
-        self.assertIn("第一部分", p)
-        self.assertIn("第二部分", p)
+        self.assertIn("补全 analysis.md", p)
+        self.assertIn("solution.md", p)
         self.assertIn("禁止修改任何代码文件", p)
-        self.assertIn("依据第二部分方案", p)
-        # 顺序：补全 analysis-report.md 的步骤先于实施修复的步骤
-        self.assertLess(p.index("补全 analysis-report.md"), p.index("实施修复"))
+        self.assertIn("依据 solution.md", p)
+        # 顺序：补全 analysis.md 的步骤先于实施修复的步骤
+        self.assertLess(p.index("补全 analysis.md"), p.index("实施修复"))
         # 分析报告落盘位置指向 worktree 的 .agents/zentao-bugfix
         self.assertIn(".agents/zentao-bugfix/", p)
 
@@ -503,7 +502,7 @@ class TestRoutedRuns(unittest.TestCase):
                 (rd / name).write_text("完整", encoding="utf-8")
             dl._routes._reports.render_reports(rd, require_complete=True)
             adapter = dl.PiAdapter("m")
-            with patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "MODE=worktree", "")), patch.object(adapter, "fix", return_value=(["fake"], None)) as fix, patch.object(dl, "run_agent_cmd", return_value="done") as run:
+            with patch.object(dl, "fetch_confirmation", return_value={"confirmed": "unconfirmed"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "MODE=worktree", "")), patch.object(adapter, "fix", return_value=(["fake"], None)) as fix, patch.object(dl, "run_agent_cmd", return_value="done") as run:
                 result = dl.run_auto_fix(adapter, "1", repo)
             self.assertTrue(result["ok"])
             self.assertEqual(run.call_args.kwargs["cwd"], str(workspace))
@@ -515,7 +514,7 @@ class TestRoutedRuns(unittest.TestCase):
             li = dl.Listener([], dl.PiAdapter("m"), Path(td))
             path = Path(td) / "pending.json"
             pending = ["101", "102", "103"]
-            with patch.object(dl, "run_auto_fix", side_effect=[
+            with patch.object(li.notifier, "publish", return_value={"sent": True}), patch.object(dl, "run_auto_fix", side_effect=[
                 {"ok": True, "status": "committed"},
                 {"ok": False, "status": "waiting"},
                 {"ok": False, "status": "waiting"}]) as fix:
@@ -533,11 +532,252 @@ class TestRoutedRuns(unittest.TestCase):
             rec = {"status": "workspace_error", "html_report": str(repo / "error.html"), "error": "不存在"}
             dl._routes.save(dl._routes.record_path(repo, "1"), rec)
             adapter = dl.PiAdapter("m")
-            with patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 7, "HTML_REPORT=x", "")), patch.object(adapter, "fix") as fix:
+            with patch.object(dl, "fetch_confirmation", return_value={"confirmed": "unconfirmed"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 7, "HTML_REPORT=x", "")), patch.object(adapter, "fix") as fix:
                 result = dl.run_auto_fix(adapter, "1", repo)
             self.assertFalse(result["ok"])
             self.assertEqual(result["status"], "workspace_error")
             fix.assert_not_called()
+
+
+class TestConfirmationGate(unittest.TestCase):
+    def test_known_values_and_unknown_fail_closed(self):
+        for value in (0, "0", "unconfirmed", " UNCONFIRMED "):
+            self.assertEqual(dl.confirmation_state(value), "unconfirmed")
+        for value in (1, "1", "confirmed"):
+            self.assertEqual(dl.confirmation_state(value), "confirmed")
+        for value in (None, "", 2, False, True, 0.0, {}, "unknown"):
+            self.assertIsNone(dl.confirmation_state(value))
+
+    def test_confirmed_never_prepares_or_syncs(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(dl, "fetch_confirmation", return_value={"confirmed": "confirmed"}), patch.object(dl, "_run_auto_fix") as fix:
+                result = dl.run_auto_fix(dl.PiAdapter("m"), "1", Path(td))
+            self.assertEqual(result["status"], "skipped_confirmed")
+            fix.assert_not_called()
+            self.assertEqual(list(Path(td).iterdir()), [])
+
+    def test_unknown_or_query_failure_never_prepares(self):
+        from unittest.mock import patch
+        with patch.object(dl, "fetch_confirmation", side_effect=RuntimeError("无法查询确认状态")), patch.object(dl, "_run_auto_fix") as fix:
+            result = dl.run_auto_fix(dl.PiAdapter("m"), "1", Path("unused"))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "blocked")
+        fix.assert_not_called()
+
+    def test_unconfirmed_proceeds_and_retry_rechecks(self):
+        from unittest.mock import patch
+        with patch.object(dl, "fetch_confirmation", side_effect=[{"confirmed": "unconfirmed"}, {"confirmed": "confirmed"}]), patch.object(dl, "_run_auto_fix", return_value={"ok": True}) as fix:
+            self.assertTrue(dl.run_auto_fix(dl.PiAdapter("m"), "1", Path("unused"))["ok"])
+            self.assertEqual(dl.run_auto_fix(dl.PiAdapter("m"), "1", Path("unused"), reuse=True)["status"], "skipped_confirmed")
+        self.assertEqual(fix.call_count, 1)
+
+    def test_api_fallback_no_files_and_no_secret_errors(self):
+        from unittest.mock import patch
+        cfg = {"ZENTAO_BASE_URL": "https://example.test", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "secret"}
+        with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", return_value={"id": 1}), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value={"bug": {"id": "1", "confirmed": "0"}}), patch.object(dl._bug_api, "fetch_bug_full") as full:
+            self.assertEqual(dl.fetch_confirmation("1")["confirmed"], "unconfirmed")
+            full.assert_not_called()
+        with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", side_effect=RuntimeError("secret")), patch.object(dl._bug_api, "zentao_session", side_effect=RuntimeError("secret")):
+            with self.assertRaises(RuntimeError) as err:
+                dl.fetch_confirmation("1")
+            self.assertNotIn("secret", str(err.exception))
+
+    def test_prepare_recheck_stops_before_files_or_reports(self):
+        from unittest.mock import patch
+        cfg = {"ZENTAO_BASE_URL": "https://example.test", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "secret"}
+        for value in (1, None, "unknown"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as td:
+                bug = {"id": 1, "confirmed": value, "steps": '<img src="file-read-1.png">'}
+                with patch.object(dl._bug_api, "load_config", return_value=("config", cfg)), patch.object(dl._bug_api, "fetch_bug_v1", return_value=bug), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value=None), patch.object(dl._bug_api, "download_images") as images:
+                    with self.assertRaises(dl._bug_api.ConfirmationStop):
+                        dl._bug_api.fetch_bug_full(td, "1", only_unconfirmed=True)
+                images.assert_not_called()
+                self.assertEqual(list(Path(td).iterdir()), [])
+
+    def test_prepare_race_does_not_start_agent(self):
+        from unittest.mock import patch
+        import subprocess
+        with tempfile.TemporaryDirectory() as td:
+            adapter = dl.PiAdapter("m")
+            with patch.object(dl, "fetch_confirmation", return_value={"confirmed": "unconfirmed"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 9, "CONFIRMATION_STOP=confirmed", "")) as prepare, patch.object(adapter, "fix") as fix:
+                result = dl.run_auto_fix(adapter, "1", Path(td))
+            self.assertIn("--only-unconfirmed", prepare.call_args.args[0])
+            self.assertEqual(result["status"], "skipped_confirmed")
+            self.assertEqual(result["confirmed"], "confirmed")
+            fix.assert_not_called()
+
+    def test_wrong_bug_id_rejected(self):
+        from unittest.mock import patch
+        cfg = {"ZENTAO_BASE_URL": "https://example.test", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "secret"}
+        with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", return_value={"id": 2, "confirmed": 0}), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value=None):
+            with self.assertRaises(RuntimeError):
+                dl.fetch_confirmation("1")
+
+
+class TestResultNotifications(unittest.TestCase):
+    def test_current_user_required(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            n = dl.ResultNotifier(Path(td) / "outbox.json")
+            with patch.object(dl, "run_dws", return_value=json.dumps({"authenticated": True, "user_id": "me", "corp_id": "corp"})):
+                self.assertEqual(n.bind_current_user()["user_id"], "me")
+            with patch.object(dl, "run_dws", return_value='{"authenticated":false}'):
+                with self.assertRaises(RuntimeError):
+                    n.bind_current_user()
+
+    def test_all_outcomes_send_to_self_and_dedup(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            n = dl.ResultNotifier(Path(td) / "outbox.json")
+            n.recipient = {"user_id": "me", "corp_id": "corp"}
+            with patch.object(dl, "run_dws", return_value='{"success":true}') as send:
+                for i, result in enumerate((
+                    {"status": "skipped_confirmed", "ok": False},
+                    {"status": "duplicate", "ok": False},
+                    {"status": "committed", "ok": True, "commit": "abc"},
+                    {"status": "prepared", "mode": "worktree", "ok": True},
+                    {"status": "blocked", "ok": False, "error": "SECRET raw Bug text"},
+                    {"status": "waiting", "ok": False})):
+                    result["bug_id"] = "1"
+                    self.assertTrue(n.publish(result, "message:" + str(i))["sent"])
+                    self.assertTrue(n.publish(result, "message:" + str(i))["sent"])
+                self.assertEqual(send.call_count, 6)
+                for call in send.call_args_list:
+                    args = call.args[0]
+                    self.assertEqual(args[args.index("--user") + 1], "me")
+                    self.assertEqual(args[args.index("--profile") + 1], "corp:me")
+                    self.assertIn("--idempotency-key", args)
+                    self.assertIn("--format", args)
+                    self.assertIn("--yes", args)
+                    self.assertNotIn("SECRET", args[args.index("--text") + 1])
+            self.assertEqual(n.pending_count(), 0)
+
+    def test_failure_persist_restart_retry_same_recipient_and_key(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "outbox.json"
+            n = dl.ResultNotifier(p)
+            n.recipient = {"user_id": "me", "corp_id": "corp"}
+            with patch.object(dl, "run_dws", side_effect=RuntimeError("SECRET")):
+                result = n.publish({"bug_id": "1", "ok": True}, "message:m")
+            self.assertFalse(result["sent"])
+            self.assertEqual(n.pending_count(), 1)
+            self.assertNotIn("SECRET", p.read_text(encoding="utf-8"))
+            n2 = dl.ResultNotifier(p)
+            n2.recipient = {"user_id": "other", "corp_id": "othercorp"}
+            with patch.object(dl, "run_dws", return_value='{"success":true}') as send:
+                n2.retry_pending()
+            args = send.call_args.args[0]
+            self.assertEqual(args[args.index("--user") + 1], "me")
+            self.assertEqual(args[args.index("--idempotency-key") + 1], result["key"])
+            self.assertEqual(dl.ResultNotifier(p).pending_count(), 0)
+
+    def test_async_receipt_retries_query_not_send(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "outbox.json"
+            n = dl.ResultNotifier(p)
+            n.recipient = {"user_id": "me", "corp_id": "corp"}
+            receipt = {"ok": True, "result": {"success": True}, "sendReceipt": {"openTaskId": "task"}}
+            with patch.object(dl, "run_dws", side_effect=[json.dumps(receipt), RuntimeError("query failed")]) as calls:
+                self.assertFalse(n.publish({"bug_id": "1", "ok": True}, "message:m")["sent"])
+                self.assertEqual(calls.call_count, 2)
+            n2 = dl.ResultNotifier(p)
+            delivered = {"success": True, "result": {"sendStatus": "SUCCESS"}, "messageRef": {"openMessageId": "m"}}
+            with patch.object(dl, "run_dws", return_value=json.dumps(delivered)) as calls:
+                n2.retry_pending()
+            self.assertEqual(calls.call_count, 1)
+            self.assertEqual(calls.call_args.args[0][1], "+messages-query-send-status")
+            self.assertEqual(n2.pending_count(), 0)
+
+    def test_async_pending_is_not_delivered(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            n = dl.ResultNotifier(Path(td) / "outbox.json")
+            n.recipient = {"user_id": "me", "corp_id": "corp"}
+            receipt = {"ok": True, "result": {"success": True}, "sendReceipt": {"openTaskId": "task"}}
+            pending = {"success": True, "result": {"sendStatus": "PENDING"}}
+            with patch.object(dl, "run_dws", side_effect=[json.dumps(receipt), json.dumps(pending)]):
+                self.assertFalse(n.publish({"bug_id": "1", "ok": True}, "message:m")["sent"])
+            self.assertEqual(n.pending_count(), 1)
+
+    def test_false_success_keeps_pending(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            n = dl.ResultNotifier(Path(td) / "outbox.json")
+            n.recipient = {"user_id": "me", "corp_id": "corp"}
+            with patch.object(dl, "run_dws", return_value='{"success":false}'):
+                self.assertFalse(n.publish({"bug_id": "1", "ok": False}, "message:m")["sent"])
+            self.assertEqual(n.pending_count(), 1)
+
+    def test_stream_poll_worker_same_gate_and_one_result(self):
+        from unittest.mock import patch
+        for mode in ("stream", "poll", "auto"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:
+                li = dl.Listener([], dl.PiAdapter("m"), Path(td), mode=mode)
+                li.queue.put(("bot", {"message_id": "m", "content": "1", "source": "stream"}))
+                li.queue.put(("bot", dl.normalize_poll_message({"messageId": "m", "text": "1"})))
+                li.queue.put(("bot", {"message_id": "notice", "content": dl.NOTICE_PREFIX + " Bug #1"}))
+                li.stop_flag.set()
+                with patch.object(dl, "extract_bug_intent", return_value={"is_bugfix": True, "bug_id": "1"}) as extract, patch.object(dl, "fetch_confirmation", return_value={"confirmed": "confirmed"}) as query, patch.object(dl, "_run_auto_fix") as fix, patch.object(li.notifier, "publish", return_value={"sent": True}) as notice:
+                    li._worker()
+                self.assertEqual(extract.call_count, 1)
+                self.assertEqual(query.call_count, 1)
+                self.assertEqual(notice.call_count, 1)
+                self.assertEqual(li.stats["skipped"], 1)
+                self.assertEqual(li.stats["fix_fail"], 0)
+                self.assertTrue(li.stats["last_fix"]["notification"]["sent"])
+                fix.assert_not_called()
+
+    def test_worker_success_and_failure_always_publish(self):
+        from unittest.mock import patch
+        for outcome in ({"ok": True, "status": "committed"}, {"ok": False, "status": "blocked"}):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as td:
+                li = dl.Listener([], dl.PiAdapter("m"), Path(td))
+                li.queue.put(("bot", {"message_id": "m", "content": "1"}))
+                li.stop_flag.set()
+                with patch.object(dl, "extract_bug_intent", return_value={"is_bugfix": True, "bug_id": "1"}), patch.object(dl, "run_auto_fix", return_value=outcome), patch.object(li.notifier, "publish", return_value={"sent": False}) as notice:
+                    li._worker()
+                self.assertEqual(notice.call_count, 1)
+                self.assertEqual(li.stats["fix_ok"], int(outcome["ok"]))
+                self.assertEqual(li.stats["fix_fail"], int(not outcome["ok"]))
+                self.assertEqual(li.stats["last_fix"]["ok"], outcome["ok"])
+
+    def test_extraction_failure_notifies_without_raw_message(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            li = dl.Listener([], dl.PiAdapter("m"), Path(td))
+            li.queue.put(("bot", {"message_id": "m", "content": "SECRET"}))
+            li.stop_flag.set()
+            with patch.object(dl, "extract_bug_intent", side_effect=RuntimeError("extract failed")), patch.object(li.notifier, "publish", return_value={"sent": True}) as notice:
+                li._worker()
+            self.assertEqual(notice.call_args.args[0]["status"], "intent_failed")
+            self.assertNotIn("SECRET", str(notice.call_args))
+
+    def test_waiting_resume_notifies_completion(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            li = dl.Listener([], dl.PiAdapter("m"), Path(td))
+            pending = ["1"]
+            with patch.object(dl, "run_auto_fix", return_value={"ok": True, "status": "committed"}), patch.object(li.notifier, "publish", return_value={"sent": True}) as notice:
+                li._retry_waiting(pending, Path(td) / "pending.json")
+            self.assertEqual(pending, [])
+            self.assertEqual(notice.call_args.args[0]["bug_id"], "1")
+            self.assertEqual(li.stats["fix_ok"], 1)
+
+    def test_atomic_claim_across_threads(self):
+        import threading
+        with tempfile.TemporaryDirectory() as td:
+            store = dl.DedupStore(Path(td) / "ids.json")
+            results = []
+            threads = [threading.Thread(target=lambda: results.append(store.claim("m"))) for _ in range(20)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(results.count(True), 1)
+            self.assertFalse(dl.DedupStore(store.path).claim("m"))
 
 
 class TestCreationFlags(unittest.TestCase):
@@ -679,7 +919,15 @@ class TestAutostart(unittest.TestCase):
         e = {"python": "C:\\py\\pythonw.exe", "script": "C:\\s p\\dingtalk_listen.py",
              "args": ["start", "--foreground"], "workspace": "C:\\ws dir"}
         ps = dl._win_ps_command(e)
-        self.assertIn("-AtLogOn", ps)                       # 登录触发
+        self.assertIn("-AtLogOn -User $u", ps)             # 当前用户登录触发
+        self.assertIn("-AtStartup", ps)                    # 开机触发
+        self.assertIn("-LogonType Interactive", ps)         # 保留用户网络凭据
+        self.assertNotIn("-LogonType S4U", ps)
+        self.assertIn("-Principal $p", ps)
+        self.assertIn("-StartWhenAvailable", ps)
+        self.assertIn("-RestartCount 3", ps)
+        self.assertIn("-RestartInterval (New-TimeSpan -Minutes 1)", ps)
+        self.assertIn("-MultipleInstances IgnoreNew", ps)
         self.assertIn("-ExecutionTimeLimit ([TimeSpan]::Zero)", ps)  # 无 72h 时限
         self.assertIn("-WorkingDirectory 'C:\\ws dir'", ps)
         self.assertIn("-Argument '\"C:\\s p\\dingtalk_listen.py\" start --foreground'", ps)
