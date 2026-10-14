@@ -225,6 +225,29 @@ class TestExtractIntent(unittest.TestCase):
             dl.extract_bug_intent(dl.PiAdapter("m"), "李四", "x")
 
 
+class TestFrontendAnalysisPrompt(unittest.TestCase):
+    """修复会话提示词必须要求前端只读分析与问题归属结论。"""
+
+    def test_prompt_requires_layer_attribution(self):
+        text = dl.build_fix_prompt("101")
+        self.assertIn("问题归属", text)
+        self.assertIn("FRONTEND_WORKSPACES", text)
+        prepared = {"project": "D:/p", "workspace": "D:/wt", "report_dir": "D:/rd",
+                    "mode": "worktree", "run_id": "abc"}
+        text = dl.build_fix_prompt("101", None, prepared)
+        self.assertIn("问题归属", text)
+        self.assertIn("FRONTEND_WORKSPACES", text)
+        self.assertIn("只读", text)
+        self.assertIn("禁止修改、暂存或提交", text)
+
+    def test_frontend_key_is_documented_and_round_trips(self):
+        self.assertIn("FRONTEND_WORKSPACES", dl.KEY_HELP)
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "routes.json"
+            dl.save_config(p, {"FRONTEND_WORKSPACES": "D:/develop/project/wukong"})
+            self.assertEqual(dl.load_config(p)["FRONTEND_WORKSPACES"], "D:/develop/project/wukong")
+
+
 class TestSyncZentaoConfig(unittest.TestCase):
     def test_sync_and_gitignore(self):
         with tempfile.TemporaryDirectory() as td:
@@ -502,7 +525,7 @@ class TestRoutedRuns(unittest.TestCase):
                 (rd / name).write_text("完整", encoding="utf-8")
             dl._routes._reports.render_reports(rd, require_complete=True)
             adapter = dl.PiAdapter("m")
-            with patch.object(dl, "fetch_confirmation", return_value={"confirmed": "unconfirmed"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "MODE=worktree", "")), patch.object(adapter, "fix", return_value=(["fake"], None)) as fix, patch.object(dl, "run_agent_cmd", return_value="done") as run:
+            with patch.object(dl, "fetch_resolution", return_value={"resolution": "unset"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "MODE=worktree", "")), patch.object(adapter, "fix", return_value=(["fake"], None)) as fix, patch.object(dl, "run_agent_cmd", return_value="done") as run:
                 result = dl.run_auto_fix(adapter, "1", repo)
             self.assertTrue(result["ok"])
             self.assertEqual(run.call_args.kwargs["cwd"], str(workspace))
@@ -532,66 +555,77 @@ class TestRoutedRuns(unittest.TestCase):
             rec = {"status": "workspace_error", "html_report": str(repo / "error.html"), "error": "不存在"}
             dl._routes.save(dl._routes.record_path(repo, "1"), rec)
             adapter = dl.PiAdapter("m")
-            with patch.object(dl, "fetch_confirmation", return_value={"confirmed": "unconfirmed"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 7, "HTML_REPORT=x", "")), patch.object(adapter, "fix") as fix:
+            with patch.object(dl, "fetch_resolution", return_value={"resolution": "unset"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 7, "HTML_REPORT=x", "")), patch.object(adapter, "fix") as fix:
                 result = dl.run_auto_fix(adapter, "1", repo)
             self.assertFalse(result["ok"])
             self.assertEqual(result["status"], "workspace_error")
             fix.assert_not_called()
 
 
-class TestConfirmationGate(unittest.TestCase):
-    def test_known_values_and_unknown_fail_closed(self):
-        for value in (0, "0", "unconfirmed", " UNCONFIRMED "):
-            self.assertEqual(dl.confirmation_state(value), "unconfirmed")
-        for value in (1, "1", "confirmed"):
-            self.assertEqual(dl.confirmation_state(value), "confirmed")
-        for value in (None, "", 2, False, True, 0.0, {}, "unknown"):
-            self.assertIsNone(dl.confirmation_state(value))
+class TestResolutionGate(unittest.TestCase):
+    """resolution 过滤：Resolution 有值的 Bug 不处理；未知值失败关闭。"""
 
-    def test_confirmed_never_prepares_or_syncs(self):
+    def test_blank_or_missing_value_is_processed_and_other_values_skip(self):
+        for bug in ({"resolution": ""}, {"resolution": "   "}, {"resolution": None},
+                    {"resolution": 0}):
+            with self.subTest(bug=bug):
+                self.assertEqual(dl.resolution_state(bug), "unset")
+        for value in ("fixed", "notrepro", "bydesign", "duplicate", "已解决"):
+            with self.subTest(value=value):
+                self.assertEqual(dl.resolution_state({"resolution": value}), "set")
+        for bug in ({}, {"resolution": 1}, {"resolution": 2}, {"resolution": {}},
+                    {"resolution": []}, {"resolution": False}, "not-a-dict", None):
+            with self.subTest(bug=bug):
+                self.assertEqual(dl.resolution_state(bug), "unknown")
+
+    def test_resolved_never_prepares_or_syncs(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
-            with patch.object(dl, "fetch_confirmation", return_value={"confirmed": "confirmed"}), patch.object(dl, "_run_auto_fix") as fix:
+            with patch.object(dl, "fetch_resolution", return_value={"resolution": "set"}), patch.object(dl, "_run_auto_fix") as fix:
                 result = dl.run_auto_fix(dl.PiAdapter("m"), "1", Path(td))
-            self.assertEqual(result["status"], "skipped_confirmed")
+            self.assertEqual(result["status"], "skipped_resolved")
             fix.assert_not_called()
             self.assertEqual(list(Path(td).iterdir()), [])
 
     def test_unknown_or_query_failure_never_prepares(self):
         from unittest.mock import patch
-        with patch.object(dl, "fetch_confirmation", side_effect=RuntimeError("无法查询确认状态")), patch.object(dl, "_run_auto_fix") as fix:
+        with patch.object(dl, "fetch_resolution", side_effect=RuntimeError("无法查询解决方案状态")), patch.object(dl, "_run_auto_fix") as fix:
             result = dl.run_auto_fix(dl.PiAdapter("m"), "1", Path("unused"))
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "blocked")
         fix.assert_not_called()
 
-    def test_unconfirmed_proceeds_and_retry_rechecks(self):
+    def test_unset_proceeds_and_retry_rechecks(self):
         from unittest.mock import patch
-        with patch.object(dl, "fetch_confirmation", side_effect=[{"confirmed": "unconfirmed"}, {"confirmed": "confirmed"}]), patch.object(dl, "_run_auto_fix", return_value={"ok": True}) as fix:
+        with patch.object(dl, "fetch_resolution", side_effect=[{"resolution": "unset"}, {"resolution": "set"}]), patch.object(dl, "_run_auto_fix", return_value={"ok": True}) as fix:
             self.assertTrue(dl.run_auto_fix(dl.PiAdapter("m"), "1", Path("unused"))["ok"])
-            self.assertEqual(dl.run_auto_fix(dl.PiAdapter("m"), "1", Path("unused"), reuse=True)["status"], "skipped_confirmed")
+            self.assertEqual(dl.run_auto_fix(dl.PiAdapter("m"), "1", Path("unused"), reuse=True)["status"], "skipped_resolved")
         self.assertEqual(fix.call_count, 1)
 
     def test_api_fallback_no_files_and_no_secret_errors(self):
         from unittest.mock import patch
         cfg = {"ZENTAO_BASE_URL": "https://example.test", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "secret"}
-        with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", return_value={"id": 1}), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value={"bug": {"id": "1", "confirmed": "0"}}), patch.object(dl._bug_api, "fetch_bug_full") as full:
-            self.assertEqual(dl.fetch_confirmation("1")["confirmed"], "unconfirmed")
+        with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", return_value={"id": 1}), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value={"bug": {"id": "1", "resolution": ""}}), patch.object(dl._bug_api, "fetch_bug_full") as full:
+            self.assertEqual(dl.fetch_resolution("1")["resolution"], "unset")
             full.assert_not_called()
+        # v1/classic 都返回未知类型时失败关闭
+        with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", return_value={"id": 1}), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value={"bug": {"id": "1", "resolution": 1}}):
+            with self.assertRaises(RuntimeError):
+                dl.fetch_resolution("1")
         with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", side_effect=RuntimeError("secret")), patch.object(dl._bug_api, "zentao_session", side_effect=RuntimeError("secret")):
             with self.assertRaises(RuntimeError) as err:
-                dl.fetch_confirmation("1")
+                dl.fetch_resolution("1")
             self.assertNotIn("secret", str(err.exception))
 
     def test_prepare_recheck_stops_before_files_or_reports(self):
         from unittest.mock import patch
         cfg = {"ZENTAO_BASE_URL": "https://example.test", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "secret"}
-        for value in (1, None, "unknown"):
+        for value in ("fixed", 1, "unknown"):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as td:
-                bug = {"id": 1, "confirmed": value, "steps": '<img src="file-read-1.png">'}
+                bug = {"id": 1, "resolution": value, "steps": '<img src="file-read-1.png">'}
                 with patch.object(dl._bug_api, "load_config", return_value=("config", cfg)), patch.object(dl._bug_api, "fetch_bug_v1", return_value=bug), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value=None), patch.object(dl._bug_api, "download_images") as images:
-                    with self.assertRaises(dl._bug_api.ConfirmationStop):
-                        dl._bug_api.fetch_bug_full(td, "1", only_unconfirmed=True)
+                    with self.assertRaises(dl._bug_api.ResolutionStop):
+                        dl._bug_api.fetch_bug_full(td, "1", skip_resolved=True)
                 images.assert_not_called()
                 self.assertEqual(list(Path(td).iterdir()), [])
 
@@ -600,19 +634,19 @@ class TestConfirmationGate(unittest.TestCase):
         import subprocess
         with tempfile.TemporaryDirectory() as td:
             adapter = dl.PiAdapter("m")
-            with patch.object(dl, "fetch_confirmation", return_value={"confirmed": "unconfirmed"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 9, "CONFIRMATION_STOP=confirmed", "")) as prepare, patch.object(adapter, "fix") as fix:
+            with patch.object(dl, "fetch_resolution", return_value={"resolution": "unset"}), patch.object(dl, "sync_zentao_config_to_repo"), patch.object(dl.subprocess, "run", return_value=subprocess.CompletedProcess([], 9, "RESOLUTION_STOP=set", "")) as prepare, patch.object(adapter, "fix") as fix:
                 result = dl.run_auto_fix(adapter, "1", Path(td))
-            self.assertIn("--only-unconfirmed", prepare.call_args.args[0])
-            self.assertEqual(result["status"], "skipped_confirmed")
-            self.assertEqual(result["confirmed"], "confirmed")
+            self.assertNotIn("--only-unconfirmed", prepare.call_args.args[0])
+            self.assertEqual(result["status"], "skipped_resolved")
+            self.assertEqual(result["resolution"], "set")
             fix.assert_not_called()
 
     def test_wrong_bug_id_rejected(self):
         from unittest.mock import patch
         cfg = {"ZENTAO_BASE_URL": "https://example.test", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "secret"}
-        with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", return_value={"id": 2, "confirmed": 0}), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value=None):
+        with patch.object(dl, "load_config", return_value=cfg), patch.object(dl._bug_api, "fetch_bug_v1", return_value={"id": 2, "resolution": ""}), patch.object(dl._bug_api, "zentao_session"), patch.object(dl._bug_api, "fetch_bug_classic", return_value=None):
             with self.assertRaises(RuntimeError):
-                dl.fetch_confirmation("1")
+                dl.fetch_resolution("1")
 
 
 class TestResultNotifications(unittest.TestCase):
@@ -633,7 +667,7 @@ class TestResultNotifications(unittest.TestCase):
             n.recipient = {"user_id": "me", "corp_id": "corp"}
             with patch.object(dl, "run_dws", return_value='{"success":true}') as send:
                 for i, result in enumerate((
-                    {"status": "skipped_confirmed", "ok": False},
+                    {"status": "skipped_resolved", "ok": False},
                     {"status": "duplicate", "ok": False},
                     {"status": "committed", "ok": True, "commit": "abc"},
                     {"status": "prepared", "mode": "worktree", "ok": True},
@@ -720,7 +754,7 @@ class TestResultNotifications(unittest.TestCase):
                 li.queue.put(("bot", dl.normalize_poll_message({"messageId": "m", "text": "1"})))
                 li.queue.put(("bot", {"message_id": "notice", "content": dl.NOTICE_PREFIX + " Bug #1"}))
                 li.stop_flag.set()
-                with patch.object(dl, "extract_bug_intent", return_value={"is_bugfix": True, "bug_id": "1"}) as extract, patch.object(dl, "fetch_confirmation", return_value={"confirmed": "confirmed"}) as query, patch.object(dl, "_run_auto_fix") as fix, patch.object(li.notifier, "publish", return_value={"sent": True}) as notice:
+                with patch.object(dl, "extract_bug_intent", return_value={"is_bugfix": True, "bug_id": "1"}) as extract, patch.object(dl, "fetch_resolution", return_value={"resolution": "set"}) as query, patch.object(dl, "_run_auto_fix") as fix, patch.object(li.notifier, "publish", return_value={"sent": True}) as notice:
                     li._worker()
                 self.assertEqual(extract.call_count, 1)
                 self.assertEqual(query.call_count, 1)

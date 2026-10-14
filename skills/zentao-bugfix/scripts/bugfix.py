@@ -16,6 +16,9 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
     ZENTAO_BASE_URL=http://host:port
     ZENTAO_ACCOUNT=xxx
     ZENTAO_PASSWORD=xxx
+    FRONTEND_WORKSPACES=D:/path/to/frontend,...
+                                                  前端只读分析工作区（可选，逗号分隔）
+                                                  仅用于判定前端/后端问题归属，不是修复目标
 
 子命令（一次调用完成尽量多的事情）：
     config-status [--project DIR]                 检查配置，输出 JSON
@@ -26,7 +29,9 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
                                                   基准分支（fetch+merge 进 bugfix 分支）
                                                   + 拷贝资料；该 bugId 已有 worktree/
                                                   修复分支时停止（返回码 4），--reuse
-                                                  显式复用继续（复用时不同步远端）
+                                                  显式复用继续（复用时不同步远端）。
+                                                  注意：不查询禅道、不校验 resolution，
+                                                  正常流程一律用 prepare
     prepare <bugId> [baseBranch] [--project DIR] [--reuse] [--force]
                                                   查询禅道 + routes.json 分流 +
                                                   绑定工作区加锁或新建 worktree + 生成
@@ -124,6 +129,30 @@ def load_config(project_dir):
 
 def save_config(path, updates):
     _routes.save_config(path, updates)
+
+
+FRONTEND_KEY = "FRONTEND_WORKSPACES"
+
+
+def frontend_workspaces(cfg, project):
+    """前端只读分析工作区（config 的 FRONTEND_WORKSPACES，逗号分隔）。
+
+    仅用于只读定位「前端问题还是后端问题」；不是修复目标，不写入、不暂存、
+    不提交、不切分支。路径支持绝对路径、项目相对路径和 Windows/WSL 互转。
+    """
+    raw = cfg.get(FRONTEND_KEY, "") if isinstance(cfg, dict) else ""
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    result = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            result.append(str(_routes.workspace_path(item, project)))
+        except (ValueError, OSError):
+            result.append(item)
+    return result
 
 
 # ---------------------------------------------------------------- HTTP / 禅道
@@ -252,8 +281,8 @@ def render_bug_md(bug, actions, images, base_url, bug_id):
                     bug.get("pri") or "-", bug.get("type") or "-"))
     lines.append("- **创建人**: %s    **创建时间**: %s" % (user_name(bug.get("openedBy")), bug.get("openedDate") or "-"))
     lines.append("- **指派给**: %s    **指派时间**: %s" % (user_name(bug.get("assignedTo")), bug.get("assignedDate") or "-"))
-    if bug.get("resolvedBy"):
-        lines.append("- **解决人**: %s    **解决方案**: %s    **解决时间**: %s"
+    if bug.get("resolvedBy") or bug.get("resolution"):
+        lines.append("- **解决人**: %s    **解决方案（Resolution）**: %s    **解决时间**: %s"
                      % (user_name(bug.get("resolvedBy")), bug.get("resolution") or "-", bug.get("resolvedDate") or "-"))
     lines.append("- **所属产品ID**: %s    **所属项目ID**: %s    **模块ID**: %s"
                  % (bug.get("product") or "-", bug.get("project") or "-", bug.get("module") or "-"))
@@ -283,23 +312,31 @@ def render_bug_md(bug, actions, images, base_url, bug_id):
     return "\n".join(lines)
 
 
-def confirmation_state(value):
-    """Known API values only; missing/unknown never means unconfirmed."""
-    if type(value) is int and value in (0, 1):
-        return "unconfirmed" if value == 0 else "confirmed"
+def resolution_state(bug):
+    """禅道 resolution（解决方案）状态：unset=可处理；set=已有解决方案；unknown=失败关闭。
+
+    空字符串和 null 表示未设置；字段缺失或类型异常一律视为 unknown，不放行。
+    """
+    if not isinstance(bug, dict) or "resolution" not in bug:
+        return "unknown"
+    value = bug.get("resolution")
+    if value is None:
+        return "unset"
     if isinstance(value, str):
-        return {"0": "unconfirmed", "1": "confirmed",
-                "unconfirmed": "unconfirmed", "confirmed": "confirmed"}.get(value.strip().lower())
-    return None
+        return "set" if value.strip() else "unset"
+    if type(value) is int and value == 0:
+        return "unset"
+    return "unknown"
 
 
-class ConfirmationStop(RuntimeError):
+class ResolutionStop(RuntimeError):
     def __init__(self, state):
-        super().__init__("Bug 已确认" if state == "confirmed" else "confirmed 字段缺失或未知")
+        super().__init__("Bug 已有解决方案（Resolution 有值）" if state == "set"
+                         else "resolution 字段缺失或类型未知")
         self.state = state
 
 
-def fetch_bug_full(project_dir, bug_id, out_dir=None, only_unconfirmed=False):
+def fetch_bug_full(project_dir, bug_id, out_dir=None, skip_resolved=False):
     """拉取禅道 bug 全量数据，返回 (bug, actions, images, work_dir, base_url, md_text)。"""
     config_path, cfg = load_config(project_dir)
     missing = [k for k in REQUIRED_KEYS if not cfg.get(k)]
@@ -338,10 +375,10 @@ def fetch_bug_full(project_dir, bug_id, out_dir=None, only_unconfirmed=False):
         actions = [a for a in acts if isinstance(a, dict)]
         actions.sort(key=lambda a: str(a.get("date") or ""))
 
-    if only_unconfirmed:
-        state = confirmation_state(bug.get("confirmed"))
-        if state != "unconfirmed":
-            raise ConfirmationStop(state)
+    if skip_resolved:
+        state = resolution_state(bug)
+        if state != "unset":
+            raise ResolutionStop(state)
     html_chunks = [bug.get("steps") or ""] + [a.get("comment") or "" for a in actions]
     rel_urls = extract_image_urls(*html_chunks)
     work_dir = os.path.abspath(out_dir or os.path.join(project_dir, ".agents", "bugfix-work", bug_id))
@@ -826,6 +863,8 @@ def print_kv(info, extra=None):
             lines.append("SYNC_REASON=%s" % info["sync_reason"])
     if info.get("reused"):
         lines.append("REUSED=yes")
+    if info.get("frontend_workspaces"):
+        lines.append("FRONTEND_WORKSPACES=%s" % ",".join(info["frontend_workspaces"]))
     if extra:
         lines.extend(extra)
     for l in lines:
@@ -875,13 +914,33 @@ def scaffold_analysis(bug, actions, images, info, base_url, bug_id, force=False)
         lines.append("")
         lines.append("附件截图: %s" % "、".join("`%s`" % fn for _, fn in images))
     lines.append("")
+    frontend = info.get("frontend_workspaces") or []
+    lines.append("## 2. 问题归属（前端问题 / 后端问题 / 前后端 / 待确认）")
+    lines.append("")
+    lines.append("（待填写）")
+    lines.append("")
+    lines.append("> 填写要求：结论行必须写成 `**结论**: <结论词>`，结论词只能是 "
+                 "前端问题 / 后端问题 / 前后端 / 待确认，其后写明判定依据与置信度（高/中/低）。")
+    lines.append("> 判定依据至少覆盖：涉及页面/路由/组件 → 调用的接口 → 后端服务方法/字段 的对应链，"
+                 "并用 `文件:行号` 给出证据；无法用本地代码确认时写 待确认 并列出所需证据。")
+    lines.append("> 改动范围：再写一行 `**改动范围**: 仅当前工作空间` 或 "
+                 "`**改动范围**: 需要其他工作空间（本次不修改）`。")
+    lines.append("> 默认只修改当前工作空间。若根因在其他工作空间（前端工作区、其他服务仓库等），"
+                 "结论写「需要其他工作空间」，只出报告，并给出该工作空间路径与所需改动；不得修改其他工作空间代码。")
+    lines.append("> 如果本次既需要本地修复、又要记录跨工作空间根因，则写「仅当前工作空间」，"
+                 "并在「遗留问题」中单独说明跨工作空间结论与所需配合。")
+    lines.append("> 前端工作区（只读分析，不是修复目标）：%s"
+                 % ("、".join("`%s`" % p for p in frontend) if frontend
+                    else "未配置（config 的 `FRONTEND_WORKSPACES` 为空，前端归属无法用本地代码验证）"))
+    lines.append("> 后端修复工作区：`%s`" % info["wt_path"])
+    lines.append("")
     sections = [
-        "关键信息提取（业务场景 / 涉及接口 / 日志报错 / 环境）",
-        "代码定位过程",
+        "关键信息提取（业务场景 / 涉及页面或接口 / 日志报错 / 环境）",
+        "代码定位过程（后端工作区与前端工作区分别列出检索关键字与命中文件）",
         "根因分析（确认的根因 / 推断（注明置信度）/ 排除的猜测 / 存疑待验证）",
         "遗留问题 / 待确认（解决方案见 solution.md）",
     ]
-    for i, title in enumerate(sections, start=2):
+    for i, title in enumerate(sections, start=3):
         lines.append("## %d. %s" % (i, title))
         lines.append("")
         lines.append("（待填写）")
@@ -914,17 +973,22 @@ def scaffold_solution(bug, info, bug_id, force=False):
                  "**之前**，禁止修改任何代码；修复实施严格按本方案执行。")
     lines.append("")
     sections = [
-        "方案对比与取舍（至少考虑两种候选方案：改动面 / 风险 / 可维护性）",
-        "最终方案设计（改动点与涉及文件，逐条对应根因）",
-        "影响面评估（受影响功能 / 接口 / 配置 / 数据）",
-        "风险与回滚（风险等级与理由；未提交状态回滚方式）",
-        "验证计划（编译 / 静态走查 / 自测用例）",
+        ("方案对比与取舍（至少考虑两种候选方案：改动面 / 风险 / 可维护性）", None),
+        ("最终方案设计（改动点与涉及文件，逐条对应根因）",
+         "> 与 analysis.md 的「问题归属」「改动范围」保持一致：只写当前工作空间内的改动；"
+         "改动范围=需要其他工作空间时，不写本地代码改动，只写所需配合与验证方式。"),
+        ("影响面评估（受影响功能 / 接口 / 配置 / 数据）", None),
+        ("风险与回滚（风险等级与理由；未提交状态回滚方式）", None),
+        ("验证计划（编译 / 静态走查 / 自测用例）", None),
     ]
-    for i, title in enumerate(sections, start=1):
+    for i, (title, note) in enumerate(sections, start=1):
         lines.append("## %d. %s" % (i, title))
         lines.append("")
         lines.append("（待填写）")
         lines.append("")
+        if note:
+            lines.append(note)
+            lines.append("")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return path
@@ -1045,8 +1109,8 @@ def cmd_save_config(args):
             log("ERROR: 参数格式错误（应为 KEY=VALUE）: %s" % p)
             return 2
         k, v = p.split("=", 1)
-        if k not in REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH"]:
-            log("ERROR: 未知配置项 %s（允许: %s）" % (k, ", ".join(REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH"])))
+        if k not in REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH", FRONTEND_KEY]:
+            log("ERROR: 未知配置项 %s（允许: %s）" % (k, ", ".join(REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH", FRONTEND_KEY])))
             return 2
         updates[k] = v.strip()
     config_path, _ = load_config(args.project)
@@ -1085,13 +1149,13 @@ def cmd_prepare(args):
         if not args.reuse or previous.get("status") in ("committed", "no_change"):
             print("EXISTS\nEXISTING_REPORT_DIR=%s" % previous.get("report_dir", ""))
             return 4
-    if getattr(args, "only_unconfirmed", False):
+    if not getattr(args, "allow_resolved", False):
         try:
             bug, actions, images, work_dir, base_url, md = fetch_bug_full(
-                args.project, args.bug_id, only_unconfirmed=True)
-        except ConfirmationStop as exc:
-            print("CONFIRMATION_STOP=%s" % (exc.state or "unknown"))
-            return 9 if exc.state == "confirmed" else 10
+                args.project, args.bug_id, skip_resolved=True)
+        except ResolutionStop as exc:
+            print("RESOLUTION_STOP=%s" % (exc.state or "unknown"))
+            return 9 if exc.state == "set" else 10
     else:
         bug, actions, images, work_dir, base_url, md = fetch_bug_full(args.project, args.bug_id)
     try:
@@ -1171,6 +1235,11 @@ def cmd_prepare(args):
         meta.update(mode="worktree", run_id=run["run_id"], route=route)
         _routes.save(Path(info["report_dir"]) / "meta.json", meta)
     info["project"] = args.project
+    try:
+        _, prepare_cfg = load_config(args.project)
+    except (OSError, _routes.RouteError):
+        prepare_cfg = {}
+    info["frontend_workspaces"] = frontend_workspaces(prepare_cfg, args.project)
     print("MODE=%s\nRUN_ID=%s\nROUTE_REASON=%s" % (run["mode"], run["run_id"], route["reason"]))
     analysis_path = scaffold_analysis(bug, actions, images, info, base_url, args.bug_id,
                                       force=args.force)
@@ -1181,6 +1250,8 @@ def cmd_prepare(args):
         "BUG_TITLE=%s" % (bug.get("title") or ""),
         "ANALYSIS_MD=%s" % analysis_path,
         "SOLUTION_MD=%s" % solution_path,
+        "FRONTEND_MISSING=%s" % (",".join(p for p in info["frontend_workspaces"]
+                                          if not os.path.isdir(p)) or "none"),
         "NEXT=先在 WORKTREE 中只读分析代码并补全 analysis.md 与 solution.md（输出"
         "完整分析报告与解决方案，此阶段不改任何代码），MODE=inplace 时先运行 ready；再按 solution.md 实施"
         "修复并 report/补全；绑定模式 finish 提交并更新 HTML，worktree 模式 render-html --analysis-only 在修复前生成"
@@ -1210,6 +1281,46 @@ def analysis_complete_status(report_dir):
 def solution_complete_status(report_dir):
     """校验 solution.md（解决方案）完成度，返回值语义同 doc_complete_status。"""
     return doc_complete_status(report_dir, "solution.md")
+
+
+# 先匹配「前后端」——它包含「后端」子串，顺序不能调。
+LAYER_CHOICES = ("前后端", "前端问题", "后端问题", "待确认")
+# 「需要其他工作空间」比「仅当前工作空间」更具体，必须先行匹配。
+SCOPE_CHOICES = ("需要其他工作空间", "仅当前工作空间")
+LAYER_HEADING = re.compile(r"^##\s*\d+\.\s*问题归属[^\n]*\n(.*?)(?=^##\s|\Z)", re.S | re.M)
+CONCLUSION_LINE = r"^\s*(?:>\s*)?(?:[-*+]\s*)?\*\*%s\*\*\s*[:：]\s*(.+)$"
+
+
+def _analysis_conclusion(report_dir, label, choices):
+    """只从 analysis.md「问题归属」章节的 `**<label>**:` 行提取结论。
+
+    missing=文件不存在；unparsed=章节缺失或没有可识别结论；否则返回命中词。
+    """
+    path = os.path.join(report_dir, "analysis.md")
+    if not os.path.isfile(path):
+        return "missing"
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    section = LAYER_HEADING.search(text)
+    if not section:
+        return "unparsed"
+    pattern = re.compile(CONCLUSION_LINE % re.escape(label), re.M)
+    for match in pattern.finditer(section.group(1)):
+        for choice in choices:
+            if choice in match.group(1):
+                return choice
+        return "unparsed"
+    return "unparsed"
+
+
+def analysis_layer_attribution(report_dir):
+    """提取前端/后端归属：前端问题 / 后端问题 / 前后端 / 待确认 / unparsed / missing。"""
+    return _analysis_conclusion(report_dir, "结论", LAYER_CHOICES)
+
+
+def analysis_change_scope(report_dir):
+    """提取改动范围：仅当前工作空间 / 需要其他工作空间 / unparsed / missing。"""
+    return _analysis_conclusion(report_dir, "改动范围", SCOPE_CHOICES)
 
 
 def cmd_report(args):
@@ -1286,6 +1397,21 @@ def cmd_report(args):
     else:
         print("ANALYSIS_INCOMPLETE=missing（analysis.md 不存在，请立即补建并补全，"
               "并在汇报中说明偏离）")
+    layer = analysis_layer_attribution(info["report_dir"])
+    scope = analysis_change_scope(info["report_dir"])
+    print("LAYER_ATTRIBUTION=%s" % layer)
+    print("CHANGE_SCOPE=%s" % scope)
+    if layer == "missing":
+        print("LAYER_ATTRIBUTION_HINT=analysis.md 不存在，无法给出问题归属；请先补全 analysis.md")
+    elif layer == "unparsed":
+        print("LAYER_ATTRIBUTION_HINT=analysis.md 的「问题归属」章节缺少 `**结论**:` 行；"
+              "必须写明 前端问题 / 后端问题 / 前后端 / 待确认 后才能汇报")
+    if scope == "unparsed":
+        print("CHANGE_SCOPE_HINT=analysis.md 的「问题归属」章节缺少 `**改动范围**:` 行；"
+              "必须写明 仅当前工作空间 或 需要其他工作空间（本次不修改）")
+    elif scope == "需要其他工作空间":
+        print("CHANGE_SCOPE_HINT=已声明需要其他工作空间：本次不得提交本地代码改动，"
+              "用 finish --no-change 收尾；如需本地修复请更正「改动范围」结论")
     print("CHANGED_FILES=%d" % len(files))
     print("COMMITTED=pending（绑定分支须 finish 验证并提交后才可开始下一 Bug）" if info.get("mode") == "inplace" else
           "COMMITTED=no（改动保留在工作区，等待人工 review，不要自动 commit）")
@@ -1336,6 +1462,13 @@ def cmd_ready(args):
 
 
 def cmd_finish(args):
+    record = _routes.load_record(args.project, args.bug_id)
+    if record and not args.no_change and args.files:
+        scope = analysis_change_scope(record.get("report_dir", ""))
+        if scope == "需要其他工作空间":
+            log("ERROR: analysis.md 已声明「需要其他工作空间（本次不修改）」，"
+                "不能提交本次代码改动；如确需本地修复，请更正「改动范围」结论")
+            return 8
     try:
         result = _routes.finish(args.project, args.bug_id, args.files, args.check_command, args.no_change)
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -1402,7 +1535,10 @@ def main():
     p.add_argument("--reuse", action="store_true", help="复用该 bugId 已存在的 worktree 继续处理")
     p.add_argument("--force", action="store_true", help="重新生成 analysis.md")
     p.add_argument("--current-workspace", help="异常 HTML 报告所在的当前/监听启动工作区")
-    p.add_argument("--only-unconfirmed", action="store_true", help="自动入口使用：写资料及准备工作区前只允许未确认 Bug")
+    p.add_argument("--skip-resolved", action="store_true",
+                   help="兼容旧调用：默认即跳过已有解决方案的 Bug，无需显式传入")
+    p.add_argument("--allow-resolved", action="store_true",
+                   help="人工覆盖：允许处理已有解决方案（resolution 有值）的 Bug")
     p.set_defaults(func=cmd_prepare)
 
     p = sub.add_parser("render-html", help="从已补全的 MD 生成/更新对应离线 HTML（不打开浏览器）")

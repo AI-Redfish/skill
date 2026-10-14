@@ -9,6 +9,7 @@
     "ZENTAO_ACCOUNT": "你的账号",
     "ZENTAO_PASSWORD": "你的密码",
     "BUGFIX_BASE_BRANCH": "release",
+    "FRONTEND_WORKSPACES": "D:/projects/tenant-web",
     "DWS_LISTEN_USERS": "李四,张三",
     "AGENT_TYPE": "pi",
     "AGENT_MODEL": "provider/model",
@@ -36,6 +37,7 @@
 ## 配置与迁移
 
 - `config` 保存全部原 `.env` 配置键，值必须为字符串，包括秒数和 on/off。完整键列表见 assets/routes.example.json 与监听文档。
+- `FRONTEND_WORKSPACES`（可选）是前端只读分析工作区，多个用英文逗号分隔，支持绝对路径与项目相对路径。它只用于在 `analysis.md` 中判定「前端问题还是后端问题」，不参与分流、不是修复目标：脚本不写入、不暂存、不提交、不切分支。修复后端 Bug 时在这里配置前端仓库（如 `D:/develop/project/wukong`）；修复前端 Bug 时也可以反向配置后端仓库地址。该键从被修复项目的路由文件读取；留空时分析报告必须写明前端归属无法用本地代码验证。
 - `rules` 保存原匹配规则，可为空；只有 rules 的旧 JSON 仍可读取规则，config 视为空。只使用线上/default worktree 时可配置 `"rules": []`。
 - 脚本不再读取旧 `.env`，也不自动从旧文件获取密码。把原 KEY=VALUE 写成 `"KEY": "VALUE"` 加入 config；JSON 中 Windows 路径使用 `/` 或转义反斜杠 `\\\\`。
 - `save-config KEY=VALUE...` 命令仍可使用，写入 routes.json 的 config 并保留规则及其他配置。禁止用只含 config 的新文件覆盖已有 rules。

@@ -81,6 +81,30 @@ class RoutingTests(unittest.TestCase):
         self.assertNotIn("secret", output.getvalue())
         self.assertIn("config_path", json.loads(output.getvalue()))
 
+    def test_prepare_reports_frontend_workspace_for_attribution(self):
+        frontend = Path(self.tmp.name) / "frontend"
+        frontend.mkdir()
+        args = SimpleNamespace(project=str(self.project), pairs=[
+            "FRONTEND_WORKSPACES=%s,%s" % (frontend, Path(self.tmp.name) / "gone")])
+        self.assertEqual(bf.cmd_save_config(args), 0)
+        cache = self.project / ".agents" / "bugfix-work" / "101"
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / "bug.md").write_text("# Bug\n- **标题**: ORDER failure")
+        run = SimpleNamespace(project=str(self.project), bug_id="101", base_branch=None,
+                              reuse=False, force=False, current_workspace=str(self.project))
+        output = io.StringIO()
+        with patch.object(bf, "fetch_bug_full", return_value=({"title": "ORDER failure"}, [], [], str(cache), "https://zentao.test", "bug")), contextlib.redirect_stdout(output):
+            self.assertEqual(bf.cmd_prepare(run), 0)
+        text = output.getvalue()
+        self.assertIn("FRONTEND_WORKSPACES=", text)      # 只读分析工作区对外可见
+        self.assertIn("gone", text)                      # 不存在的路径必须显式报告
+        rec = r.load_record(self.project, "101")
+        analysis = (Path(rec["report_dir"]) / "analysis.md").read_text(encoding="utf-8")
+        self.assertIn("## 2. 问题归属", analysis)
+        self.assertIn(str(frontend.resolve()), analysis)
+        # 骨架未补全时不得给出可识别的归属结论
+        self.assertEqual(bf.analysis_layer_attribution(rec["report_dir"]), "unparsed")
+
     def test_bug_fetch_ignores_old_env_when_json_config_absent(self):
         env = self.project / ".agents" / ".env"
         env.parent.mkdir(parents=True, exist_ok=True)
@@ -221,7 +245,7 @@ class RoutingTests(unittest.TestCase):
             self.assertEqual(self.prepare(title='<script>alert(1)</script> Order'), 7)
         rec = r.load_record(self.project, "101")
         report = Path(rec["html_report"])
-        self.assertTrue(report.is_relative_to(self.project / ".agents"))
+        self.assertTrue(report.resolve().is_relative_to((self.project / ".agents").resolve()))
         self.assertIn("&lt;script&gt;", report.read_text())
         self.assertNotIn("<script>", report.read_text())
         opened.assert_called_once_with(report)
@@ -340,7 +364,7 @@ class RoutingTests(unittest.TestCase):
         with patch.object(bf, "fetch_bug_full", return_value=({"title": "Order"}, [], [], str(cache), "https://z.test", "bug")), patch.object(r, "open_report", return_value=True), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(bf.cmd_prepare(args), 7)
         rec = r.load_record(self.project, "101")
-        self.assertTrue(Path(rec["html_report"]).is_relative_to(current / ".agents"))
+        self.assertTrue(Path(rec["html_report"]).resolve().is_relative_to((current / ".agents").resolve()))
 
     def test_add_delete_and_spaces(self):
         self.prepare()

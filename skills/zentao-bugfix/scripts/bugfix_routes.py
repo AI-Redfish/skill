@@ -228,7 +228,13 @@ def active_execution(record):
         for name in sorted(record.get("locks", [])):
             handle = stack.enter_context(Path(name + ".active").open("a+b"))
             handle.seek(0)
-            if not handle.read(1):
+            try:
+                content = handle.read(1)
+            except OSError as exc:
+                # 其他进程已锁住锁字节时，Windows 读取会返回 EACCES（errno 13）。
+                # 这是「忙碌」信号，不是未知错误：不回写、不破坏现场。
+                raise Busy("当前 Bug 的修复会话仍在运行，等待其结束") from exc
+            if not content:
                 handle.write(b"0")
                 handle.flush()
             handle.seek(0)

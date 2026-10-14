@@ -4,6 +4,7 @@
     "ZENTAO_ACCOUNT": "",
     "ZENTAO_PASSWORD": "",
     "BUGFIX_BASE_BRANCH": "",
+    "FRONTEND_WORKSPACES": "",
     "DWS_LISTEN_USERS": "",
     "DWS_LISTEN_BOTS": "",
     "TARGET_PROJECT_PATH": "",

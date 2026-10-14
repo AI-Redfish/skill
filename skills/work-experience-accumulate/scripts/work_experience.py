@@ -2,8 +2,18 @@
 """work_experience.py — 工作经验采集、草稿状态和调度器。
 
 依赖：Python 3.9+ 标准库；Git；外部 dws/禅道查询命令按配置提供。
-用法：python3 work_experience.py <config-status|config-save|collect|draft-init|approve|verify-approved|schedule> ...
-退出码：0 成功；2 参数或配置错误；3 外部数据源失败；4 未审核或审批不匹配。
+用法：python3 work_experience.py <子命令> ...
+  config-status   检查配置完整性与路径风险
+  config-save     dotted.path=JSON值... 写入配置
+  dingtalk-preview / zentao-preview / git-preview   单来源只读预览
+  collect         按共享窗口采集四类来源
+  draft-init      生成草稿模板
+  run-cycle       采集 + 有界投影 + Agent 总结 + 本人通知
+  notify-draft    对已完成的草稿发一次本人通知
+  approve / verify-approved   审核闭环
+  schedule        注册 Windows 定时任务（需 --confirm）
+  schedule-status 只读核对任务注册与执行状态
+退出码：0 成功；2 参数或配置错误；3 外部数据源失败或不完整；4 未审核或审批不匹配。
 所有确定性输出为 JSON stdout，诊断写 stderr。脚本不执行 shell 字符串。
 """
 from __future__ import annotations
@@ -14,6 +24,7 @@ import re
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import uuid
@@ -31,6 +42,16 @@ DEFAULT_CONFIG = {
     "targets": {"skill": [], "workflow": [], "mcp": [], "knowledge": []},
 }
 SENSITIVE_WORDS = ("password", "passwd", "secret", "token", "authorization", "cookie")
+AGENT_REQUIRED_MARKERS = (
+    "# 工作经验沉淀草稿",
+    "## <analysis>分析",
+    "## <conclusion>沉淀候选",
+    "## 审核说明",
+)
+AGENT_SAFETY_FLAGS = (
+    "--no-tools", "--no-extensions", "--no-context-files", "--no-skills",
+    "--no-prompt-templates", "--no-themes", "--no-session", "--no-approve",
+)
 
 
 def fail(code: int, message: str, hint: str = "") -> int:
@@ -84,6 +105,41 @@ def get_path(data: dict[str, Any], dotted: str) -> Any:
     return value
 
 
+BRANCH_RULE_KEYS = ("remote_prefixes", "local_name_contains", "remote_name_contains")
+
+
+def validate_branch_config(repo: dict[str, Any]) -> None:
+    branches = repo.get("branches", [])
+    if not isinstance(branches, list) or any(not isinstance(b, str) or not b.strip() for b in branches):
+        raise ValueError("branches 必须为非空分支名组成的数组")
+    rules = repo.get("branch_selection", {})
+    if not isinstance(rules, dict) or set(rules) - set(BRANCH_RULE_KEYS):
+        raise ValueError("branch_selection 包含未知规则或不是对象")
+    for key, values in rules.items():
+        if not isinstance(values, list) or any(not isinstance(v, str) or not v.strip() for v in values):
+            raise ValueError(key + " 必须为非空字符串组成的数组")
+    if not branches and not any(rules.values()):
+        raise ValueError("必须显式指定分支名或分支匹配规则")
+    emails = repo.get("author_emails", [])
+    if not isinstance(emails, list) or any(not isinstance(e, str) or not e.strip() for e in emails):
+        raise ValueError("author_emails 必须为非空邮箱组成的数组")
+    if "deduplicate_commits" in repo and not isinstance(repo["deduplicate_commits"], bool):
+        raise ValueError("deduplicate_commits 必须为布尔值")
+    uncommitted = repo.get("uncommitted", {})
+    if not isinstance(uncommitted, dict):
+        raise ValueError("uncommitted 必须为对象")
+    if "enabled" in uncommitted and not isinstance(uncommitted["enabled"], bool):
+        raise ValueError("uncommitted.enabled 必须为布尔值")
+    if uncommitted.get("enabled", False):
+        if uncommitted.get("time_filter", "file_mtime_in_window") != "file_mtime_in_window":
+            raise ValueError("uncommitted.time_filter 必须为 file_mtime_in_window")
+        if uncommitted.get("classification", "candidate") != "candidate":
+            raise ValueError("uncommitted.classification 必须为 candidate")
+        for key in ("author_verified", "change_time_verified"):
+            if uncommitted.get(key, False) is not False:
+                raise ValueError(f"uncommitted.{key} 必须为 false")
+
+
 def required_missing(config: dict[str, Any]) -> list[str]:
     missing: list[str] = []
     schedule = config.get("schedule", {})
@@ -91,8 +147,10 @@ def required_missing(config: dict[str, Any]) -> list[str]:
         missing.append("schedule.frequency= daily|weekly（Windows原生任务）")
     if not isinstance(schedule.get("lookback_days", 1), int) or schedule.get("lookback_days", 1) < 1:
         missing.append("schedule.lookback_days>=1")
-    if not str(schedule.get("time", "09:00")):
-        missing.append("schedule.time")
+    try:
+        validate_time(str(schedule.get("time", "09:00")))
+    except ValueError:
+        missing.append("schedule.time= HH:MM（24 小时制）")
     if not str(get_path(config, "dingtalk.notify_user_id") or "").strip():
         missing.append("dingtalk.notify_user_id")
     repos = config.get("git_repositories")
@@ -102,16 +160,55 @@ def required_missing(config: dict[str, Any]) -> list[str]:
         for index, repo in enumerate(repos):
             if not isinstance(repo, dict) or not str(repo.get("path", "")).strip():
                 missing.append(f"git_repositories[{index}].path")
-            if not isinstance(repo, dict) or not repo.get("branches"):
-                missing.append(f"git_repositories[{index}].branches（必须显式指定）")
+            if isinstance(repo, dict):
+                try:
+                    validate_branch_config(repo)
+                except ValueError as exc:
+                    missing.append(f"git_repositories[{index}]: {exc}")
     if not isinstance(config.get("agent_workspaces"), list) or not config.get("agent_workspaces"):
         missing.append("agent_workspaces（至少一个）")
+    agent_command = config.get("agent_command", [])
+    if agent_command:
+        if (not isinstance(agent_command, list)
+                or any(not isinstance(part, str) or not part.strip() for part in agent_command)):
+            missing.append("agent_command 必须为非空字符串数组")
+        else:
+            missing_flags = [flag for flag in AGENT_SAFETY_FLAGS if flag not in agent_command]
+            if missing_flags:
+                missing.append("agent_command 缺少安全参数：" + ", ".join(missing_flags))
+            if not any(part.startswith("@{run_dir}/work/") for part in agent_command):
+                missing.append("agent_command 必须通过 @{run_dir}/work/ 注入证据")
     zentao = config.get("zentao", {})
-    if not isinstance(zentao.get("query_command"), list) or not zentao.get("query_command"):
+    if (not isinstance(zentao.get("query_command"), list) or not zentao.get("query_command")
+            or any(not isinstance(x, str) or not x.strip() for x in zentao.get("query_command", []))):
         missing.append("zentao.query_command")
     if not str(zentao.get("user_id", "")).strip():
         missing.append("zentao.user_id")
     return missing
+
+
+def config_warnings(config: dict[str, Any]) -> list[str]:
+    """非致命配置风险：只报路径不存在，不改写配置、不阻断采集。
+
+    路径按当前运行平台的语义判断，因此应当在目标平台上执行本命令。
+    """
+    warnings: list[str] = []
+
+    def check(label: str, value: Any) -> None:
+        if isinstance(value, str) and value.strip() and not Path(value).expanduser().is_dir():
+            warnings.append(f"{label} 不存在或不是目录：{value}")
+
+    for index, repo in enumerate(config.get("git_repositories") or []):
+        if isinstance(repo, dict):
+            check(f"git_repositories[{index}].path", str(repo.get("path", "")).strip())
+    for index, path in enumerate(config.get("agent_workspaces") or []):
+        check(f"agent_workspaces[{index}]", path)
+    targets = config.get("targets") or {}
+    if isinstance(targets, dict):
+        for kind, paths in targets.items():
+            for index, path in enumerate(paths if isinstance(paths, list) else []):
+                check(f"targets.{kind}[{index}]", path)
+    return warnings
 
 
 def cmd_config_status(args: argparse.Namespace) -> int:
@@ -126,7 +223,9 @@ def cmd_config_status(args: argparse.Namespace) -> int:
         if isinstance(value, list):
             return [scrub(v) for v in value]
         return value
-    return ok({"config_file": str(config_path(args.workdir)), "missing": required_missing(config), "config": scrub(safe)})
+    return ok({"config_file": str(config_path(args.workdir)), "platform": sys.platform,
+               "missing": required_missing(config), "warnings": config_warnings(config),
+               "config": scrub(safe)})
 
 
 def parse_value(raw: str) -> Any:
@@ -169,7 +268,8 @@ def window(config: dict[str, Any], now: dt.datetime | None = None) -> tuple[str,
 def run_argv(argv: list[str], cwd: Path | None = None, timeout: int = 180) -> tuple[int, str, str]:
     try:
         proc = subprocess.run(argv, cwd=str(cwd) if cwd else None, text=True,
-                              capture_output=True, timeout=timeout, check=False)
+                              capture_output=True, timeout=timeout, check=False,
+                              encoding="utf-8", errors="replace")
         return proc.returncode, proc.stdout, proc.stderr
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 127, "", str(exc)
@@ -194,47 +294,276 @@ def json_result(raw: str) -> Any:
 
 
 def collect_dingtalk(config: dict[str, Any], start: str, end: str) -> tuple[Any, str | None]:
-    args = ["dws", "chat", "+search-msg"] + [str(x) for x in config.get("dingtalk", {}).get("search_args", [])]
-    args += ["--start", start, "--end", end, "--format", "json"]
-    code, stdout, stderr = run_argv(args)
-    if code:
-        return {"command": args, "stderr": scrub_text(stderr)}, f"dws 采集失败，退出码 {code}"
-    return json_result(stdout), None
+    from dingtalk_query import collect
+    return collect(config.get("dingtalk", {}), start, end, run_argv)
+
+
+def cmd_dingtalk_preview(args: argparse.Namespace) -> int:
+    config = load_config(args.workdir)
+    start, end = window(config)
+    data, error = collect_dingtalk(config, start, end)
+    summary = {k: v for k, v in data.items() if k not in ("records",)}
+    summary["matched_count"] = len(data["records"])
+    if error:
+        summary["error"] = error
+    print(json.dumps({"status": "partial" if error else "ok", "data": summary}, ensure_ascii=False))
+    return 3 if error else 0
 
 
 def collect_zentao(config: dict[str, Any], start: str, end: str) -> tuple[Any, str | None]:
+    """Require the adapter envelope; never preserve raw error output or argv."""
     source = config.get("zentao", {})
-    argv = [str(x).format(start=start, end=end, user_id=str(source.get("user_id", ""))) for x in source.get("query_command", [])]
+    user_id = source.get("user_id", "")
+    command = source.get("query_command", [])
+    def rejected(message):
+        return {"complete": False, "records": []}, message
+    if not isinstance(command, list) or not command or any(not isinstance(x, str) or not x for x in command):
+        return rejected("禅道查询命令未配置或无效")
+    try:
+        argv = [x.format(start=start, end=end, user_id=user_id) for x in command]
+    except (ValueError, KeyError, IndexError):
+        return rejected("禅道查询命令占位符无效")
+    code, stdout, _stderr = run_argv(argv, timeout=540)
+    if code:
+        return rejected(f"禅道查询失败，退出码 {code}；未保存原始错误")
+    try:
+        from zentao_query import QueryError, positive_id, selected, timestamp
+        result = json.loads(stdout)
+        if not isinstance(result, dict) or result.get("status") != "ok":
+            return rejected("禅道适配器未返回成功状态")
+        data = result.get("data")
+        if (not isinstance(data, dict) or data.get("complete") is not True
+                or data.get("user_id") != user_id
+                or data.get("window") != {"start": start, "end": end}
+                or data.get("time_basis") != "resolvedDate"
+                or data.get("scope") != "all_accessible_products"
+                or not isinstance(data.get("records"), list)):
+            return rejected("禅道适配器结果不完整或账号、时间窗口不匹配")
+        counters = ("products_scanned", "bugs_scanned", "changed_candidates_skipped", "requests")
+        if any(type(data.get(k)) is not int or data[k] < 0 for k in counters):
+            return rejected("禅道适配器统计字段无效")
+        # Only known fields cross the collection boundary, even with a custom command.
+        fields = {"id", "product", "status", "resolvedBy", "resolvedDate", "title", "resolution", "url"}
+        seen = set()
+        for row in data["records"]:
+            if not isinstance(row, dict) or set(row) != fields:
+                return rejected("禅道适配器记录字段无效")
+            bug_id = positive_id(row["id"])
+            positive_id(row["product"])
+            if bug_id in seen or not selected({**row, "deleted": False}, user_id, timestamp(start), timestamp(end)):
+                return rejected("禅道适配器记录重复或不符合筛选条件")
+            if any(not isinstance(row[k], str) for k in ("title", "resolution", "url")):
+                return rejected("禅道适配器文本字段无效")
+            row["title"] = scrub_text(row["title"])[:500]
+            row["resolution"] = scrub_text(row["resolution"])[:500]
+            seen.add(bug_id)
+        allowed = {"window", "user_id", "scope", "time_basis", "complete", "products_scanned",
+                   "bugs_scanned", "changed_candidates_skipped", "requests", "records"}
+        return {k: v for k, v in data.items() if k in allowed}, None
+    except (json.JSONDecodeError, ValueError, TypeError, QueryError):
+        return rejected("禅道适配器输出无效；未保存原始响应")
+
+
+def cmd_zentao_preview(args: argparse.Namespace) -> int:
+    config = load_config(args.workdir)
+    start, end = window(config)
+    data, error = collect_zentao(config, start, end)
+    if error:
+        return fail(3, error, "检查认证、接口兼容性和分页；不要将失败解释为空结果")
+    return ok({"window": data["window"], "user_id": data["user_id"], "complete": data["complete"],
+               "scope": data["scope"], "products_scanned": data.get("products_scanned"),
+               "bugs_scanned": data.get("bugs_scanned"), "requests": data.get("requests"),
+               "matched_count": len(data["records"]), "bug_ids": [r["id"] for r in data["records"]],
+               "changed_candidates_skipped": data.get("changed_candidates_skipped")})
+
+
+def discover_branches(repo: dict[str, Any]) -> list[dict[str, str]]:
+    """Select full refs every run; remote refs are local snapshots, no fetch."""
+    validate_branch_config(repo)
+    path = Path(repo["path"]).expanduser()
+    code, out, err = run_argv(["git", "--no-optional-locks", "-C", str(path), "for-each-ref",
+                               "--format=%(refname)%09%(symref)", "refs/heads/", "refs/remotes/"])
+    if code:
+        raise ValueError("Git 分支查询失败: " + scrub_text(err)[:500])
+    refs = []
+    for line in out.splitlines():
+        ref, _, symbolic = line.partition("\t")
+        if symbolic:  # origin/HEAD is an alias, never a branch.
+            continue
+        if ref.startswith("refs/heads/"):
+            refs.append({"ref": ref, "branch": ref[len("refs/heads/"):], "kind": "local"})
+        elif ref.startswith("refs/remotes/"):
+            refs.append({"ref": ref, "branch": ref[len("refs/remotes/"):], "kind": "remote"})
+    selected = {}
+    for branch in repo.get("branches", []):
+        hits = [r for r in refs if branch in (r["ref"], r["branch"])]
+        if len(hits) != 1:
+            raise ValueError("明确分支不存在或名称歧义: " + branch)
+        selected[hits[0]["ref"]] = hits[0]
+    rules = repo.get("branch_selection", {})
+    for ref in refs:
+        name = ref["branch"]
+        if ref["kind"] == "local":
+            match = any(word in name for word in rules.get("local_name_contains", []))
+        else:
+            match = (any(name.startswith(prefix) for prefix in rules.get("remote_prefixes", [])) or
+                     any(word in name.partition("/")[2] for word in rules.get("remote_name_contains", [])))
+        if match:
+            selected[ref["ref"]] = ref
+    if not selected:
+        raise ValueError("没有匹配分支；不回退当前分支")
+    return [selected[k] for k in sorted(selected)]
+
+
+def collect_uncommitted(repo: dict[str, Any], start: str, end: str) -> tuple[dict[str, Any] | None, str | None]:
+    """Collect existing working-tree paths by mtime without reading file contents."""
+    settings = repo.get("uncommitted", {})
+    if not settings.get("enabled", False):
+        return None, None
+    path = Path(str(repo.get("path", ""))).expanduser()
+    argv = ["git", "--no-optional-locks", "-C", str(path), "status",
+            "--porcelain=v1", "-z", "--untracked-files=all"]
     code, stdout, stderr = run_argv(argv)
     if code:
-        return {"command": argv, "stderr": scrub_text(stderr)}, f"禅道查询失败，退出码 {code}"
-    return json_result(stdout), None
+        return None, f"Git 未提交改动查询失败: 退出码 {code}: {scrub_text(stderr)[:500]}"
+    if stdout and not stdout.endswith("\x00"):
+        return None, "Git 未提交改动记录缺少 NUL 结束符"
+    entries: list[dict[str, Any]] = []
+    parts = stdout.split("\x00")
+    index = 0
+    while index < len(parts):
+        raw = parts[index]
+        index += 1
+        if not raw:
+            continue
+        if len(raw) < 4 or raw[2] != " ":
+            return None, "Git 未提交改动记录格式无效"
+        status = raw[:2]
+        if any(c not in " MADRCU?!T" for c in status):
+            return None, "Git 未提交改动状态无效"
+        relative = raw[3:]
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            return None, "Git 未提交改动路径不在工作区内"
+        previous = None
+        if "R" in status or "C" in status:
+            if index >= len(parts) or not parts[index]:
+                return None, "Git 重命名或复制记录缺少原路径"
+            previous = parts[index]
+            index += 1
+        entries.append({"status": status, "path": relative, "previous_path": previous})
+    start_dt, end_dt = dt.datetime.fromisoformat(start), dt.datetime.fromisoformat(end)
+    files: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    for entry in entries:
+        file_path = path / Path(entry["path"])
+        try:
+            file_stat = file_path.lstat()
+            if not (stat.S_ISREG(file_stat.st_mode) or stat.S_ISLNK(file_stat.st_mode)):
+                excluded.append({**entry, "file_mtime": None, "reason": "not_regular_file_or_symlink"})
+                continue
+            stamp = dt.datetime.fromtimestamp(file_stat.st_mtime, tz=dt.timezone.utc)
+            file_mtime = stamp.isoformat()
+        except (OSError, ValueError):
+            excluded.append({**entry, "file_mtime": None, "reason": "file_missing_or_unreadable"})
+            continue
+        record = {
+            **entry,
+            "file_mtime": file_mtime,
+            "classification": "candidate",
+            "author_verified": False,
+            "change_time_verified": False,
+        }
+        if start_dt <= stamp < end_dt:
+            files.append(record)
+        else:
+            excluded.append({**record, "reason": "file_mtime_outside_window"})
+    return {
+        "repository": str(path),
+        "source": "uncommitted",
+        "kind": "working_tree",
+        "time_basis": "file_mtime",
+        "window": {"start": start, "end": end},
+        "classification": "candidate",
+        "author_verified": False,
+        "change_time_verified": False,
+        "files": files,
+        "excluded": excluded,
+    }, None
 
 
 def collect_git(config: dict[str, Any], start: str, end: str) -> tuple[list[Any], list[str]]:
     results, errors = [], []
+    start_dt, end_dt = dt.datetime.fromisoformat(start), dt.datetime.fromisoformat(end)
     for index, repo in enumerate(config.get("git_repositories", [])):
         path = Path(str(repo.get("path", ""))).expanduser()
-        for branch in repo.get("branches", []):
-            argv = ["git", "-C", str(path), "log", str(branch), "--since=" + start,
-                    "--until=" + end, "--date=iso-strict", "--pretty=format:%H%x09%ad%x09%an%x09%s"]
+        try:
+            branches = discover_branches(repo)
+        except ValueError as exc:
+            errors.append(f"git[{index}] {path}: {exc}")
+            continue
+        emails = {e.casefold() for e in repo.get("author_emails", [])}
+        seen = {}
+        for branch in branches:
+            argv = ["git", "--no-optional-locks", "-C", str(path), "log",
+                    "--since-as-filter=" + start, "--until=" + end,
+                    "--pretty=format:%H%x09%aI%x09%an%x09%ae%x09%cI%x09%s", branch["ref"], "--"]
             code, stdout, stderr = run_argv(argv)
-            item = {"repository": str(path), "branch": branch, "commits": []}
+            item = {"repository": str(path), **branch, "commits": [], "duplicate_commit_ids": [],
+                    "ref_source": "local_git_refs", "time_basis": "committer_date"}
             if code:
-                errors.append(f"git[{index}] {path} {branch}: 退出码 {code}: {scrub_text(stderr)[:500]}")
+                errors.append(f"git[{index}] {path} {branch['branch']}: 退出码 {code}: {scrub_text(stderr)[:500]}")
             else:
                 for line in stdout.splitlines():
-                    fields = line.split("\t", 3)
-                    if len(fields) == 4:
-                        item["commits"].append(dict(zip(("commit", "date", "author", "subject"), fields)))
+                    fields = line.split("\t", 5)
+                    if len(fields) != 6:
+                        errors.append(f"git[{index}] {branch['branch']}: 提交记录格式无效")
+                        continue
+                    commit = dict(zip(("commit", "date", "author", "author_email", "committed_at", "subject"), fields))
+                    try:
+                        stamp = dt.datetime.fromisoformat(commit["committed_at"])
+                        in_window = start_dt <= stamp < end_dt
+                    except (ValueError, TypeError):
+                        errors.append(f"git[{index}] {commit['commit']}: 提交时间无效")
+                        continue
+                    if not in_window or (emails and commit["author_email"].casefold() not in emails):
+                        continue
+                    if repo.get("deduplicate_commits", True) and commit["commit"] in seen:
+                        seen[commit["commit"]]["branches"].append(branch["branch"])
+                        item["duplicate_commit_ids"].append(commit["commit"])
+                        continue
+                    commit["branches"] = [branch["branch"]]
+                    item["commits"].append(commit)
+                    seen[commit["commit"]] = commit
             results.append(item)
+        uncommitted, uncommitted_error = collect_uncommitted(repo, start, end)
+        if uncommitted_error:
+            errors.append(f"git[{index}] {path}: {uncommitted_error}")
+        elif uncommitted is not None:
+            results.append(uncommitted)
     return results, errors
 
 
+def cmd_git_preview(args: argparse.Namespace) -> int:
+    """Read-only Git validation, no other sources, no output files."""
+    config = load_config(args.workdir)
+    start, end = window(config)
+    records, errors = collect_git(config, start, end)
+    summary = [{"repository": r["repository"], "branch": r.get("branch"), "kind": r["kind"],
+                "commits": len(r.get("commits", [])), "duplicates": len(r.get("duplicate_commit_ids", [])),
+                "uncommitted_files": len(r.get("files", [])), "uncommitted_excluded": len(r.get("excluded", []))}
+               for r in records]
+    print(json.dumps({"status": "partial" if errors else "ok", "data": {
+        "window": {"start": start, "end": end}, "branches": summary,
+        "unique_commits": sum(len(r.get("commits", [])) for r in records), "errors": errors,
+        "uncommitted_collected": any(r.get("source") == "uncommitted" for r in records)}}, ensure_ascii=False))
+    return 3 if errors else 0
+
+
 def session_files(root: Path) -> list[Path]:
+    """List only pi's persisted JSONL sessions, never arbitrary project JSON."""
     if not root.is_dir():
         return []
-    return [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in {".jsonl", ".json"}]
+    return sorted(p for p in root.rglob("*.jsonl") if p.is_file())
 
 
 def extract_session_time(value: Any) -> dt.datetime | None:
@@ -248,35 +577,132 @@ def extract_session_time(value: Any) -> dt.datetime | None:
     return None
 
 
+def normalized_path(value: str | Path) -> str:
+    return os.path.normcase(os.path.normpath(str(Path(value).expanduser().resolve(strict=False))))
+
+
+def discover_agent_workspaces(config: dict[str, Any]) -> tuple[list[Path], list[str]]:
+    """Refresh configured worktrees without changing refs, branches, or files."""
+    names = config.get("agent_workspaces", [])
+    if not isinstance(names, list) or any(not isinstance(name, str) or not name.strip() for name in names):
+        return [], ["Agent 工作空间配置无效"]
+    paths: dict[str, Path] = {}
+    for name in names:
+        path = Path(name).expanduser()
+        paths[normalized_path(path)] = path
+    discovery = config.get("agent_workspace_discovery", {})
+    errors: list[str] = []
+    if discovery.get("include_all_registered_worktrees", False):
+        repository = discovery.get("repository")
+        if not isinstance(repository, str) or not repository.strip():
+            errors.append("Agent worktree 发现缺少 repository")
+        else:
+            repo = Path(repository).expanduser()
+            code, stdout, stderr = run_argv([
+                "git", "--no-optional-locks", "-C", str(repo), "worktree", "list", "--porcelain"
+            ])
+            if code:
+                errors.append("Agent worktree 发现失败：" + scrub_text(stderr)[:500])
+            else:
+                current: Path | None = None
+                for line in stdout.splitlines() + [""]:
+                    if line.startswith("worktree "):
+                        current = Path(line[9:].strip())
+                    elif not line.strip() and current is not None:
+                        if current.is_dir():
+                            paths[normalized_path(current)] = current
+                        current = None
+    return [paths[key] for key in sorted(paths)], errors
+
+
+def session_root(config: dict[str, Any]) -> Path:
+    configured = config.get("agent_session_dir")
+    if isinstance(configured, str) and configured.strip():
+        return Path(configured).expanduser()
+    from_environment = os.environ.get("PI_CODING_AGENT_SESSION_DIR")
+    if from_environment:
+        return Path(from_environment).expanduser()
+    return Path.home() / ".pi" / "agent" / "sessions"
+
+
+def session_text(message: dict[str, Any]) -> str:
+    role = message.get("role")
+    if role in {"user", "assistant"}:
+        content = message.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "\n".join(
+                block.get("text", "") for block in content
+                if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
+            )
+    return ""
+
+
+def session_record(entry: dict[str, Any], stamp: dt.datetime) -> dict[str, Any] | None:
+    if entry.get("type") == "message" and isinstance(entry.get("message"), dict):
+        message = entry["message"]
+        if message.get("role") not in {"user", "assistant"}:
+            return None
+        text = session_text(message)
+        kind = message.get("role")
+    elif entry.get("type") in {"compaction", "branch_summary"}:
+        text = entry.get("summary", "")
+        kind = entry.get("type")
+    else:
+        return None
+    if not isinstance(text, str) or not text.strip():
+        return None
+    return {"time": stamp.isoformat(), "type": kind, "text": scrub_text(text)[:4000]}
+
+
+def read_pi_session(path: Path, workspaces: dict[str, Path], start_dt: dt.datetime,
+                    end_dt: dt.datetime) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        with path.open("r", encoding="utf-8-sig", errors="strict") as stream:
+            first = stream.readline()
+            header = json.loads(first)
+            if not isinstance(header, dict) or header.get("type") != "session":
+                return None, None
+            cwd = header.get("cwd")
+            if not isinstance(cwd, str) or normalized_path(cwd) not in workspaces:
+                return None, None
+            selected: list[dict[str, Any]] = []
+            for line in stream:
+                if not line.strip():
+                    continue
+                entry = json.loads(line)
+                if not isinstance(entry, dict):
+                    raise ValueError("会话条目必须是对象")
+                stamp = extract_session_time(entry.get("timestamp"))
+                if stamp and start_dt <= stamp < end_dt:
+                    item = session_record(entry, stamp)
+                    if item:
+                        selected.append(item)
+        if not selected:
+            return None, None
+        return {"session_id": header.get("id", ""), "workspace": str(workspaces[normalized_path(cwd)]),
+                "file": str(path), "records": selected}, None
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return None, f"pi 会话文件解析失败 {path}：{type(exc).__name__}"
+
+
 def collect_sessions(config: dict[str, Any], start: str, end: str) -> tuple[list[Any], list[str]]:
     start_dt = dt.datetime.fromisoformat(start)
     end_dt = dt.datetime.fromisoformat(end)
-    results, errors = [], []
-    for root_name in config.get("agent_workspaces", []):
-        root = Path(str(root_name)).expanduser()
-        for path in session_files(root):
-            try:
-                records = []
-                if path.suffix.lower() == ".jsonl":
-                    records = [json.loads(line) for line in path.read_text(encoding="utf-8-sig", errors="strict").splitlines() if line.strip()]
-                else:
-                    loaded = json.loads(path.read_text(encoding="utf-8-sig", errors="strict"))
-                    records = loaded if isinstance(loaded, list) else [loaded]
-                selected = []
-                for record in records:
-                    stamp = None
-                    if isinstance(record, dict):
-                        for key in ("timestamp", "time", "createdAt", "created_at", "date"):
-                            stamp = extract_session_time(record.get(key))
-                            if stamp:
-                                break
-                    if stamp and start_dt <= stamp < end_dt:
-                        selected.append({"time": stamp.isoformat(), "type": record.get("type") if isinstance(record, dict) else None,
-                                         "text": scrub_text(json.dumps(record, ensure_ascii=False))[:4000]})
-                if selected:
-                    results.append({"workspace": str(root), "file": str(path), "records": selected})
-            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-                errors.append(f"会话文件解析失败 {path}: {exc}")
+    roots, errors = discover_agent_workspaces(config)
+    workspaces = {normalized_path(root): root for root in roots}
+    results: list[Any] = []
+    root = session_root(config)
+    if not root.is_dir():
+        errors.append("pi 会话目录不存在；无法确认会话来源完整性")
+        return results, errors
+    for path in session_files(root):
+        record, error = read_pi_session(path, workspaces, start_dt, end_dt)
+        if error:
+            errors.append(error)
+        elif record:
+            results.append(record)
     return results, errors
 
 
@@ -287,7 +713,9 @@ def run_dir(workdir: Path, end: str) -> Path:
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def cmd_collect(args: argparse.Namespace) -> int:
@@ -444,40 +872,238 @@ def install_windows_task(config: dict[str, Any], workdir: Path, time_value: str)
     return True, json.dumps(preview, ensure_ascii=False)
 
 
+def query_windows_task(name: str) -> tuple[dict[str, Any], str | None]:
+    """只读取 Windows 任务计划程序状态；不注册、不修改、不删除任务。"""
+    script = "\n".join([
+        "$ErrorActionPreference = 'Stop'",
+        f"$t = Get-ScheduledTask -TaskName {ps_quote(name)} -TaskPath '\\' -ErrorAction Stop",
+        f"$i = Get-ScheduledTaskInfo -TaskName {ps_quote(name)} -TaskPath '\\' -ErrorAction Stop",
+        "$o = [pscustomobject]@{",
+        "  State = [string]$t.State",
+        "  LogonType = [string]$t.Principal.LogonType",
+        "  RunLevel = [string]$t.Principal.RunLevel",
+        "  StartWhenAvailable = [bool]$t.Settings.StartWhenAvailable",
+        "  LastRunTime = $(if ($i.LastRunTime) { $i.LastRunTime.ToString('o') } else { $null })",
+        "  NextRunTime = $(if ($i.NextRunTime) { $i.NextRunTime.ToString('o') } else { $null })",
+        "  LastTaskResult = $i.LastTaskResult",
+        "}",
+        "$o | ConvertTo-Json -Compress",
+    ])
+    import base64
+    code, stdout, stderr = run_argv(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-EncodedCommand", base64.b64encode(script.encode("utf-16le")).decode("ascii")], timeout=60)
+    if code:
+        # 任务不存在是状态，不是查询失败；其它失败不保留原始输出。
+        if "No MSFT_ScheduledTask" in (stderr or ""):
+            return {"registered": False, "state": "not-installed"}, None
+        return {"registered": False}, "查询 Windows 任务状态失败；未保留原始错误"
+    try:
+        raw = json.loads(stdout[stdout.find("{"):])
+    except (ValueError, TypeError):
+        return {"registered": False}, "Windows 任务状态输出无法解析"
+    if not isinstance(raw, dict):
+        return {"registered": False}, "Windows 任务状态输出结构无效"
+    mapping = {"State": "state", "LogonType": "logon_type", "RunLevel": "run_level",
+               "StartWhenAvailable": "start_when_available", "LastRunTime": "last_run_time",
+               "NextRunTime": "next_run_time", "LastTaskResult": "last_task_result"}
+    info: dict[str, Any] = {mapping[k]: raw[k] for k in mapping if k in raw}
+    info["registered"] = True
+    last = info.get("last_run_time")
+    info["never_run"] = not isinstance(last, str) or not last or last.startswith("1899-12-30")
+    return info, None
+
+
+def cmd_schedule_status(args: argparse.Namespace) -> int:
+    """只读核对定时任务：本地标记 + 实际注册状态 + 最近一次执行结果。"""
+    try:
+        config = load_config(args.workdir)
+        name = windows_task_name(config)
+    except ValueError as exc:
+        return fail(2, str(exc), "修正 config.json 后重试")
+    marker = base_dir(args.workdir) / "schedule.json"
+    status: dict[str, Any] = {"task_name": name, "marker_file": str(marker), "marker": None}
+    if marker.is_file():
+        try:
+            recorded = json.loads(marker.read_text(encoding="utf-8-sig"))
+            status["marker"] = recorded if isinstance(recorded, dict) else None
+        except (OSError, json.JSONDecodeError):
+            status["marker"] = None
+    if os.name != "nt":
+        status["error"] = "Windows 原生任务状态只能在 Windows Python 下查询"
+        print(json.dumps({"status": "partial", "data": status}, ensure_ascii=False))
+        return 3
+    info, error = query_windows_task(name)
+    status.update(info)
+    if error:
+        status["error"] = error
+        print(json.dumps({"status": "partial", "data": status}, ensure_ascii=False))
+        return 3
+    return ok(status)
+
+
+def format_agent_command(command: Any, run: Path) -> tuple[list[str] | None, str | None]:
+    if not isinstance(command, list) or not command or any(not isinstance(part, str) or not part.strip() for part in command):
+        return None, "agent_command 必须是非空字符串数组"
+    try:
+        argv = [part.format(run_dir=str(run), skill_dir=str(Path(__file__).resolve().parents[1])) for part in command]
+    except (KeyError, ValueError, IndexError):
+        return None, "agent_command 占位符无效"
+    missing = [flag for flag in AGENT_SAFETY_FLAGS if flag not in argv]
+    if missing:
+        return None, "agent_command 缺少安全参数：" + ", ".join(missing)
+    return argv, None
+
+
+def validate_agent_output(output: str) -> tuple[str | None, str | None]:
+    if not output or len(output) > 300_000:
+        return None, "AI 总结输出为空或超过 300000 字符"
+    body = output.strip()
+    if (any(marker not in body for marker in AGENT_REQUIRED_MARKERS)
+            or "待填写" in body or "work/" not in body
+            or "待用户审核" not in body):
+        return None, "AI 总结未完成草稿必填内容或缺少 work/ 来源引用"
+    return body + "\n", None
+
+
+def prepare_agent_input(run: Path) -> dict[str, Any]:
+    """Bounded evidence projection; full evidence remains in work/*.json."""
+    from collections import Counter
+    from dingtalk_query import excerpt
+    work = run / "work"
+    data = {name: json.loads((work / (name + '.json')).read_text(encoding='utf-8'))
+            for name in ('manifest', 'dingtalk', 'zentao', 'git', 'sessions', 'errors')}
+    git_data = []
+    for original in data['git']:
+        row = dict(original)
+        excluded = row.pop('excluded', [])
+        if excluded:
+            row['excluded_count'] = len(excluded)
+            row['excluded_reasons'] = dict(Counter(x.get('reason', 'unknown') for x in excluded))
+        git_data.append(row)
+    data['git'] = git_data
+    truncations = {'sessions': 0, 'dingtalk': 0}
+    for name, budget in (('sessions', 110000), ('dingtalk', 60000)):
+        used = 0
+        if name == 'sessions':
+            for session in data[name]:
+                selected = []
+                for original in session['records']:
+                    row = dict(original)
+                    row['text'] = excerpt(row['text'])
+                    row['content_is_untrusted_data'] = True
+                    size = len(json.dumps(row, ensure_ascii=False))
+                    if used + size > budget:
+                        truncations[name] += 1
+                    else:
+                        selected.append(row)
+                        used += size
+                session['records'] = selected
+        else:
+            selected = []
+            for row in data[name].get('records', []):
+                size = len(json.dumps(row, ensure_ascii=False))
+                if used + size > budget:
+                    truncations[name] += 1
+                else:
+                    selected.append(row)
+                    used += size
+            data[name]['records'] = selected
+    bundle = {'content_is_untrusted_data': True, 'source_files': {name: 'work/' + name + '.json' for name in data},
+              'manifest_semantics': 'sources=true means collection succeeded, not merely enabled; false means failed/incomplete',
+              'projection': {'omitted_records': truncations, 'text_excerpt_max_chars': 1000,
+                             'git_exclusions': 'counts_only; original work/git.json contains full exclusions',
+                             'session_semantics': 'all recorded branches; summaries may describe events outside window; not proof of actual changes'},
+              'sources': data}
+    # Apply heuristic redaction to all strings, not just chat/session bodies.
+    def redact(value):
+        if isinstance(value, str):
+            if re.search(r'password|passwd|secret|token|authorization|cookie|api[_-]?key|bearer|密码|口令|密钥|令牌|sk-[A-Za-z0-9]{12,}', value, re.I):
+                return '[敏感文本已省略]'
+            return value
+        if isinstance(value, list):
+            return [redact(x) for x in value]
+        if isinstance(value, dict):
+            return {k: redact(v) for k, v in value.items()}
+        return value
+    bundle = redact(bundle)
+    if len(json.dumps(bundle, ensure_ascii=False)) > 220000:
+        raise ValueError('总结证据超过安全预算；不能静默丢弃更多来源')
+    write_json(work / 'agent-input.json', bundle)
+    return bundle
+
+
+def cmd_notify_draft(args: argparse.Namespace) -> int:
+    run = Path(args.run).resolve()
+    draft = run / 'draft.md'
+    if not draft.is_file():
+        return fail(2, f'草稿不存在：{draft}', '先运行 draft-init 或 run-cycle 生成草稿')
+    body = draft.read_text(encoding='utf-8')
+    _, error = validate_agent_output(body)
+    if error:
+        return fail(3, error)
+    from dingtalk_notify import notify
+    state, error = notify(load_config(args.workdir)['dingtalk'], run, run_argv, write_json)
+    if error:
+        return fail(3, error)
+    return ok({'run_dir': str(run), 'notified_user': state['user_id'], 'delivered': state['delivered']})
+
+
 def cmd_run_cycle(args: argparse.Namespace) -> int:
-    # 该入口只完成确定性步骤；AI 总结和通知仍受配置与审核门禁控制。
-    collect_args = argparse.Namespace(workdir=args.workdir, run=None)
-    code = cmd_collect(collect_args)
-    if code not in (0, 3):
-        return code
-    # collect 输出为 JSON，但脚本接口不依赖 stdout 解析，按最新日期目录定位最新运行。
-    candidates = sorted((base_dir(args.workdir) / dt.datetime.now().strftime("%Y-%m-%d")).glob("*/work/manifest.json"))
-    if not candidates:
-        return fail(3, "采集完成但找不到运行目录", "检查 .agents/work-experience-accumulate 目录")
-    run = candidates[-1].parent.parent
-    draft_code = cmd_draft_init(argparse.Namespace(run=str(run), force=False))
-    if draft_code:
-        return draft_code
     config = load_config(args.workdir)
-    agent_command = config.get("agent_command", [])
-    if not agent_command:
-        return ok({"run_dir": str(run), "next": "agent_command 未配置；AI需补全草稿后发送通知"})
-    argv = [str(part).format(run_dir=str(run), skill_dir=str(Path(__file__).resolve().parents[1])) for part in agent_command]
-    agent_code, agent_out, agent_err = run_argv(argv, timeout=3600)
+    existing = getattr(args, 'run', None)
+    if existing:
+        run = Path(existing).expanduser().resolve()
+        if not run.is_relative_to(base_dir(args.workdir).resolve()):
+            return fail(2, '运行目录不在本项目采集目录内')
+    else:
+        _, end = window(config)
+        run = run_dir(args.workdir, end)
+        code = cmd_collect(argparse.Namespace(workdir=args.workdir, run=str(run)))
+        if code not in (0, 3):
+            return code
+    manifest_path = run / 'work' / 'manifest.json'
+    if not manifest_path.is_file():
+        return fail(2, f'运行目录缺少 work/manifest.json：{run}',
+                    '先用 collect --run <运行目录> 生成证据，再运行 run-cycle --run')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    try:
+        prepare_agent_input(run)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return fail(2, '证据投影失败：来源文件缺失或证据超过安全预算',
+                    '先重新采集；确认 work/ 下六个来源文件完整后再重试')
+    draft = run / 'draft.md'
+    if (run / 'approval.json').exists() or (run / 'work' / 'notification.json').exists():
+        return fail(2, '运行目录已审核或已尝试通知；禁止自动覆盖草稿')
+    if not draft.exists():
+        code = cmd_draft_init(argparse.Namespace(run=str(run), force=False))
+        if code:
+            return code
+    argv, error = format_agent_command(config.get('agent_command', []), run)
+    if error:
+        return fail(2, error)
+    agent_code, output, _ = run_argv(argv, cwd=args.workdir, timeout=3600)
     if agent_code:
-        return fail(3, "AI 草稿总结命令失败", scrub_text(agent_err)[:1000])
-    draft = run / "draft.md"
-    body = draft.read_text(encoding="utf-8") if draft.is_file() else ""
-    if not body or "待填写" in body:
-        return fail(3, "AI 总结未完成草稿必填内容", "检查 agent_command 是否按 skill 流程执行")
-    notify_command = config.get("dingtalk", {}).get("notify_command", [])
-    if not notify_command:
-        return fail(3, "缺少钉钉通知命令", "配置经验证的 dws 通知命令；不得猜测接收人 ID")
-    notify_argv = [str(part).format(user_id=config["dingtalk"]["notify_user_id"], text="沉淀草稿已经生成。", run_dir=str(run)) for part in notify_command]
-    notify_code, _, notify_err = run_argv(notify_argv)
-    if notify_code:
-        return fail(3, "草稿已生成但钉钉通知失败", scrub_text(notify_err)[:1000])
-    return ok({"run_dir": str(run), "draft": str(draft), "notified_user": config["dingtalk"]["notify_user_id"]})
+        return fail(3, 'AI 草稿总结命令失败；未保存原始错误')
+    body, error = validate_agent_output(output)
+    if error:
+        return fail(3, error)
+    if any(not value for value in manifest['sources'].values()):
+        failure = '、'.join(k for k, value in manifest['sources'].items() if not value)
+        body += '\n> 采集器复核：来源不完整：' + failure + '。不能将失败解释为空记录。\n'
+    tmp = draft.with_suffix('.tmp')
+    tmp.write_text(body, encoding='utf-8')
+    tmp.replace(draft)
+    if not getattr(args, 'no_notify', False):
+        code = cmd_notify_draft(argparse.Namespace(workdir=args.workdir, run=str(run)))
+        if code:
+            return code
+    result = {'run_dir': str(run), 'draft': str(draft), 'sources': manifest['sources'],
+              'notification_enabled': not getattr(args, 'no_notify', False)}
+    if not all(manifest['sources'].values()):
+        print(json.dumps({'status': 'partial', 'data': result}, ensure_ascii=False))
+        return 3
+    return ok(result)
 
 
 def cmd_schedule(args: argparse.Namespace) -> int:
@@ -508,12 +1134,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("config-status"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_config_status)
     p = sub.add_parser("config-save"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("assignment", nargs="+", help="dotted.path=value"); p.set_defaults(func=cmd_config_save)
+    p = sub.add_parser("dingtalk-preview"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_dingtalk_preview)
+    p = sub.add_parser("zentao-preview"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_zentao_preview)
+    p = sub.add_parser("git-preview"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_git_preview)
     p = sub.add_parser("collect"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run", default=None); p.set_defaults(func=cmd_collect)
-    p = sub.add_parser("run-cycle"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_run_cycle)
+    p = sub.add_parser("run-cycle"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run"); p.add_argument("--no-notify", action="store_true"); p.set_defaults(func=cmd_run_cycle)
+    p = sub.add_parser("notify-draft"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run", required=True); p.set_defaults(func=cmd_notify_draft)
     p = sub.add_parser("draft-init"); p.add_argument("--run", required=True); p.add_argument("--force", action="store_true"); p.set_defaults(func=cmd_draft_init)
     p = sub.add_parser("approve"); p.add_argument("--run", required=True); p.add_argument("--reviewer", required=True); p.set_defaults(func=cmd_approve)
     p = sub.add_parser("verify-approved"); p.add_argument("--run", required=True); p.set_defaults(func=cmd_verify)
     p = sub.add_parser("schedule"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--time"); p.add_argument("--confirm", action="store_true"); p.set_defaults(func=cmd_schedule)
+    p = sub.add_parser("schedule-status"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_schedule_status)
     return parser
 
 

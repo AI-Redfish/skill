@@ -1,6 +1,6 @@
 # 钉钉消息监听器（dingtalk_listen.py）使用指南
 
-全自动链路：**钉钉消息 → Agent 提取 bugId → 只读查询当前 confirmed → 仅未确认 Bug 进入 prepare（再次检查、查询禅道并分流）→ Agent 补全分析/方案及配套 HTML → 绑定模式 ready → 修复 → report/补全 → 绑定模式 finish 验证并单 Bug 提交 → 同步最终 HTML → 钉钉结果通知本人**。未匹配或规则冲突时仍创建独立 worktree，默认不提交。
+全自动链路：**钉钉消息 → Agent 提取 bugId → 只读查询当前 resolution（解决方案）→ 仅无解决方案的 Bug 进入 prepare（再次检查、查询禅道并分流）→ Agent 补全分析/方案及配套 HTML → 绑定模式 ready → 修复 → report/补全 → 绑定模式 finish 验证并单 Bug 提交 → 同步最终 HTML → 钉钉结果通知本人**。未匹配或规则冲突时仍创建独立 worktree，默认不提交。
 本文是 `scripts/dingtalk_listen.py` 的完整参考；速览见 SKILL.md「钉钉消息自动触发」。
 
 ## 架构
@@ -15,7 +15,7 @@ DWS_LISTEN_USERS / DWS_LISTEN_BOTS（routes.json config 名单）
         ▼
 dingtalk_listen.py 主控（纯标准库 Python）
   ├─ reader/poll 线程 × N：事件归一化 → 去重 → 事件队列(串行)
-  ├─ worker：Agent 提取意图 → 查询 confirmed（只允许未确认）→ 同步配置 → prepare 再检查/匹配 routes.json
+  ├─ worker：Agent 提取意图 → 查询 resolution（只允许无解决方案）→ 同步配置 → prepare 再检查/匹配 routes.json
   │    → 绑定已有工作区或新 worktree → Agent 分析/修复/报告 → 绑定分支 finish 提交
   │    → 验证本次 run_id、完整报告、绑定模式 commit；占用任务持久排队
   │    → 跳过/成功/失败/首次等待结果通知本人；通知失败持久化补发
@@ -24,8 +24,8 @@ dingtalk_listen.py 主控（纯标准库 Python）
 
 ## 确认状态过滤与本人结果通知
 
-- 两自动入口共享 `run_auto_fix`。先读取当前禅道 API，不依赖历史缓存。`confirmed=0`、`"0"` 或 `unconfirmed` 表示未确认；`1`、`"1"` 或 `confirmed` 表示已确认。布尔、空值和未知值不放行。
-- 已确认 Bug 返回 `skipped_confirmed`，不同步目标配置、不创建 worktree、不生成修复报告。prepare 的 `--only-unconfirmed` 在写资料/下载截图前再次检查，防止首次查询后状态变化。该选项返回 9 表示已确认，10 表示状态未知。
+- 两自动入口共享 `run_auto_fix`。先读取当前禅道 API，不依赖历史缓存。`resolution` 为 `""`、空白或 `null` 表示未设置，可以处理；非空字符串表示已有解决方案，一律跳过；字段缺失、布尔值或其他类型视为未知，不放行。
+- 已有解决方案的 Bug 返回 `skipped_resolved`，不同步目标配置、不创建 worktree、不生成修复报告。prepare 默认在写资料/下载截图前再次检查（`skip_resolved=True`），防止首次查询后状态变化；返回 9 表示已设置，10 表示未知。人工强处理用 `--allow-resolved`。
 - 等待任务恢复和监听器 `retry` 也检查当前状态。手动 `bugfix.py` 不传该选项时保持原流程。不会自动确认 Bug，也不会撤销已有现场或锁。
 - 本文“定时拉取”指钉钉消息兜底轮询，不是禅道 Bug 定时扫描。
 - 用户已授权结果通知。使用 `dws auth status --format json` 取得启动时登录账户，通过 `chat +messages-send --as user --user <本人ID>` 单聊发送，并固定组织和账户。通知不发给消息来源机器人或其他人员。
@@ -34,13 +34,15 @@ dingtalk_listen.py 主控（纯标准库 Python）
 - 原子 `message_id` 占用防止 stream/poll 并发重复入队。通知使用稳定幂等键与本地 outbox；无法承诺跨系统绝对一次投递，服务端契约标记幂等能力为 unknown。
 - `.agents/logs/result-notifications.json` 在发送前持久化收件人和消息。失败记录保留，监听在线时每分钟补发。存在 `openTaskId` 时只查询 `+messages-query-send-status`，`sendStatus=SUCCESS` 才记为送达。查询失败不会重新发送。永久失败或账户失效需人工排障，不放宽收件人。
 - 通知失败不把已完成修复改为失败。`status.stats.last_fix.notification` 显示首次通知结果；后续补发以 outbox 的 `sent` 和 `status.notification_pending` 为准。
-- 参考：[dws 消息深度指南](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/blob/main/skills/multi/dingtalk-chat/references/chat.md)。借鉴官方 CLI 的身份选择、幂等键和异步投递查询。confirmed 映射依据本项目真实 API 数据；当前环境无法访问 GitHub 禅道源码，未声称在线核验其源码。
+- 参考：[dws 消息深度指南](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli/blob/main/skills/multi/dingtalk-chat/references/chat.md)。借鉴官方 CLI 的身份选择、幂等键和异步投递查询。resolution 字段（未解决为 `""`，已解决为 `fixed` 等）依据本项目真实 API 数据；当前环境无法访问 GitHub 禅道源码，未声称在线核验其源码。
 
 ## 修复位置、顺序提交与异常报告
 
 目标项目的 `.agents/zentao-bugfix/routes.json` 只支持 `bug_id` 精确匹配与 `title_contains` 普通子串匹配（英文忽略大小写），ID 优先。示例及完整约定见 [routing.md](routing.md)。无文件、无命中或同优先级规则冲突时默认创建独立 worktree。
 
 唯一匹配后使用配置的已有工作区和分支，不自动切分支或同步远端。每个 Bug 输出 `analysis.md/html`、`solution.md/html`、`fix-report.md/html` 三组报告。HTML 与 MD 同目录，由脚本从完整 MD 生成，离线可读；finish 追加 commit 后更新修复 HTML。监听器在会话正常结束后再次渲染并校验，缺失或过期 HTML 不算完成。status.last_fix 提供 html_reports 和 report_html，普通报告不自动打开浏览器。
+
+分析阶段除了实际修复工作区，还会只读分析目标项目 `routes.json` config 中 `FRONTEND_WORKSPACES` 指定的前端工作区，用于在 `analysis.md` 的「问题归属」章节给出 `**结论**: 前端问题 / 后端问题 / 前后端 / 待确认`。前端工作区只读：监听器和修复会话都不修改、不暂存、不提交、不切分支；`FRONTEND_WORKSPACES` 从目标项目读取，不在启动工作区与目标项目之间同步，留空时报告必须写明前端归属无法用本地代码验证。
 
 同一仓库/分支及同一工作区使用跨进程持久锁；前一个 Bug 验证并通过 finish 独立提交后才释放锁并处理下一个。禁止夹带已有开发改动，不自动 push。失败锁保留，后续等待任务存 `.agents/logs/pending-bugs.json`，监听重启后继续等待；其他可用工作区仍可处理。
 

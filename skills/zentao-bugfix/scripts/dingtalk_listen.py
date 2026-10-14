@@ -15,7 +15,7 @@
     → 消息交给本地 Agent（pi/codex/claude/custom）无头提取"是否修 bug + bugId"
     → 命中则由监听器执行 prepare，按目标项目 routes.json 的 Bug ID/标题规则分流
        到已有开发工作区或新 worktree；Agent 分析/修复/报告，绑定模式 finish 独立提交
-    → 命中后只读查询 confirmed，仅未确认 Bug 进入 prepare/修复
+    → 命中后只读查询 resolution，仅无解决方案的 Bug 进入 prepare/修复
     → 跳过、成功、失败结果写本地日志，并用 dws 单聊通知当前登录用户本人。
 
 配置（启动工作区 .agents/zentao-bugfix/routes.json 的 config 对象；所有值为字符串。
@@ -125,6 +125,9 @@ KEY_HELP = {
     "AGENT_MODEL": "Agent 模型（pi 用 provider/model，codex/claude 用模型名）",
     "AGENT_CUSTOM_CMD": "custom 适配器命令模板，占位符 {model} {prompt}",
     "BUGFIX_BASE_BRANCH": "worktree 基准分支（可选；优先级：显式参数 > routes.json config > 仓库当前分支）",
+    "FRONTEND_WORKSPACES": "前端只读分析工作区（可选，多个用英文逗号分隔）；"
+                           "用于在 analysis.md 中判定「前端问题还是后端问题」；"
+                           "只读，不是修复目标，不写入/不提交；从目标项目 routes.json 读取",
     "LISTEN_MODE": "监听模式 auto/stream/poll（默认 auto：推送+拉取双通道，自动互为兜底）",
     "POLL_INTERVAL_SECONDS": "拉取兜底轮询间隔秒数（默认 20）",
     "POLL_LOOKBACK_MINUTES": "兜底每轮重扫的「过去X分钟」窗口（默认 10；调大更抗丢消息）",
@@ -495,6 +498,12 @@ def build_fix_prompt(bug_id, base_branch=None, prepared=None):
                 "先补全 analysis.md 与 solution.md，禁止修改任何代码文件。mode=inplace 时先运行 "
                 "python %s ready %s --project %s，成功后才能依据 solution.md 实施修复。\n"
                 "读取 snapshot.dirty，禁止修改已有开发改动的文件。不得自行切分支、pull、stash、reset、commit 或 push。\n"
+                "分析阶段必须只读检查 routes.json 配置的 FRONTEND_WORKSPACES（前端工作区），并在 analysis.md 的"
+                "「问题归属」章节写出 `**结论**: 前端问题|后端问题|前后端|待确认`（附证据与置信度）；"
+                "前端仓库只读，不是本次修复目标，禁止修改、暂存或提交。\n"
+                "同时在「改动范围」行写出 `**改动范围**: 仅当前工作空间` 或 "
+                "`**改动范围**: 需要其他工作空间（本次不修改）`；默认只改当前工作空间，"
+                "根因在其他工作空间时只出报告，禁止修改其他工作空间代码。\n"
                 "运行 python %s report %s --project %s，补全 fix-report.md。\n"
                 "所有报告须有内容一致的 HTML。绑定模式 ready/finish 自动更新 HTML；worktree 模式补全分析/方案后 "
                 "运行 python %s render-html %s --project %s --analysis-only，修复报告补全后再运行同命令（去掉 --analysis-only）。\n"
@@ -510,7 +519,9 @@ def build_fix_prompt(bug_id, base_branch=None, prepared=None):
             "步骤：1) 运行 `python %s prepare %s%s --project .`（或 uv run --no-project 同命令）；"
             "2) 按 SKILL.md 先在 worktree 中只读分析代码，补全 analysis.md（完整分析报告）"
             "与 solution.md（解决方案），两份文档落盘在 worktree 的 .agents/zentao-bugfix/"
-            "<bugId>/ 下；此阶段禁止修改任何代码文件；"
+            "<bugId>/ 下；此阶段禁止修改任何代码文件；analysis.md 必须包含「问题归属」章节并给出"
+            "`**结论**: 前端问题|后端问题|前后端|待确认`（前端工作区 FRONTEND_WORKSPACES 只读分析，不是修复目标），"
+            "并用 `**改动范围**: 仅当前工作空间|需要其他工作空间（本次不修改）` 声明本次只改当前工作空间；"
             "3) 依据 solution.md 中的方案实施修复（禁止 commit/push）；"
             "4) 运行 report 子命令生成修复报告并补全（待填写）章节；"
             "5) 运行 render-html <bugId> --project . 更新三份对应 HTML，正文必须一致；绑定模式 finish 自动更新含提交结果的 HTML。"
@@ -590,11 +601,11 @@ def verify_run(bug_id, repo, run_id):
             "status": rec.get("status"), "commit": rec.get("commit")}
 
 
-def confirmation_state(value):
-    return _bug_api.confirmation_state(value)
+def resolution_state(bug):
+    return _bug_api.resolution_state(bug)
 
 
-def fetch_confirmation(bug_id):
+def fetch_resolution(bug_id):
     """Read current ZenTao state without caches, screenshots, reports or worktrees."""
     if not re.fullmatch(r"\d+", str(bug_id)):
         raise ValueError("Bug ID 必须为数字")
@@ -614,21 +625,21 @@ def fetch_confirmation(bug_id):
                 bug = data.get("bug") if isinstance(data, dict) else None
             if not isinstance(bug, dict) or str(bug.get("id")) != str(bug_id):
                 continue
-            state = confirmation_state(bug.get("confirmed"))
-            if state:
-                return {"confirmed": state, "bug_url": base + "/bug-view-%s.html" % bug_id}
+            state = resolution_state(bug)
+            if state in ("unset", "set"):
+                return {"resolution": state, "bug_url": base + "/bug-view-%s.html" % bug_id}
         except (OSError, ValueError, RuntimeError):
             # API errors may contain credentials or raw Bug text; never expose them.
             continue
-    raise RuntimeError("无法查询禅道确认状态，或 confirmed 字段缺失/未知；未开始修复")
+    raise RuntimeError("无法查询禅道解决方案状态，或 resolution 字段缺失/未知；未开始修复")
 
 
 def run_auto_fix(adapter, bug_id, repo, base_branch=None, reuse=False):
     try:
-        state = fetch_confirmation(bug_id)
-        if state["confirmed"] != "unconfirmed":
-            return dict(state, bug_id=bug_id, ok=False, status="skipped_confirmed",
-                        reason="Bug 已确认，自动入口仅处理未确认 Bug；未创建工作区或修复报告")
+        state = fetch_resolution(bug_id)
+        if state["resolution"] != "unset":
+            return dict(state, bug_id=bug_id, ok=False, status="skipped_resolved",
+                        reason="Bug 已有解决方案（Resolution 有值），自动入口跳过；未创建工作区或修复报告")
         result = _run_auto_fix(adapter, bug_id, repo, base_branch, reuse)
         for key, value in state.items():
             result.setdefault(key, value)
@@ -643,7 +654,7 @@ def _run_auto_fix(adapter, bug_id, repo, base_branch=None, reuse=False):
     prepare = [sys.executable, str(SKILL_DIR / "scripts" / "bugfix.py"), "prepare", str(bug_id)]
     if base_branch:
         prepare.append(base_branch)
-    prepare.extend(["--project", str(repo), "--current-workspace", str(BASE_DIR), "--only-unconfirmed"])
+    prepare.extend(["--project", str(repo), "--current-workspace", str(BASE_DIR)])
     if reuse:
         prepare.append("--reuse")
     try:
@@ -654,9 +665,9 @@ def _run_auto_fix(adapter, bug_id, repo, base_branch=None, reuse=False):
     write_log("fix-%s.log" % bug_id, "[PREPARE]\n" + proc.stdout + proc.stderr)
     if proc.returncode:
         if proc.returncode == 9:
-            return {"bug_id": bug_id, "ok": False, "status": "skipped_confirmed", "confirmed": "confirmed"}
+            return {"bug_id": bug_id, "ok": False, "status": "skipped_resolved", "resolution": "set"}
         if proc.returncode == 10:
-            return {"bug_id": bug_id, "ok": False, "status": "blocked", "error": "prepare 时确认状态缺失或未知，未开始修复"}
+            return {"bug_id": bug_id, "ok": False, "status": "blocked", "error": "prepare 时 resolution 字段缺失或未知，未开始修复"}
         rec = _routes.load_record(repo, bug_id) or {}
         if proc.returncode == 4:
             return {"bug_id": bug_id, "ok": False, "status": "duplicate", "error": "Bug 已处理或仍在处理中"}
@@ -829,11 +840,11 @@ class ResultNotifier:
             return {"sent": bool(entry.get("sent")), "key": key, "error": entry.get("error")}
         if not self.recipient:
             self.bind_current_user()
-        skipped = outcome in ("skipped_confirmed", "duplicate")
+        skipped = outcome in ("skipped_resolved", "duplicate")
         label = "已跳过" if skipped else ("处理成功" if result.get("ok") else ("等待工作区释放" if outcome == "waiting" else "处理失败"))
         lines = [NOTICE_PREFIX, "Bug #%s：%s" % (result.get("bug_id", "未知"), label), "状态：" + outcome]
-        if outcome == "skipped_confirmed":
-            lines.append("Bug 已确认。仅处理未确认 Bug，本次未创建工作区或修复报告。")
+        if outcome == "skipped_resolved":
+            lines.append("Bug 已有解决方案（Resolution 有值）。本次未创建工作区或修复报告。")
         elif outcome == "duplicate":
             lines.append("Bug 已处理或仍在处理中，本次未重复修复。")
         elif not result.get("ok"):
@@ -1025,7 +1036,7 @@ class Listener:
         self.worker_ids = deque(maxlen=PROCESSED_MAX)
 
     def _publish_result(self, result, job_key):
-        if result.get("status") in ("skipped_confirmed", "duplicate"):
+        if result.get("status") in ("skipped_resolved", "duplicate"):
             self.stats["skipped"] += 1
         elif result.get("status") != "waiting":
             self.stats["fix_ok" if result.get("ok") else "fix_fail"] += 1
@@ -1832,6 +1843,7 @@ def cmd_stop(_args):
 def cmd_config_status(_args):
     cfg = load_config()
     optional = ["DWS_LISTEN_BOTS", "BUGFIX_BASE_BRANCH", "TARGET_PROJECT_PATH",
+                "FRONTEND_WORKSPACES",
                 "AGENT_TYPE", "AGENT_MODEL", "AGENT_CUSTOM_CMD", "LISTEN_MODE",
                 "POLL_INTERVAL_SECONDS", "POLL_LOOKBACK_MINUTES",
                 "POLL_MAX_CATCHUP_MINUTES", "LISTEN_AUTOSTART"]
