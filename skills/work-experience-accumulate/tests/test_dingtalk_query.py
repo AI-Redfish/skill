@@ -62,6 +62,142 @@ def row_at(message_id, day, hour, **changes):
     return row(messageId=message_id, time=text, createTime=text, **changes)
 
 
+class TestListAllFallback(unittest.TestCase):
+    """search 形状失败后的跨接口兑底：message list-all（本地时间格式）。"""
+
+    TZ = dt.timezone(dt.timedelta(hours=8))
+
+    @staticmethod
+    def envelope(messages, **paging_changes):
+        paging = {"hasMore": False, "pages": 1, "requestSatisfied": True,
+                  "sourceExhausted": True, "truncated": False, "total": len(messages)}
+        paging.update(paging_changes)
+        return json.dumps({"success": True, "arguments": [], "paging": paging,
+                           "result": {"conversationMessagesList": [
+                               {"openConversationId": "cid1", "messages": messages}],
+                               "hasMore": False, "nextCursor": ""}})
+
+    @staticmethod
+    def message(mid, minute, **changes):
+        value = {"messageId": mid, "conversationId": "cid1", "senderId": "u1",
+                 "createTime": "2025-01-02 09:%02d:00" % minute, "text": "hello"}
+        value.update(changes)
+        return value
+
+    def test_search_failure_falls_back_to_list_all(self):
+        calls = []
+
+        def runner(argv, cwd=None, timeout=None):
+            calls.append(argv)
+            if argv[1] == "auth":
+                return 0, json.dumps(AUTH), ""
+            if argv[2] == "message":
+                return 0, self.envelope([self.message("m1", 10)]), ""
+            return 1, "", SHAPE_ERROR
+
+        data, error = dq.collect(SOURCE, START, END, runner)
+        self.assertIsNone(error)
+        self.assertTrue(data["complete"])
+        self.assertEqual(data["collection_strategy"], "list_all")
+        self.assertEqual(data["records"][0]["message_id"], "m1")
+        self.assertEqual(data["records"][0]["time"], "2025-01-02T01:10:00+00:00")
+        la = next(a for a in calls if a[2] == "message")
+        self.assertIn("2025-01-02 08:00:00", la)          # 本地时间格式
+        self.assertIn("2025-01-03 08:00:00", la)
+        self.assertIn("--no-reactions", la)
+
+    @patch("dingtalk_query.time.sleep")
+    def test_incomplete_or_mismatched_list_all_is_not_complete(self, sleep):
+        for changes in ({"truncated": True}, {"total": 5}, {"requestSatisfied": False}):
+            with self.subTest(changes=changes):
+                def runner(argv, cwd=None, timeout=None):
+                    if argv[1] == "auth":
+                        return 0, json.dumps(AUTH), ""
+                    if argv[2] == "message":
+                        return 0, self.envelope([self.message("m1", 10)], **changes), ""
+                    return 1, "", SHAPE_ERROR
+                data, error = dq.collect(SOURCE, START, END, runner)
+                self.assertFalse(data["complete"])
+                self.assertEqual(data["collection_strategy"], "list_all")
+                self.assertTrue(error)
+                self.assertEqual(len(data["records"]), 1)
+
+    @patch("dingtalk_query.time.sleep")
+    def test_bad_envelope_fails_closed_and_falls_back_to_split(self, sleep):
+        calls = []
+
+        def runner(argv, cwd=None, timeout=None):
+            calls.append(argv)
+            if argv[1] == "auth":
+                return 0, json.dumps(AUTH), ""
+            if argv[2] == "message":
+                return 0, '{"success": true}', ""
+            if argv[1] == "chat" and argv[2] == "+search-msg":
+                start = argv[argv.index("--start") + 1]
+                end = argv[argv.index("--end") + 1]
+                if start == START and end == END:
+                    return 1, "", SHAPE_ERROR
+            # 分窗切片：全部失败
+            return 1, "", SHAPE_ERROR
+
+        data, error = dq.collect(SOURCE, START, END, runner)
+        self.assertFalse(data["complete"])
+        self.assertEqual(data["records"], [])
+        self.assertIn("无法判断结果是否为空", error)
+        self.assertTrue(any(a[2] == "message" for a in calls))   # 确实尝试过兑底
+
+    @patch("dingtalk_query.time.sleep")
+    def test_timezone_mismatch_blocks_list_all_fallback(self, sleep):
+        source = dict(SOURCE, message_timezone="+05:00")
+        calls = []
+
+        def runner(argv, cwd=None, timeout=None):
+            calls.append(argv)
+            if argv[1] == "auth":
+                return 0, json.dumps(AUTH), ""
+            if argv[2] == "message":
+                return 0, self.envelope([self.message("m1", 10)]), ""
+            return 1, "", SHAPE_ERROR
+
+        data, error = dq.collect(source, START, END, runner)
+        self.assertFalse(any(a[2] == "message" for a in calls))  # 时区不一致直接不调用
+        self.assertFalse(data["complete"])
+
+    def test_normalize_list_all_dedups_skips_and_redacts(self):
+        messages = [self.message("m1", 10), self.message("m1", 12),
+                    self.message("m2", 30, text="password=private hello"),
+                    self.message("m3", 0, createTime="2025-01-03 09:00:00")]
+        data = dq._normalize_list_all(self.envelope(messages), SOURCE, START, END, self.TZ)
+        self.assertEqual([r["message_id"] for r in data["records"]], ["m1", "m2"])
+        self.assertEqual(data["duplicates_skipped"], 1)
+        self.assertEqual(data["outside_window_skipped"], 1)
+        self.assertNotIn("private", json.dumps(data))
+        self.assertTrue(data["complete"])
+        self.assertEqual(data["paging_total"], 4)
+        self.assertEqual(data["returned_count"], 4)
+
+    def test_normalize_list_all_fails_closed_on_unknown_envelope(self):
+        bad = [None, [], '{"success":false}', '{"success":true}',
+               json.dumps({"success": True, "paging": {}}),
+               json.dumps({"success": True, "paging": {"hasMore": False,
+                           "requestSatisfied": "x", "sourceExhausted": True,
+                           "truncated": False, "total": 0, "pages": 1},
+                           "result": {"conversationMessagesList": []}}),
+               json.dumps({"success": True, "paging": {"hasMore": False,
+                           "requestSatisfied": True, "sourceExhausted": True,
+                           "truncated": False, "total": -1, "pages": 1},
+                           "result": {"conversationMessagesList": []}}),
+               json.dumps({"success": True, "paging": {"hasMore": False,
+                           "requestSatisfied": True, "sourceExhausted": True,
+                           "truncated": False, "total": 0, "pages": 1},
+                           "result": {"conversationMessagesList": [{"messages": "x"}]}}),
+               self.envelope([self.message(None, 10)])]
+        for raw in bad:
+            with self.subTest(raw=str(raw)[:40]):
+                with self.assertRaises(dq.QueryError):
+                    dq._normalize_list_all(raw, SOURCE, START, END, self.TZ)
+
+
 class DingtalkSplitWindowTests(unittest.TestCase):
     """宽窗口触发下游字段缺失时，按有界子窗口覆盖同一区间并合并。
 
@@ -96,6 +232,9 @@ class DingtalkSplitWindowTests(unittest.TestCase):
                 calls.append(argv)
             if argv[1] == "auth":
                 return 0, json.dumps(AUTH), ""
+            if argv[2] == "message":
+                # list-all 兑底不可用，逼出分窗路径
+                return 1, "", '{"error":{"category":"api","message":"list-all unavailable"}}'
             start = argv[argv.index("--start") + 1]
             end = argv[argv.index("--end") + 1]
             if start == START and end == END:

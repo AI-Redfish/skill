@@ -2,6 +2,8 @@
 
 配置文件：`<workdir>/.agents/work-experience-accumulate/config.json`。
 
+`collect` 与 `dingtalk-preview` 支持可选 `--start/--end`（RFC3339 含时区，必须同时提供且 start 早于 end）：定时采集失败后对同一历史窗口补采。不传时用默认回溯窗口，行为不变。
+
 账号、密码和令牌不写入此文件。敏感值放在 `<workdir>/.agents/.env`，键名由外部适配器约定。
 
 ```json
@@ -119,7 +121,7 @@
 - 固定调用 `chat +search-msg --page-all --order asc --no-reactions --start <start> --end <end> --profile <profile> --format json`。每次进程超时 600 秒，不循环轮询。
 - 校验 `im.message-list.v1`、响应窗口、分页标记、失败及警告数量。退出码 0 不等于完整；结果截断或富化失败会标记来源失败，同时保留可验证的已取得记录。非零退出码或结构异常时不保存原始响应。
 - 按 `(conversationId, messageId)` 去重，并再次筛选 `[start, end)`。只保存稳定标识、UTC 时间和最多 1,000 字符脱敏摘录。
-- 降级采集（`collection_strategy=split`）时输出 `sub_windows` 与 `failed_windows`；只要存在失败切片，`complete=false`，不得把缺失区间当作空记录。
+- 降级采集时输出 `collection_strategy`：`single`（主入口一次成功）、`split`（子窗口切片，附 `sub_windows` 与 `failed_windows`）或 `list_all`（跨接口兑底成功，附 `paging_total`）。任何策略下只要有失败切片或完整性标记异常，`complete=false`，不得把缺失区间当作空记录。
 - `dingtalk.json` 记录 `complete`、分页及排除数量、`records`。记录字段为 `message_id`、`conversation_id`、`sender_id`、`time`、`excerpt` 和 `content_is_untrusted_data`。
 - 不保存姓名、未知消息字段、原始错误或 ledger 原文。脱敏是启发式处理，不是私密信息安全保证；草稿仍须人工审核。
 - `dingtalk-preview --workdir <workdir>` 只输出安全统计，不保存消息，不发送通知。

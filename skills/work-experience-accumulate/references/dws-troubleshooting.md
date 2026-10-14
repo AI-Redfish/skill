@@ -34,24 +34,31 @@
 - **不是窗口过大**：窄窗口（40 分钟）同样失败；宽窗口（24 小时）也常成功。
 - **不是 dws Skill 安装残留**：完成 `multi` 迁移后仍复现（见事实 4）。
 - **不是本 skill 的解析问题**：失败发生在 dws 进程内，退出码 1，本 skill 未参与解析。
-- **不要改用 `chat message list-all` 来“修”这个问题**：同账号同时段对照中，
-  `chat message list-all`（`--start/--end` 传 RFC3339 带偏移）返回
-  `success=true`、`result.conversationMessagesList=[]`、`paging.total=0`、
-  `paging.sourceExhausted=true`，而 `+search-msg` 在同一窗口能找到消息。
-  即 `list-all` 的空列表**不能作为“该窗口没有消息”的依据**；`--page-all` 还观测到长时间不返回。
+- **不要用 RFC3339 带偏移的时间去调 `message list-all`**：它会静默返回空结果
+  （`success=true`、`conversationMessagesList=[]`、`paging.total=0`、`sourceExhausted=true`），
+  不报错。最初「list-all 不可用」的结论就是这个误用造成的，已更正。
+- **`message list-all` 必须用本地 `yyyy-MM-dd HH:mm:ss` 格式**，此时它是有效的跨接口兑底：
+  24h 窗口实测 225 条/23 会话/4 页；与 `+search-msg` 同窗口对照 3 轮，两边消息数完全一致
+  （209/209/209 vs 209/209/209）。已实现为采集器的兑底入口（`collection_strategy=list_all`）。
+  注意它的时间按机器本地时区解析，所以采集器要求机器本地时区与 `message_timezone` 一致，
+  否则拒绝使用该兑底。
 - **不要把该错误解释为“没有消息”**，也不要据此清空或覆盖已采集证据。
 
 ## 当前处置（已实现）
 
 1. **形状类失败有界退避重试**：`dingtalk.shape_retries`（0–3，默认 2），退避序列固定为 5s / 10s / 20s。
-2. **仍失败则宽窗口降级**：按 `dingtalk.fallback_window_hours`（默认 3）切分；失败的切片再二分
+2. **跨接口兑底**：改调 `chat message list-all`（本地时间格式，单次调用），
+   成功时 `collection_strategy=list_all`。它与 `+search-msg` 同窗口返回一致的消息数（已对照验证）。
+3. **仍失败则宽窗口降级**：按 `dingtalk.fallback_window_hours`（默认 3）切分；失败的切片再二分
    `dingtalk.split_max_depth`（默认 2）次；切片查询总数封顶 `2 × dingtalk.max_sub_windows`（默认 12）。
    合并时按 `(conversationId, messageId)` 去重，任一失败都保留已取得证据并标 `complete=false`。
-3. **熔断**：降级过程中若连续 ≥ 8 次查询都是形状失败且尚未拿到任何切片，
+4. **熔断**：降级过程中若连续 ≥ 8 次查询都是形状失败且尚未拿到任何切片，
    判定上游处于故障时段，停止剩余切片；避免对已降级的上游继续无效调用。
-4. **服务端指示的重试只做一次**：仅当 dws 明确给出 `retryable=true` 时按
+5. **服务端指示的重试只做一次**：仅当 dws 明确给出 `retryable=true` 时按
    `retry_after_seconds` / `next_retry_at` 等待一次；不进入上面的退避序列。
-5. **失败关闭**：最终仍失败时 `sources.dingtalk=false`、`complete=false`，草稿必须披露来源失败。
+6. **失败关闭**：最终仍失败时 `sources.dingtalk=false`、`complete=false`，草稿必须披露来源失败。
+7. **补采**：`collect` 与 `dingtalk-preview` 支持 `--start/--end`（RFC3339 含时区），
+   定时采集失败后可对同一历史窗口补采，避免窗口随时间滑动。
 
 ## 复现与验证命令
 
@@ -64,7 +71,15 @@ timeout -k 5 180 dws chat +search-msg --limit 30 --page-limit 40 --page-all \
   --profile <corpId:userId> --format json
 ```
 
-连续采样（判断是否处于故障时段，建议 ≥6 次）：
+连续采样（判断是否处于故障时段，建议 ≥6 次）可用采样脚本：
+
+```bash
+python dws_reliability_probe.py --workdir <workdir> --window-hours 24 --rounds 3 \
+    --entries search,list_all --out result.json
+```
+
+它对同一窗口交替采样 `+search-msg` 与 `message list-all`，输出各自成功次数、
+错误类别分布和消息数，用于对照两条入口的可靠性。也可手写循环：
 
 ```bash
 for i in 1 2 3 4 5 6; do

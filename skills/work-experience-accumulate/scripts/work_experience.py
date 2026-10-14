@@ -257,6 +257,26 @@ def cmd_config_save(args: argparse.Namespace) -> int:
     return ok({"config_file": str(config_path(args.workdir)), "missing": required_missing(config)})
 
 
+def explicit_window(start: str | None, end: str | None) -> tuple[str, str] | None:
+    """校验显式窗口；未提供时返回 None（沿用默认回溯窗口）。
+
+    用途：定时采集失败后，可对同一历史窗口补采，避免窗口随时间滑动。
+    """
+    if not start and not end:
+        return None
+    if not start or not end:
+        raise ValueError("--start 与 --end 必须同时提供")
+    def parse(value: str) -> dt.datetime:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("时间必须带时区偏移，例如 2026-10-14T04:00:00+00:00")
+        return parsed
+    begin, finish = parse(start), parse(end)
+    if begin >= finish:
+        raise ValueError("--start 必须早于 --end")
+    return begin.isoformat(), finish.isoformat()
+
+
 def window(config: dict[str, Any], now: dt.datetime | None = None) -> tuple[str, str]:
     current = now or dt.datetime.now(dt.timezone.utc)
     days = int(config.get("schedule", {}).get("lookback_days", 1))
@@ -301,6 +321,12 @@ def collect_dingtalk(config: dict[str, Any], start: str, end: str) -> tuple[Any,
 def cmd_dingtalk_preview(args: argparse.Namespace) -> int:
     config = load_config(args.workdir)
     start, end = window(config)
+    try:
+        explicit = explicit_window(getattr(args, "start", None), getattr(args, "end", None))
+    except ValueError as exc:
+        return fail(2, str(exc), "示例：--start 2026-10-14T04:00:00+00:00 --end 2026-10-14T12:00:00+00:00")
+    if explicit:
+        start, end = explicit
     data, error = collect_dingtalk(config, start, end)
     summary = {k: v for k, v in data.items() if k not in ("records",)}
     summary["matched_count"] = len(data["records"])
@@ -727,6 +753,12 @@ def cmd_collect(args: argparse.Namespace) -> int:
     if missing:
         return fail(2, "配置不完整：" + ", ".join(missing), "按顺序补齐缺失配置；Git 分支不能省略")
     start, end = window(config)
+    try:
+        explicit = explicit_window(getattr(args, "start", None), getattr(args, "end", None))
+    except ValueError as exc:
+        return fail(2, str(exc), "示例：--start 2026-10-14T04:00:00+00:00 --end 2026-10-14T12:00:00+00:00")
+    if explicit:
+        start, end = explicit
     target = Path(args.run).expanduser().resolve() if args.run else run_dir(args.workdir, end)
     work = target / "work"
     work.mkdir(parents=True, exist_ok=True)
@@ -1134,10 +1166,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("config-status"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_config_status)
     p = sub.add_parser("config-save"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("assignment", nargs="+", help="dotted.path=value"); p.set_defaults(func=cmd_config_save)
-    p = sub.add_parser("dingtalk-preview"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_dingtalk_preview)
+    p = sub.add_parser("dingtalk-preview"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--start"); p.add_argument("--end"); p.set_defaults(func=cmd_dingtalk_preview)
     p = sub.add_parser("zentao-preview"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_zentao_preview)
     p = sub.add_parser("git-preview"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_git_preview)
-    p = sub.add_parser("collect"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run", default=None); p.set_defaults(func=cmd_collect)
+    p = sub.add_parser("collect"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run", default=None); p.add_argument("--start"); p.add_argument("--end"); p.set_defaults(func=cmd_collect)
     p = sub.add_parser("run-cycle"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run"); p.add_argument("--no-notify", action="store_true"); p.set_defaults(func=cmd_run_cycle)
     p = sub.add_parser("notify-draft"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run", required=True); p.set_defaults(func=cmd_notify_draft)
     p = sub.add_parser("draft-init"); p.add_argument("--run", required=True); p.add_argument("--force", action="store_true"); p.set_defaults(func=cmd_draft_init)

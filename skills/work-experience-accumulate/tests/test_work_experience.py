@@ -653,5 +653,75 @@ class NotifyDraftGuardTests(unittest.TestCase):
             self.assertIn("草稿不存在", out.getvalue())
 
 
+class ExplicitWindowTests(unittest.TestCase):
+    """显式窗口：补采历史窗口用；不传时保持默认回溯窗口。"""
+
+    def test_rules(self):
+        self.assertIsNone(we.explicit_window(None, None))
+        for start, end in (("2026-01-01T00:00:00+00:00", None),
+                           (None, "2026-01-02T00:00:00+00:00"),
+                           ("2026-01-01T00:00:00", "2026-01-02T00:00:00+00:00"),
+                           ("2026-01-02T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+                           ("2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00")):
+            with self.subTest(start=start, end=end):
+                with self.assertRaises(ValueError):
+                    we.explicit_window(start, end)
+        self.assertEqual(we.explicit_window("2026-01-01T00:00:00Z", "2026-01-02T00:00:00+08:00"),
+                         ("2026-01-01T00:00:00+00:00", "2026-01-02T00:00:00+08:00"))
+
+    def test_collect_honors_explicit_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            captured = {}
+            def fake(name, value):
+                def _f(cfg, start, end):
+                    captured[name] = (start, end)
+                    return value
+                return _f
+            args = argparse.Namespace(workdir=Path(td), run=None,
+                                      start="2026-01-01T00:00:00+00:00",
+                                      end="2026-01-02T00:00:00+00:00")
+            with patch.object(we, "load_config", return_value=json.loads(json.dumps(we.DEFAULT_CONFIG))), \
+                 patch.object(we, "required_missing", return_value=[]), \
+                 patch.object(we, "collect_dingtalk", fake("dingtalk", ({}, None))), \
+                 patch.object(we, "collect_zentao", fake("zentao", ({}, None))), \
+                 patch.object(we, "collect_git", fake("git", ([], []))), \
+                 patch.object(we, "collect_sessions", fake("sessions", ([], []))), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(we.cmd_collect(args), 0)
+            expected = ("2026-01-01T00:00:00+00:00", "2026-01-02T00:00:00+00:00")
+            self.assertEqual(captured, {k: expected for k in ("dingtalk", "zentao", "git", "sessions")})
+
+    def test_collect_rejects_partial_or_invalid_window(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = io.StringIO()
+            with patch.object(we, "load_config", return_value=json.loads(json.dumps(we.DEFAULT_CONFIG))), \
+                 patch.object(we, "required_missing", return_value=[]), \
+                 contextlib.redirect_stdout(out):
+                self.assertEqual(we.cmd_collect(argparse.Namespace(
+                    workdir=Path(td), run=None, start="2026-01-01T00:00:00+00:00", end=None)), 2)
+            self.assertIn("--start 与 --end 必须同时提供", out.getvalue())
+
+    def test_collect_uses_default_window_when_explicit_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            captured = {}
+            def fake(name, value):
+                def _f(cfg, start, end):
+                    captured[name] = (start, end)
+                    return value
+                return _f
+            args = argparse.Namespace(workdir=Path(td), run=None, start=None, end=None)
+            with patch.object(we, "load_config", return_value=json.loads(json.dumps(we.DEFAULT_CONFIG))), \
+                 patch.object(we, "required_missing", return_value=[]), \
+                 patch.object(we, "window", return_value=("2026-03-01T00:00:00+00:00", "2026-03-02T00:00:00+00:00")), \
+                 patch.object(we, "collect_dingtalk", fake("dingtalk", ({}, None))), \
+                 patch.object(we, "collect_zentao", fake("zentao", ({}, None))), \
+                 patch.object(we, "collect_git", fake("git", ([], []))), \
+                 patch.object(we, "collect_sessions", fake("sessions", ([], []))), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(we.cmd_collect(args), 0)
+            expected = ("2026-03-01T00:00:00+00:00", "2026-03-02T00:00:00+00:00")
+            self.assertEqual(captured, {k: expected for k in ("dingtalk", "zentao", "git", "sessions")})
+
+
 if __name__ == "__main__":
     unittest.main()

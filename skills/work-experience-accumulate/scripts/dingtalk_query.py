@@ -235,15 +235,19 @@ def _dws_failure_message(stderr):
     return "dws 采集失败；未保留原始错误或消息"
 
 
+def _search_argv(exe, profile, args, start, end):
+    return [exe, "chat", "+search-msg", *args, "--page-all", "--order", "asc",
+            "--no-reactions", "--start", start, "--end", end,
+            "--profile", profile, "--format", "json"]
+
+
 def _search(source, start, end, runner, exe, profile, args, retry_shape=True):
     """对 [start, end) 执行一次已验证查询。返回 (data, error, shape_failure)。
 
     retry_shape=False 时不再重试「下游集合字段缺失」：子窗口已经是在降级路径上，
     逐个重复重试只会成倍增加调用。服务端明确给出的限流等待仍然生效。
     """
-    argv = [exe, "chat", "+search-msg", *args, "--page-all", "--order", "asc",
-            "--no-reactions", "--start", start, "--end", end,
-            "--profile", profile, "--format", "json"]
+    argv = _search_argv(exe, profile, args, start, end)
     delays = _shape_delays(source) if retry_shape else []
     used = 0
     server_retried = False
@@ -366,10 +370,108 @@ def _collect_range(source, start, end, runner, exe, profile, args, depth, state)
     return []
 
 
+LIST_ALL_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _list_all_argv(exe, profile, start_local, end_local, limit, page_limit):
+    """跨接口兑底入口：按时间范围拉取全部可见会话消息（与 +search-msg 上游不同）。"""
+    return [exe, "chat", "message", "list-all", "--start", start_local, "--end", end_local,
+            "--limit", str(limit), "--page-all", "--page-limit", str(page_limit),
+            "--no-reactions", "--profile", profile, "--format", "json"]
+
+
+def _collect_via_list_all(source, start, end, runner, exe, profile, tz, args):
+    """search 形状失败后的兑底；单次调用，不重试（失败则继续分窗路径）。
+
+    list-all 的时间是本地 `yyyy-MM-dd HH:mm:ss`：传 RFC3339 带偏移会被静默解析成
+    空结果（已实测），因此窗口按 message_timezone 转换，并要求机器本地时区与之一致。
+    """
+    if dt.datetime.now().astimezone().utcoffset() != tz.utcoffset(None):
+        raise QueryError("list-all 兑底要求机器本地时区与 dingtalk.message_timezone 一致")
+    pairs = dict(zip(args[::2], args[1::2]))
+    start_local = stamp(start).astimezone(tz).strftime(LIST_ALL_FORMAT)
+    end_local = stamp(end).astimezone(tz).strftime(LIST_ALL_FORMAT)
+    argv = _list_all_argv(exe, profile, start_local, end_local,
+                          pairs.get("--limit", "30"), pairs.get("--page-limit", "40"))
+    code, stdout, stderr = runner(argv, timeout=600)
+    if code:
+        return None, _dws_failure_message(stdout + "\n" + stderr)
+    return _normalize_list_all(stdout, source, start, end, tz), None
+
+
+def _normalize_list_all(raw, source, start, end, tz):
+    """规范化 message list-all 信封，输出与 +search-msg 证据同构。"""
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        raise QueryError("dws 输出不是有效 JSON；不保留原始响应") from None
+    if not isinstance(data, dict) or data.get("success") is not True:
+        raise QueryError("dws list-all 未返回成功状态")
+    paging = data.get("paging")
+    if not isinstance(paging, dict):
+        raise QueryError("dws list-all 分页信息缺失")
+    flags = ("hasMore", "requestSatisfied", "sourceExhausted", "truncated")
+    if any(type(paging.get(k)) is not bool for k in flags):
+        raise QueryError("dws list-all 完整性标记无效")
+    total, pages = paging.get("total"), paging.get("pages")
+    if type(total) is not int or total < 0 or type(pages) is not int or pages < 0:
+        raise QueryError("dws list-all 计数字段无效")
+    result = data.get("result")
+    conversations = result.get("conversationMessagesList") if isinstance(result, dict) else None
+    if not isinstance(conversations, list):
+        raise QueryError("dws list-all 会话列表无效")
+    start_dt, end_dt = stamp(start), stamp(end)
+    records, seen = [], set()
+    duplicates = outside = raw_count = 0
+    for conv in conversations:
+        if not isinstance(conv, dict):
+            raise QueryError("dws list-all 会话结构无效")
+        messages = conv.get("messages")
+        if not isinstance(messages, list):
+            raise QueryError("dws list-all 消息列表无效")
+        for row in messages:
+            if not isinstance(row, dict):
+                raise QueryError("dws list-all 消息结构无效")
+            raw_count += 1
+            mid = row.get("messageId")
+            cid = row.get("conversationId") or row.get("openConversationId")
+            sid = row.get("senderId")
+            for key, value in (("messageId", mid), ("conversationId", cid), ("senderId", sid)):
+                if not isinstance(value, str) or not value.strip():
+                    raise QueryError("dws list-all 消息缺少稳定标识")
+            created = stamp(row.get("createTime"), tz)
+            if not start_dt <= created < end_dt:
+                outside += 1
+                continue
+            key = (cid, mid)
+            if key in seen:
+                duplicates += 1
+                continue
+            seen.add(key)
+            text = row.get("text")
+            if not isinstance(text, str):
+                text = row.get("content")
+            records.append({"message_id": mid, "conversation_id": cid, "sender_id": sid,
+                            "time": created.isoformat(),
+                            "excerpt": excerpt(text if isinstance(text, str) else ""),
+                            "content_is_untrusted_data": True})
+    complete = (paging["requestSatisfied"] and paging["sourceExhausted"]
+                and not paging["hasMore"] and not paging["truncated"] and total == raw_count)
+    records.sort(key=lambda r: (r["time"], r["conversation_id"], r["message_id"]))
+    return {"window": {"start": start, "end": end}, "profile": source.get("profile"),
+            "scope": "all_accessible", "scope_basis": "current_profile_visible_messages",
+            "message_timezone": source.get("message_timezone"), "complete": complete,
+            "collection_strategy": "list_all", "sub_windows": 1, "paging_total": total,
+            "pages_fetched": pages, "returned_count": raw_count, "failed_count": 0,
+            "warning_count": 0, "duplicates_skipped": duplicates,
+            "outside_window_skipped": outside, "records": records,
+            "redaction": "heuristic_excerpt_not_semantic_summary"}
+
+
 def collect(source, start, end, runner):
     empty = {"complete": False, "records": []}
     try:
-        exe, profile, _, args = settings(source)
+        exe, profile, tz, args = settings(source)
         if stamp(start) >= stamp(end):
             raise QueryError("钉钉时间窗口无效")
         code, stdout, _ = runner([exe, "auth", "status", "--profile", profile, "--format", "json"])
@@ -389,6 +491,18 @@ def collect(source, start, end, runner):
             if not data["complete"]:
                 return data, "dws 查询不完整：分页截断、富化失败或完整性警告；仅保留已取得证据"
             return data, None
+        list_all_data = list_all_error = None
+        if shape_failure:
+            # 跨接口兑底：message list-all 走另一条上游链路，成本一次调用。
+            try:
+                list_all_data, list_all_error = _collect_via_list_all(
+                    source, start, end, runner, exe, profile, tz, args)
+            except QueryError as exc:
+                list_all_data, list_all_error = None, str(exc)
+            if list_all_error is None and list_all_data is not None:
+                if list_all_data["complete"]:
+                    return list_all_data, None
+                list_all_error = "dws list-all 证据不完整；仅保留已取得证据"
         # 已观测到：宽窗口触发下游集合字段缺失，窄窗口正常。只读降级：
         # 按有界子窗口覆盖同一区间再合并，不改变请求区间语义。
         if shape_failure:
@@ -406,6 +520,8 @@ def collect(source, start, end, runner):
                 parts.extend(_collect_range(source, sub_start, sub_end, runner, exe, profile,
                                             args, depth, state))
             if not parts:
+                if list_all_data is not None:
+                    return list_all_data, list_all_error
                 raise QueryError(error)
             merged = _merge(parts, source, start, end, state["failures"])
             if state["failures"]:
