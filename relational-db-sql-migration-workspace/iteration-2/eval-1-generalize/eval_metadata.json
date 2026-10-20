@@ -1,0 +1,11 @@
+{
+  "eval_id": 1,
+  "eval_name": "generalize-regression",
+  "prompt": "skill \u6539\u540d\u4e3a relational-db-sql-migration \u5e76\u6cdb\u5316\u4e3a\u591a\u5173\u7cfb\u578b\u6570\u636e\u5e93\u901a\u7528\u540e\u56de\u5f52\u9a8c\u8bc1",
+  "assertions": [
+    "\u5355\u6d4b 20/20 \u901a\u8fc7",
+    "\u65e7\u540d\u65e0\u6b8b\u7559",
+    "\u5b98\u65b9\u7ed3\u6784\u6821\u9a8c\u901a\u8fc7",
+    "evals \u4e0e frontmatter \u540c\u6b65"
+  ]
+}

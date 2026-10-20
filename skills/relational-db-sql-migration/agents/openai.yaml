@@ -1,0 +1,4 @@
+interface:
+  display_name: "Relational DB SQL Migration"
+  short_description: "统一生成和检查多关系型数据库幂等迁移 SQL（已落地 MySQL/Kingbase），并治理字典表时间字段"
+  default_prompt: "Use $relational-db-sql-migration to convert, validate, or fix Flyway migration SQL for the target relational database."

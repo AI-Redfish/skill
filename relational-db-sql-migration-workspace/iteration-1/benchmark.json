@@ -1,0 +1,120 @@
+{
+  "metadata": {
+    "skill_name": "mysql-kingbase-sql-migration",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-10-20T07:46:55Z",
+    "evals_run": [
+      1,
+      2
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 2.1,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "\u5148\u8fd0\u884c check-dict-timestamp.sh \u62ff\u7cbe\u786e\u547d\u4e2d",
+          "passed": true,
+          "evidence": "\u4f1a\u8bdd\u8bb0\u5f55\uff1abash scripts/ci/check-dict-timestamp.sh files-from \u8f93\u51fa 228 \u5904\u547d\u4e2d\u6e05\u5355"
+        },
+        {
+          "text": "dry-run \u547d\u4e2d\u6570\u4e0e\u9884\u68c0\u4e00\u81f4\u540e\u624d --apply",
+          "passed": true,
+          "evidence": "dry-run \u5171 228 \u5904 = \u9884\u68c0 228 \u5904\u540e\u624d --apply\uff08e2e-apply.json total=228\uff09"
+        },
+        {
+          "text": "\u590d\u8dd1\u9884\u68c0 0 \u8fdd\u89c4\u4e14 diff \u5bf9\u79f0",
+          "passed": true,
+          "evidence": "\u2705 \u5b57\u5178\u8868 create_time/update_time \u5747\u4e3a\u8fd0\u884c\u65f6\u65f6\u95f4\uff1bgit diff --stat 116+/116-"
+        },
+        {
+          "text": "\u4e0d\u6539\u52a8\u547d\u4e2d\u884c\u4ee5\u5916\u5185\u5bb9",
+          "passed": true,
+          "evidence": "\u9010 hunk \u914d\u5bf9\u9a8c\u8bc1 116 \u884c\u5168\u901a\u8fc7\uff1b12 \u6587\u4ef6 cmp \u5b57\u8282\u7ea7\u4e00\u81f4"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 2.1,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "\u6279\u91cf\u524d\u8f93\u51fa\u547d\u4e2d\u7edf\u8ba1\u5e76\u786e\u8ba4\u8303\u56f4",
+          "passed": true,
+          "evidence": "\u4f1a\u8bdd\u8bb0\u5f55\uff1a136 \u6587\u4ef6\u4e2d 28 \u4e2a\u542b\u5b57\u5178\u8868\u64cd\u4f5c\u3001228 \u5904\u547d\u4e2d\uff0c\u6309\u7528\u6237\u6307\u4ee4\u6267\u884c"
+        },
+        {
+          "text": "\u6b63\u659c\u6760\u6e05\u5355\u907f\u514d\u5047\u9633\u6027",
+          "passed": true,
+          "evidence": "\u53d1\u73b0 rg \u53cd\u659c\u6760\u8def\u5f84\u88ab filter_repo_sql \u8fc7\u6ee4\u7684\u5047\u9633\u6027\u5e76\u6539\u7528 files-from"
+        },
+        {
+          "text": "\u9a8c\u8bc1\u95ed\u73af\u5168\u90e8\u6267\u884c",
+          "passed": true,
+          "evidence": "\u9884\u68c0\u590d\u8dd1 \u2705 + \u9010 hunk \u914d\u5bf9 116 \u884c\u901a\u8fc7 + file \u884c\u5c3e\u6bd4\u5bf9\u4e00\u81f4"
+        },
+        {
+          "text": "\u6700\u7ec8\u6c47\u62a5\u771f\u5b9e\u8ba1\u6570",
+          "passed": true,
+          "evidence": "\u6c47\u62a5 12 \u6587\u4ef6 228 \u5904\uff0c\u4e0e\u547d\u4ee4\u8f93\u51fa\u4e00\u81f4"
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 2.1,
+        "stddev": 0.0,
+        "min": 2.1,
+        "max": 2.1
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "delta": {
+      "pass_rate": "+1.00",
+      "time_seconds": "+2.1",
+      "tokens": "+0"
+    }
+  },
+  "notes": []
+}

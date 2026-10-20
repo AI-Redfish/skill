@@ -1,0 +1,6 @@
+{
+  "total_tokens": 0,
+  "duration_ms": 800,
+  "total_duration_seconds": 0.8,
+  "timing_note": "script/test execution timing only; LLM tokens not recorded"
+}

@@ -1,0 +1,30 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 4,
+    "failed": 0,
+    "total": 4
+  },
+  "expectations": [
+    {
+      "text": "\u5355\u6d4b 20/20 \u901a\u8fc7",
+      "passed": true,
+      "evidence": "test-run-2.log: Ran 20 tests ... OK"
+    },
+    {
+      "text": "\u65e7\u540d\u65e0\u6b8b\u7559",
+      "passed": true,
+      "evidence": "grep \u5168\u76ee\u5f55\u4ec5 README \u6765\u6e90\u6eaf\u6e90\u4fe1\u606f\u542b\u65e7\u540d"
+    },
+    {
+      "text": "\u5b98\u65b9\u7ed3\u6784\u6821\u9a8c\u901a\u8fc7",
+      "passed": true,
+      "evidence": "quick_validate: Skill is valid!"
+    },
+    {
+      "text": "evals \u4e0e frontmatter \u540c\u6b65",
+      "passed": true,
+      "evidence": "evals.json skill_name=relational-db-sql-migration\uff1bSKILL.md frontmatter \u540c\u540d"
+    }
+  ]
+}

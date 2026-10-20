@@ -1,0 +1,30 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 4,
+    "failed": 0,
+    "total": 4
+  },
+  "expectations": [
+    {
+      "text": "\u5148\u8fd0\u884c check-dict-timestamp.sh \u62ff\u7cbe\u786e\u547d\u4e2d",
+      "passed": true,
+      "evidence": "\u4f1a\u8bdd\u8bb0\u5f55\uff1abash scripts/ci/check-dict-timestamp.sh files-from \u8f93\u51fa 228 \u5904\u547d\u4e2d\u6e05\u5355"
+    },
+    {
+      "text": "dry-run \u547d\u4e2d\u6570\u4e0e\u9884\u68c0\u4e00\u81f4\u540e\u624d --apply",
+      "passed": true,
+      "evidence": "dry-run \u5171 228 \u5904 = \u9884\u68c0 228 \u5904\u540e\u624d --apply\uff08e2e-apply.json total=228\uff09"
+    },
+    {
+      "text": "\u590d\u8dd1\u9884\u68c0 0 \u8fdd\u89c4\u4e14 diff \u5bf9\u79f0",
+      "passed": true,
+      "evidence": "\u2705 \u5b57\u5178\u8868 create_time/update_time \u5747\u4e3a\u8fd0\u884c\u65f6\u65f6\u95f4\uff1bgit diff --stat 116+/116-"
+    },
+    {
+      "text": "\u4e0d\u6539\u52a8\u547d\u4e2d\u884c\u4ee5\u5916\u5185\u5bb9",
+      "passed": true,
+      "evidence": "\u9010 hunk \u914d\u5bf9\u9a8c\u8bc1 116 \u884c\u5168\u901a\u8fc7\uff1b12 \u6587\u4ef6 cmp \u5b57\u8282\u7ea7\u4e00\u81f4"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "eval_id": 1,
+  "eval_name": "dict-fix",
+  "prompt": "CI \u91cc dict-time-check \u6302\u4e86\uff0c\u663e\u793a zz_tenant_global_dict \u7684 update_time \u662f\u56fa\u5b9a\u65f6\u95f4\uff0c\u5e2e\u6211\u4fee\u6389",
+  "assertions": [
+    "\u5148\u8fd0\u884c check-dict-timestamp.sh \u62ff\u7cbe\u786e\u547d\u4e2d",
+    "dry-run \u547d\u4e2d\u6570\u4e0e\u9884\u68c0\u4e00\u81f4\u540e\u624d --apply",
+    "\u590d\u8dd1\u9884\u68c0 0 \u8fdd\u89c4\u4e14 diff \u5bf9\u79f0",
+    "\u4e0d\u6539\u52a8\u547d\u4e2d\u884c\u4ee5\u5916\u5185\u5bb9"
+  ]
+}

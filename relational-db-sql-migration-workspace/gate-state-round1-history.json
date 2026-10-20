@@ -1,0 +1,31 @@
+{
+  "skill": "D:\\develop\\GitNote\\AI-Redfish\\skill\\skills\\relational-db-sql-migration",
+  "skill_name": "relational-db-sql-migration",
+  "workspace": "D:\\develop\\GitNote\\AI-Redfish\\skill\\relational-db-sql-migration-workspace",
+  "phase": "clarify",
+  "created_at": "2026-10-20T15:55:57+0800",
+  "updated_at": "2026-10-20T15:55:57+0800",
+  "clarify": {
+    "rounds": 0,
+    "passed": false,
+    "confidence": 0,
+    "qa_log": null,
+    "history": []
+  },
+  "review": {
+    "rounds": 0,
+    "passed": false,
+    "confidence": 0,
+    "checklist": null,
+    "history": []
+  },
+  "test": {
+    "rounds": 0,
+    "passed": false,
+    "history": []
+  },
+  "report": {
+    "path": null,
+    "benchmark": null
+  }
+}

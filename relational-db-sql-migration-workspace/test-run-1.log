@@ -1,0 +1,25 @@
+test_bare_integer_time_replaced (__main__.BoundaryTests.test_bare_integer_time_replaced) ... ok
+test_crlf_and_chinese_bytes_preserved (__main__.BoundaryTests.test_crlf_and_chinese_bytes_preserved) ... ok
+test_double_quoted_identifiers (__main__.BoundaryTests.test_double_quoted_identifiers) ... ok
+test_idempotent (__main__.BoundaryTests.test_idempotent) ... ok
+test_no_column_list_skipped (__main__.BoundaryTests.test_no_column_list_skipped) ... ok
+test_non_dict_table_skipped (__main__.BoundaryTests.test_non_dict_table_skipped) ... ok
+test_null_and_quoted_number_not_replaced (__main__.BoundaryTests.test_null_and_quoted_number_not_replaced) ... ok
+test_overlapping_edits_rejected (__main__.BoundaryTests.test_overlapping_edits_rejected) ... ok
+test_runtime_functions_not_replaced (__main__.BoundaryTests.test_runtime_functions_not_replaced) ... ok
+test_dry_run_exit_1_apply_exit_0 (__main__.CliTests.test_dry_run_exit_1_apply_exit_0) ... ok
+test_line_endings_untouched (__main__.CliTests.test_line_endings_untouched) ... ok
+test_missing_file_exit_2 (__main__.CliTests.test_missing_file_exit_2) ... ok
+test_insert_select_union (__main__.NormalPathTests.test_insert_select_union) ... ok
+test_insert_set_out_of_scope (__main__.NormalPathTests.test_insert_set_out_of_scope) ... ok
+test_on_duplicate_key_update (__main__.NormalPathTests.test_on_duplicate_key_update) ... ok
+test_replace_values_backticks (__main__.NormalPathTests.test_replace_values_backticks) ... ok
+test_select_sparse_columns (__main__.NormalPathTests.test_select_sparse_columns) ... ok
+test_update_set_with_alias (__main__.NormalPathTests.test_update_set_with_alias) ... ok
+test_kingbase_update_from_clause_preserved (__main__.RegressionTests.test_kingbase_update_from_clause_preserved) ... ok
+test_no_cross_statement_leak (__main__.RegressionTests.test_no_cross_statement_leak) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 0.543s
+
+OK
