@@ -19,6 +19,10 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
     FRONTEND_WORKSPACES=D:/path/to/frontend,...
                                                   前端只读分析工作区（可选，逗号分隔）
                                                   仅用于判定前端/后端问题归属，不是修复目标
+    WT_INIT_SKILL_ZIP_URL / WT_INIT_SKILLS /
+    WT_INIT_PROMPT_REPO / WT_INIT_PROMPT_DIR
+                                                  新建 worktree 的 AI 环境初始化来源
+                                                  （可选，均有内置默认值，见下方说明）
 
 子命令（一次调用完成尽量多的事情）：
     config-status [--project DIR]                 检查配置，输出 JSON
@@ -71,6 +75,13 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
       SYNCED=no；合并冲突 → 自动 git merge --abort 保持 worktree 干净后停止
       （返回码 5，输出 SYNC_CONFLICT 块，人工决策）；不更新本地基准分支引用、
       不碰主工作空间；--reuse 复用时不同步。
+    - worktree 环境初始化：**新建** worktree 后自动安装 AI 工作环境再交给修复
+      会话——从 GitHub（codeload zip / API + raw）安装指定 skill 到
+      <worktree>/.agents/skills/，安装系统提示词模板（AGENTS.md → worktree 根、
+      .agents/ 模板 → worktree/.agents/ 合并覆盖）；下载缓存在
+      <项目>/.agents/zentao-bugfix/cache/（TTL 24 小时）；任一子步骤失败不阻断
+      修复，输出并标注 INIT_STATUS=degraded，报告说明降级原因；--reuse 复用、
+      绑定（inplace）模式不初始化。
 
 返回码：0 成功；2 配置/参数错误；3 bug 获取或 worktree 创建失败；
        4 该 bugId 已存在 worktree/修复分支（防重复处理，需人工决策）；
@@ -91,6 +102,12 @@ import subprocess
 import sys
 import urllib.parse
 import urllib.request
+import base64
+import hashlib
+import io
+import shutil
+import time
+import zipfile
 
 _paths_spec = importlib.util.spec_from_file_location("worktree_paths", Path(__file__).with_name("worktree_paths.py"))
 _paths = importlib.util.module_from_spec(_paths_spec)
@@ -743,6 +760,209 @@ def sync_base_branch(info, bug_id):
     return _result(True, reason, remote_branch, head)
 
 
+# ---------------------------------------------------------------- worktree 环境初始化
+
+WT_INIT_DEFAULTS = {
+    "SKILL_ZIP_URL": "https://codeload.github.com/AI-Redfish/skill/zip/refs/heads/main",
+    "SKILLS": "skill-creator-plus",
+    "PROMPT_REPO": "AI-Redfish/Agent",
+    "PROMPT_DIR": "04.Agent开发/04.记忆与自进化/02.提示词案例",
+}
+WT_INIT_CACHE_TTL = 24 * 3600
+WT_INIT_HTTP_TIMEOUT = 60
+WT_INIT_ZIP_TIMEOUT = 600
+
+
+def _wt_init_cfg(cfg, key):
+    value = (cfg or {}).get("WT_INIT_" + key) or WT_INIT_DEFAULTS[key]
+    return str(value).strip()
+
+
+def _wt_init_cache_path(project_dir, name):
+    d = os.path.join(os.path.abspath(project_dir), ".agents", "zentao-bugfix",
+                     "cache", "wt-init")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, name)
+
+
+def _wt_init_fetch(url, timeout):
+    # 绕过系统代理直连（本机代理对 GitHub 不可用时 urllib 会逐请求挂到超时）
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "zentao-bugfix-worktree-init/1.0"})
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def _wt_init_cached_bytes(project_dir, key, url, ttl, timeout):
+    """带 TTL 的下载缓存：命中且校验责任在调用方（zip 由调用方再验证）。"""
+    path = _wt_init_cache_path(project_dir, key)
+    if os.path.isfile(path) and time.time() - os.path.getmtime(path) < ttl:
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except OSError:
+            pass
+    data = _wt_init_fetch(url, timeout)
+    tmp = path + ".part"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+    return data
+
+
+def _wt_init_skill_zip_bytes(project_dir, zip_url):
+    """取 skill 仓库 zip 字节：缓存 24h；缓存损坏时删除后强制重下一次。"""
+    for attempt in range(2):
+        data = _wt_init_cached_bytes(project_dir, "skill-main.zip", zip_url,
+                                     WT_INIT_CACHE_TTL, WT_INIT_ZIP_TIMEOUT)
+        try:
+            zipfile.ZipFile(io.BytesIO(data))
+            return data
+        except Exception:
+            if attempt:
+                raise
+            path = _wt_init_cache_path(project_dir, "skill-main.zip")
+            if os.path.isfile(path):
+                os.remove(path)
+            log("[wt-init] 缓存 zip 无效，已删除并重新下载")
+    raise RuntimeError("skill 仓库 zip 下载失败")
+
+
+def _wt_init_extract_skills(zip_bytes, wt_path, skills):
+    """从仓库 zip 解出指定 skill 目录到 <worktree>/.agents/skills/（覆盖安装）。"""
+    installed, failed = [], []
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = zf.namelist()
+        if not names:
+            raise ValueError("skill 仓库 zip 为空")
+        prefix_root = names[0].split("/")[0] + "/skills/"
+        for name in skills:
+            members = [n for n in names
+                       if n.startswith(prefix_root + name + "/") and not n.endswith("/")]
+            if not members:
+                failed.append("%s(zip中不存在)" % name)
+                continue
+            target = os.path.join(wt_path, ".agents", "skills", name)
+            if os.path.isdir(target):
+                shutil.rmtree(target)
+            base_len = len(prefix_root + name + "/")
+            for m in members:
+                dest = os.path.join(target, *m[base_len:].split("/"))
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with zf.open(m) as src:
+                    with open(dest, "wb") as out:
+                        shutil.copyfileobj(src, out)
+            installed.append(name)
+    return installed, failed
+
+
+def _wt_init_walk_prompts(project_dir, repo, root_dir):
+    """递归列出提示词案例目录条目（[{path,dir}...]），整树结果缓存 24h。"""
+    tree_path = _wt_init_cache_path(project_dir, "prompt-tree.json")
+    if os.path.isfile(tree_path) and time.time() - os.path.getmtime(tree_path) < WT_INIT_CACHE_TTL:
+        try:
+            with open(tree_path, encoding="utf-8") as f:
+                cached = json.load(f)
+            if cached.get("root") == root_dir:
+                return cached["entries"]
+        except (OSError, ValueError):
+            pass
+    entries, queue = [], [root_dir]
+    while queue:
+        current = queue.pop(0)
+        url = "https://api.github.com/repos/%s/contents/%s?ref=main" % (
+            repo, urllib.parse.quote(current, safe="/"))
+        items = json.loads(_wt_init_fetch(url, WT_INIT_HTTP_TIMEOUT).decode("utf-8"))
+        if not isinstance(items, list):
+            raise ValueError("GitHub API 返回异常: %s" % str(items)[:120])
+        for item in items:
+            is_dir = item.get("type") == "dir"
+            if is_dir:
+                queue.append(item["path"])
+            entries.append({"path": item["path"], "dir": is_dir})
+    tmp = tree_path + ".part"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"root": root_dir, "entries": entries}, f, ensure_ascii=False)
+    os.replace(tmp, tree_path)
+    return entries
+
+
+def _wt_init_install_prompts(project_dir, wt_path, repo, root_dir):
+    """安装提示词模板：AGENTS.md → worktree 根；其余按相对路径并入 worktree
+    （即 .agents/ 模板进入 worktree/.agents/）。同名文件覆盖，已有其他内容保留。"""
+    raw_base = "https://raw.githubusercontent.com/%s/main/" % repo
+    installed, failed = [], []
+    for entry in _wt_init_walk_prompts(project_dir, repo, root_dir):
+        path = entry["path"]
+        if entry["dir"] or not path.startswith(root_dir + "/"):
+            continue
+        rel = path[len(root_dir) + 1:].replace("\\", "/")
+        key = hashlib.sha1(rel.encode("utf-8")).hexdigest() + ".bin"
+        try:
+            data = _wt_init_cached_bytes(
+                project_dir, key, raw_base + urllib.parse.quote(path, safe="/"),
+                WT_INIT_CACHE_TTL, WT_INIT_HTTP_TIMEOUT)
+        except Exception as raw_exc:
+            # raw 域名 DNS 抖动/污染时回退 GitHub API（base64 内容）
+            try:
+                url = "https://api.github.com/repos/%s/contents/%s?ref=main" % (
+                    repo, urllib.parse.quote(path, safe="/"))
+                payload = json.loads(
+                    _wt_init_fetch(url, WT_INIT_HTTP_TIMEOUT).decode("utf-8"))
+                data = base64.b64decode(payload.get("content") or "")
+            except Exception as api_exc:
+                failed.append("%s(%s / api:%s)"
+                              % (rel, str(raw_exc)[:60], str(api_exc)[:60]))
+                continue
+            try:  # 回退成功的结果同样写入缓存，后续运行免网络
+                cached = _wt_init_cache_path(project_dir, key)
+                tmp = cached + ".part"
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                os.replace(tmp, cached)
+            except OSError:
+                pass
+        dest = os.path.join(wt_path, *rel.split("/"))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as f:
+            f.write(data)
+        installed.append(rel)
+    return installed, failed
+
+
+def init_worktree_env(wt_path, project_dir):
+    """新建 worktree 后初始化 AI 工作环境（skill + 系统提示词模板）。
+
+    任一子步骤失败不阻断修复（降级继续），错误汇总进返回值，由调用方
+    写入输出与报告；全失败/部分失败 status 均为 degraded。
+    """
+    result = {"status": "ok", "skills": [], "skills_failed": [],
+              "prompt_files": 0, "prompt_failed": [], "errors": []}
+    try:
+        _, cfg = load_config(project_dir)
+    except Exception:
+        cfg = {}
+    try:
+        skills = [s.strip() for s in _wt_init_cfg(cfg, "SKILLS").split(",") if s.strip()]
+        zip_bytes = _wt_init_skill_zip_bytes(project_dir, _wt_init_cfg(cfg, "SKILL_ZIP_URL"))
+        result["skills"], result["skills_failed"] = _wt_init_extract_skills(
+            zip_bytes, wt_path, skills)
+    except Exception as exc:
+        result["errors"].append("skills: %s" % str(exc)[:160])
+    try:
+        installed, failed = _wt_init_install_prompts(
+            project_dir, wt_path, _wt_init_cfg(cfg, "PROMPT_REPO"),
+            _wt_init_cfg(cfg, "PROMPT_DIR"))
+        result["prompt_files"] = len(installed)
+        result["prompt_failed"] = failed
+    except Exception as exc:
+        result["errors"].append("prompts: %s" % str(exc)[:160])
+    if result["errors"] or result["skills_failed"] or result["prompt_failed"]:
+        result["status"] = "degraded"
+    return result
+
+
 def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None):
     """创建/复用 worktree，返回 info dict。
 
@@ -794,6 +1014,18 @@ def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None)
         if sync.get("base_commit"):
             info["head_short"] = sync["base_commit"]
 
+        # 初始化 worktree AI 环境（skill + 系统提示词模板）；失败降级继续，报告标注
+        init = init_worktree_env(info["wt_path"], project_dir)
+        info["wt_init"] = init
+        if init["status"] == "ok":
+            log("[wt-init] 环境初始化完成: skills=%s 提示词文件=%d"
+                % (",".join(init["skills"]), init["prompt_files"]))
+        else:
+            log("[wt-init][warn] 环境初始化降级（不阻断修复，报告需标注）: %s"
+                % json.dumps({k: init[k] for k in
+                              ("skills_failed", "prompt_failed", "errors")},
+                             ensure_ascii=False))
+
     # 拷贝 bug 资料
     report_dir = info["report_dir"]
     os.makedirs(report_dir, exist_ok=True)
@@ -816,7 +1048,8 @@ def setup_worktree(project_dir, bug_id, base_branch_arg=None, reuse_target=None)
         meta = {"bug_id": str(bug_id), "branch": info["branch"],
                 "base_branch": info["base_branch"], "date": info["date"],
                 "wt_path": info["wt_path"], "repo_root": info["repo_root"]}
-        for k in ("synced", "sync_reason", "sync_remote_branch", "compatibility"):
+        for k in ("synced", "sync_reason", "sync_remote_branch", "compatibility",
+                  "wt_init"):
             if k in info:
                 meta[k] = info[k]
         with open(meta_path, "w", encoding="utf-8") as f:
@@ -863,6 +1096,18 @@ def print_kv(info, extra=None):
             lines.append("SYNC_REASON=%s" % info["sync_reason"])
     if info.get("reused"):
         lines.append("REUSED=yes")
+    if info.get("wt_init"):
+        init = info["wt_init"]
+        lines.append("INIT_STATUS=%s" % init["status"])
+        if init.get("skills"):
+            lines.append("INIT_SKILLS=%s" % ",".join(init["skills"]))
+        if init.get("skills_failed"):
+            lines.append("INIT_SKILLS_FAILED=%s" % ",".join(init["skills_failed"]))
+        lines.append("INIT_PROMPT_FILES=%d" % init.get("prompt_files", 0))
+        if init.get("prompt_failed"):
+            lines.append("INIT_PROMPT_FAILED=%s" % ",".join(init["prompt_failed"]))
+        if init.get("errors"):
+            lines.append("INIT_ERRORS=%s" % "; ".join(init["errors"])[:300])
     if info.get("frontend_workspaces"):
         lines.append("FRONTEND_WORKSPACES=%s" % ",".join(info["frontend_workspaces"]))
     if extra:
@@ -886,6 +1131,17 @@ def scaffold_analysis(bug, actions, images, info, base_url, bug_id, force=False)
     lines.append("- **分析日期**: %s" % info["date"][:4] + "-" + info["date"][4:6] + "-" + info["date"][6:])
     lines.append("- **分析基线**: 分支 `%s` @ `%s`" % (info["base_branch"], info["head_short"] or "HEAD"))
     lines.append("- **远端同步**: %s" % sync_status_text(info))
+    if info.get("wt_init"):
+        init = info["wt_init"]
+        if init.get("status") == "ok":
+            lines.append("- **环境初始化**: 已安装 skill（%s）与系统提示词模板（%d 个文件）"
+                         % (",".join(init.get("skills") or ["-"]) or "-",
+                            init.get("prompt_files", 0)))
+        else:
+            issues = (init.get("errors") or []) + (init.get("skills_failed") or []) \
+                     + (init.get("prompt_failed") or [])
+            lines.append("- **环境初始化**: 降级（%s）；worktree 可能缺少部分 skill/提示词模板，"
+                         "需在报告中说明影响" % ("; ".join(issues)[:200] or "部分失败"))
     lines.append("- **禅道链接**: %s/bug-view-%s.html" % (base_url, bug_id))
     lines.append("")
     lines.append("> **流程要求（分析先行）**：本报告与 `solution.md`（解决方案）必须在"

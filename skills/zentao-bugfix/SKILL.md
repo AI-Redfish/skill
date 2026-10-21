@@ -61,6 +61,18 @@ metadata:
 - Windows/WSL 共用工作区与 Git 管理目录须在同一 Windows 盘。创建后核对根目录、分支、HEAD；WSL 可发现 `git.exe` 时自动交叉验证，另一端不可用标为 `not-checked`。Linux/macOS 原生路径不宣称 Windows 可访问。
 - 复用 worktree 只验证，不自动改元数据。诊断：`python3 <skill_dir>/scripts/worktree_paths.py --repo <worktree>`；用户授权修复元数据后加 `--repair`。Windows 创建后由 WSL 侧另行只读检查，不自动启动发行版。IDEA 不识别 Git 时先查实际 Git 验证，再查 Directory Mappings。
 
+## worktree 环境初始化
+
+新建 worktree 创建并验证通过后、AI 修复开始前，`prepare`/`worktree` 自动初始化 AI 工作环境（内置在 `setup_worktree`，无需手动执行）：
+
+1. **skill 安装**：从 `AI-Redfish/skill` 仓库（codeload zip 整包，解包取用）安装以下 skill 到 `<worktree>/.agents/skills/`，同名目录覆盖重建：
+   - `skill-creator-plus`
+2. **系统提示词模板**：从 `AI-Redfish/Agent` 仓库 `04.Agent开发/04.记忆与自进化/02.提示词案例` 目录（GitHub API 递归列目录 + raw 下载文件）安装：`AGENTS.md` → worktree 根目录；其余文件按相对路径并入 worktree（`.agents/` 模板进入 `worktree/.agents/`），同名覆盖，已有其他内容（含 Bug 报告目录）保留。
+3. **缓存**：下载内容缓存在 `<项目>/.agents/zentao-bugfix/cache/wt-init/`，TTL 24 小时；skill zip 缓存损坏自动删除重下。
+4. **降级策略**：任一子步骤失败不阻断修复——输出 `INIT_STATUS=degraded` 与 `INIT_SKILLS_FAILED` / `INIT_PROMPT_FAILED` / `INIT_ERRORS`，状态写入 `meta.json` 与 analysis 骨架；修复报告必须说明降级原因与影响。
+5. **范围**：仅新建 worktree 执行；`--reuse` 复用与绑定（inplace）模式不初始化。
+6. **可选配置**（routes.json config 字符串值，均有内置默认值）：`WT_INIT_SKILL_ZIP_URL`、`WT_INIT_SKILLS`（逗号分隔）、`WT_INIT_PROMPT_REPO`、`WT_INIT_PROMPT_DIR`。
+
 ## 运行方式
 
 脚本零第三方依赖。优先 `uv run --no-project <skill_dir>/scripts/bugfix.py ...`，无 uv 可直接用 `python3` 或 Windows `python`。以下简写脚本为 `bugfix.py`；实际使用绝对路径，并对包含空格的路径加引号。
@@ -147,7 +159,7 @@ python bugfix.py finish <bugId> --project <原项目目录> \
 
 ### 6. 汇报
 
-说明 Bug ID、根因及证据、**问题归属（前端问题 / 后端问题 / 前后端 / 待确认）及其依据**、**改动范围（仅当前工作空间 / 需要其他工作空间）**、修复内容、实际工作区/分支和三组 MD/HTML 报告路径。绑定模式提供 commit ID 或无需修改的结论；独立 worktree 明确未提交待 review。说明实际验证与未覆盖项、关键假设及遗留问题。工作区异常时提供 HTML 路径和浏览器打开结果，不声称已修复。
+说明 Bug ID、根因及证据、**问题归属（前端问题 / 后端问题 / 前后端 / 待确认）及其依据**、**改动范围（仅当前工作空间 / 需要其他工作空间）**、修复内容、实际工作区/分支和三组 MD/HTML 报告路径。绑定模式提供 commit ID 或无需修改的结论；独立 worktree 明确未提交待 review。说明实际验证与未覆盖项、关键假设及遗留问题。worktree 模式同时说明环境初始化结果（INIT_STATUS），降级时说明缺失内容与影响。工作区异常时提供 HTML 路径和浏览器打开结果，不声称已修复。
 
 ## 钉钉监听
 
@@ -184,6 +196,7 @@ python <skill_dir>/scripts/dingtalk_listen.py retry <bugId>
 - 修改代码前分析/方案是否完整，绑定模式 ready 是否成功？
 - 改动是否只在指定位置，已有开发改动是否完整保留？
 - 新 worktree 指针和 Git 验证是否通过，跨平台未验证是否注明？
+- 新建 worktree 的环境初始化是否执行；`INIT_STATUS=degraded` 时报告是否说明缺失内容与影响？
 - 绑定模式是否验证并独立提交成功；失败时后续 Bug 是否保持等待？
 - 是否未 push、未改禅道状态，未夹带凭据或运行产物？
 - 三组 MD/HTML 是否同目录、正文一致且最新；最终 HTML 是否包含 finish 追加的 commit ID 或无需修改结论？
