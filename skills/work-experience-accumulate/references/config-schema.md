@@ -6,9 +6,33 @@
 
 账号、密码和令牌不写入此文件。敏感值放在 `<workdir>/.agents/.env`，键名由外部适配器约定。
 
+## 采集窗口与定时
+
+- `window_mode=daily_fixed`（默认）：窗口为本地时间当天 `[daily_window_start, daily_window_end)`，默认 06:00–18:30。当前时刻早于今天的结束时间（如提前手动补跑）时回退到昨天同窗口；`start>=end` 支持跨午夜（如 22:00–06:00）。输出统一转换为 UTC。
+- `window_mode=lookback`：旧滑动窗口，`end` 为当前时刻，`start` 回湋 `lookback_days` 天。
+- `schedule.time` 是 Windows 定时任务触发时刻，默认 18:30，与 `daily_window_end` 相互独立：触发晚于窗口结束（含 StartWhenAvailable 补跑）不影响窗口计算，仍采集当天 06:00–18:30。
+- 缺省键回退默认值；只有显式非法值（格式错误、start=end）才会 `missing`。
+
+## AgentR 待办适配器
+
+- `agentr_todo.enabled=true` 时，`run-cycle` 在钉钉通知后调用 `POST {endpoint}` 创建审核待办；两个通知渠道互相独立，任一失败不影响另一个，草稿均保留。
+- `endpoint` 必须是 http(s) URL，不得含凭据、查询参数或片段；默认 `http://127.0.0.1:8320/todos`（AgentR Node 本地服务）。
+- 请求体 `{"title", "description"}`，配置 `assignee` 时附带；响应必须含非空 `item.id`，否则视为失败且不保存原始响应。
+- 模板占位符：`{date}`、`{window_start}`、`{window_end}`、`{sources_note}`、`{draft}`、`{report}`、`{run_dir}`。标题≤200 字符，描述≤20000 字符。
+- 成功后写入 `work/todo.json`（id、endpoint、title、created_at）；再次执行同运行目录时跳过。`todo-create --workdir ... --run ...` 可单独重试。
+- 只创建待办；不更新、不删除、不修改 AgentR 其他数据。服务不可达只报错误类型，不保留原始错误。
+
 ```json
 {
-  "schedule": {"frequency": "daily", "time": "09:00", "lookback_days": 1, "task_name": "AI-Redfish-work-experience-accumulate"},
+  "schedule": {"frequency": "daily", "time": "18:30", "window_mode": "daily_fixed", "daily_window_start": "06:00", "daily_window_end": "18:30", "lookback_days": 1, "task_name": "AI-Redfish-work-experience-accumulate"},
+  "agentr_todo": {
+    "enabled": true,
+    "endpoint": "http://127.0.0.1:8320/todos",
+    "timeout_seconds": 15,
+    "assignee": "可选：待办负责人",
+    "title_template": "沉淀草稿待审核 {date}（{window_start}–{window_end}）",
+    "description_template": "工作经验沉淀草稿已生成，等待审核。\n\n- 汇总窗口：{window_start} ~ {window_end}\n- 数据源完整性：{sources_note}\n- 草稿：{draft}\n- 汇总报告：{report}\n- 运行目录：{run_dir}\n\n审核通过后需执行 approve / verify-approved 才会生成正式产物。"
+  },
   "dingtalk": {
     "executable": "<dws 的绝对路径>",
     "profile": "<已确认的 corpId:userId>",
@@ -141,5 +165,6 @@
 - `schedule.time` 必须是 24 小时制 `HH:MM`；`config-status` 会对空值和非法格式报 `missing`。
 - `config-status` 的 `missing` 是阻断项；`warnings` 只报告不存在的路径（`git_repositories[].path`、`agent_workspaces`、`targets.*`），不阻断采集，但应在安装定时任务前修正。`platform` 表示当前解释器平台，路径判断按该平台语义。
 - `schedule-status --workdir <workdir>` 只读核对任务：输出 `registered`、`state`、`logon_type`、`run_level`、`start_when_available`、`last_run_time`、`last_task_result`、`next_run_time`、`never_run` 和本地 `schedule.json` 标记；不注册、不修改、不删除任务。任务不存在时 `registered=false`、`state=not-installed`。非 Windows 或查询失败返回 3（`partial`）。安装成功不等于计划执行成功：`never_run=true` 或 `last_task_result` 非 0 必须如实报告。
+- `run-cycle` 草稿写盘后自动执行：渲染 `report.html`（失败按阶段报告，不阻断通知）、钉钉通知、AgentR 待办（enabled 时）。任一阶段失败退出码为 3（partial），草稿与证据保留。
 - `schedule.task_name` 是 Windows 任务计划程序根目录下的任务名称。默认值为 `AI-Redfish-work-experience-accumulate`。不得包含目录分隔符或控制字符。
 - Windows 任务使用当前用户的 `Interactive` 登录类型，不保存 Windows 密码。电脑重启后任务定义仍存在，用户重新登录后继续执行。

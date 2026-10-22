@@ -113,7 +113,9 @@ class PipelineTests(unittest.TestCase):
             run = we.base_dir(wd)/'2000-01-01'/'run'
             self.fixture(run)
             argv = ['pi', '-p', *we.AGENT_SAFETY_FLAGS, '@{run_dir}/work/agent-input.json']
-            draft = '# 工作经验沉淀草稿\n## <analysis>分析\nwork/manifest.json\n## <conclusion>沉淀候选\n## 审核说明\n待用户审核\n本次不修改任何目标产物。'
+            draft = ("# 工作经验沉淀草稿\n## <analysis>分析\n### 工作项清单\n### 聊天记录逐条细节\n"
+                     "## 待确定事项\n## <conclusion>沉淀候选\n### 触发方式与辅助设计\n"
+                     "work/manifest.json\n## 审核说明\n待用户审核\n本次不修改任何目标产物。")
             args = argparse.Namespace(workdir=wd, run=str(run), no_notify=True)
             with patch.object(we, 'load_config', return_value={'agent_command': argv}), patch.object(we, 'cmd_collect') as collect, patch.object(we, 'run_argv', return_value=(0,draft,'')), patch.object(we, 'cmd_notify_draft') as notify, contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(we.cmd_run_cycle(args), 3)

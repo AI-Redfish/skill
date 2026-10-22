@@ -4,6 +4,7 @@
 
 1. **跨引擎迁移**：按幂等模板（新增/修改字段、新增索引）生成各引擎可重复执行的迁移；源引擎专属语法到目标引擎的完整转换清单（已落地：MySQL → Kingbase，含 `REPLACE INTO`、反引号、`DELIMITER`、反斜杠转义、`level` 关键字等）。
 2. **字典表时间字段治理**：字典表（`sys_dict_*`、`zz_*global_dict*` 共 8 张）数据脚本的 `create_time`/`update_time` 必须为运行时时间；提供预检（复用仓库 `scripts/ci/check-dict-timestamp.sh`）、定位修复（`scripts/fix_dict_timestamp.py`，按列位置替换、语句边界有界、行尾字节透明）与验证闭环（预检复跑 + 逐 hunk 配对 + 行尾守卫）。
+3. **SQL 语法实测回滚闭环**：生成的 SQL 交付前必须到用户指定的验证环境实际执行一遍验证语法，执行后强制回滚并核验零残留（Kingbase 事务 ROLLBACK / MySQL 沙箱库 / 快照恢复三选一）；环境信息缺失时通过对话向用户一次性索取模板，索取不成才退化为静态校验并标注「未实测」。
 
 ## 目录
 

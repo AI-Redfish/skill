@@ -23,12 +23,56 @@ class WorkExperienceTests(unittest.TestCase):
         self.assertTrue(any("显式指定分支" in item for item in we.required_missing(config)))
         self.assertIn("agent_workspaces（至少一个）", we.required_missing(config))
 
-    def test_window_uses_one_shared_period(self):
+    def test_lookback_window_uses_one_shared_period(self):
         config = json.loads(json.dumps(we.DEFAULT_CONFIG))
+        config["schedule"]["window_mode"] = "lookback"
         config["schedule"]["lookback_days"] = 2
         start, end = we.window(config, datetime(2025, 1, 3, 12, 0, tzinfo=timezone.utc))
         self.assertEqual(end, "2025-01-03T12:00:00+00:00")
         self.assertEqual(start, "2025-01-01T12:00:00+00:00")
+
+    def test_daily_fixed_window_is_local_0600_to_1830(self):
+        from datetime import timedelta, timezone as tz
+        config = json.loads(json.dumps(we.DEFAULT_CONFIG))
+        local = tz(timedelta(hours=8))
+        # 本地 2025-01-03 20:00 触发：窗口为当天 06:00–18:30
+        now = datetime(2025, 1, 3, 12, 0, tzinfo=timezone.utc)
+        start, end = we.window(config, now, tz=local)
+        self.assertEqual(end, "2025-01-03T10:30:00+00:00")
+        self.assertEqual(start, "2025-01-02T22:00:00+00:00")
+
+    def test_daily_fixed_window_falls_back_before_end_time(self):
+        from datetime import timedelta, timezone as tz
+        config = json.loads(json.dumps(we.DEFAULT_CONFIG))
+        local = tz(timedelta(hours=8))
+        # 本地 2025-01-03 10:00 手动补跑：回退到昨天 06:00–18:30 窗口
+        now = datetime(2025, 1, 3, 2, 0, tzinfo=timezone.utc)
+        start, end = we.window(config, now, tz=local)
+        self.assertEqual(end, "2025-01-02T10:30:00+00:00")
+        self.assertEqual(start, "2025-01-01T22:00:00+00:00")
+
+    def test_daily_fixed_window_supports_cross_midnight(self):
+        from datetime import timedelta, timezone as tz
+        config = json.loads(json.dumps(we.DEFAULT_CONFIG))
+        config["schedule"]["daily_window_start"] = "22:00"
+        config["schedule"]["daily_window_end"] = "06:00"
+        local = tz(timedelta(hours=8))
+        now = datetime(2025, 1, 3, 0, 0, tzinfo=timezone.utc)  # 本地 08:00
+        start, end = we.window(config, now, tz=local)
+        self.assertEqual(end, "2025-01-02T22:00:00+00:00")   # 本地 01-03 06:00
+        self.assertEqual(start, "2025-01-02T14:00:00+00:00")  # 本地 01-02 22:00
+
+    def test_required_missing_tolerates_absent_window_keys_but_flags_invalid(self):
+        config = json.loads(json.dumps(we.DEFAULT_CONFIG))
+        config["schedule"] = {"frequency": "daily", "time": "18:30"}
+        self.assertNotIn("schedule.daily_window_start= HH:MM（24 小时制）", we.required_missing(config))
+        config["schedule"]["daily_window_end"] = "25:00"
+        self.assertIn("schedule.daily_window_end= HH:MM（24 小时制）", we.required_missing(config))
+        config["schedule"]["daily_window_end"] = "06:00"
+        config["schedule"]["daily_window_start"] = "06:00"
+        self.assertIn("不能相同", we.required_missing(config)[0])
+        config["schedule"]["window_mode"] = "custom"
+        self.assertTrue(any("window_mode" in item for item in we.required_missing(config)))
 
     def test_windows_task_preview_uses_daily_time_and_persistence(self):
         config = json.loads(json.dumps(we.DEFAULT_CONFIG))
@@ -154,7 +198,8 @@ class WorkExperienceTests(unittest.TestCase):
         _, error = we.format_agent_command(["pi", "-p"], run)
         self.assertIn("安全参数", error)
         valid = ("# 工作经验沉淀草稿\n## <analysis>分析\n来源：`work/manifest.json`\n"
-                 "## <conclusion>沉淀候选\n状态：待用户审核。\n## 审核说明\n"
+                 "### 工作项清单\n### 聊天记录逐条细节\n## 待确定事项\n"
+                 "## <conclusion>沉淀候选\n### 触发方式与辅助设计\n状态：待用户审核。\n## 审核说明\n"
                  "本次不修改任何目标产物。")
         body, error = we.validate_agent_output(valid)
         self.assertIsNotNone(body)

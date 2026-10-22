@@ -8,8 +8,10 @@
   dingtalk-preview / zentao-preview / git-preview   单来源只读预览
   collect         按共享窗口采集四类来源
   draft-init      生成草稿模板
-  run-cycle       采集 + 有界投影 + Agent 总结 + 本人通知
+  run-cycle       采集 + 有界投影 + Agent 总结 + report.html + 钉钉通知 + AgentR 待办
+  report          从草稿渲染总结 HTML（report.html）
   notify-draft    对已完成的草稿发一次本人通知
+  todo-create     为已有草稿在 AgentR 创建/重试审核待办
   approve / verify-approved   审核闭环
   schedule        注册 Windows 定时任务（需 --confirm）
   schedule-status 只读核对任务注册与执行状态
@@ -33,9 +35,11 @@ from typing import Any
 
 NAME = "work-experience-accumulate"
 DEFAULT_CONFIG = {
-    "schedule": {"frequency": "daily", "time": "09:00", "lookback_days": 1},
+    "schedule": {"frequency": "daily", "time": "18:30", "window_mode": "daily_fixed",
+                 "daily_window_start": "06:00", "daily_window_end": "18:30", "lookback_days": 1},
     "dingtalk": {"search_args": [], "notify_user_id": "", "notify_command": []},
     "zentao": {"query_command": [], "user_id": ""},
+    "agentr_todo": {"enabled": False, "endpoint": "http://127.0.0.1:8320/todos", "timeout_seconds": 15},
     "agent_command": [],
     "git_repositories": [],
     "agent_workspaces": [],
@@ -45,7 +49,11 @@ SENSITIVE_WORDS = ("password", "passwd", "secret", "token", "authorization", "co
 AGENT_REQUIRED_MARKERS = (
     "# 工作经验沉淀草稿",
     "## <analysis>分析",
+    "### 工作项清单",
+    "### 聊天记录逐条细节",
+    "## 待确定事项",
     "## <conclusion>沉淀候选",
+    "### 触发方式与辅助设计",
     "## 审核说明",
 )
 AGENT_SAFETY_FLAGS = (
@@ -140,12 +148,33 @@ def validate_branch_config(repo: dict[str, Any]) -> None:
                 raise ValueError(f"uncommitted.{key} 必须为 false")
 
 
+def schedule_settings(config: dict[str, Any]) -> dict[str, Any]:
+    """合并默认调度配置；缺失键回退默认值，只拦截显式非法值。"""
+    merged = dict(DEFAULT_CONFIG["schedule"])
+    provided = config.get("schedule", {})
+    if isinstance(provided, dict):
+        merged.update(provided)
+    return merged
+
+
 def required_missing(config: dict[str, Any]) -> list[str]:
     missing: list[str] = []
-    schedule = config.get("schedule", {})
+    schedule = schedule_settings(config)
+    mode = schedule.get("window_mode", "daily_fixed")
+    if mode not in {"daily_fixed", "lookback"}:
+        missing.append("schedule.window_mode= daily_fixed|lookback")
+    if mode == "daily_fixed":
+        for key in ("daily_window_start", "daily_window_end"):
+            try:
+                validate_time(str(schedule.get(key, "")))
+            except ValueError:
+                missing.append(f"schedule.{key}= HH:MM（24 小时制）")
+        if (not any("daily_window" in item for item in missing)
+                and schedule.get("daily_window_start") == schedule.get("daily_window_end")):
+            missing.append("schedule.daily_window_start/end 不能相同")
     if schedule.get("frequency", "daily") not in {"daily", "weekly"}:
         missing.append("schedule.frequency= daily|weekly（Windows原生任务）")
-    if not isinstance(schedule.get("lookback_days", 1), int) or schedule.get("lookback_days", 1) < 1:
+    if mode == "lookback" and (not isinstance(schedule.get("lookback_days", 1), int) or schedule.get("lookback_days", 1) < 1):
         missing.append("schedule.lookback_days>=1")
     try:
         validate_time(str(schedule.get("time", "09:00")))
@@ -277,12 +306,29 @@ def explicit_window(start: str | None, end: str | None) -> tuple[str, str] | Non
     return begin.isoformat(), finish.isoformat()
 
 
-def window(config: dict[str, Any], now: dt.datetime | None = None) -> tuple[str, str]:
+def window(config: dict[str, Any], now: dt.datetime | None = None,
+           tz: dt.tzinfo | None = None) -> tuple[str, str]:
+    """统一采集窗口。daily_fixed（默认）：本地时间当天 [start, end)；
+    当前时间早于今天的 end 时回退到昨天窗口；start>=end 支持跨午夜。
+    lookback：兼容旧的回溯天数滑动窗口。输出统一 UTC。"""
     current = now or dt.datetime.now(dt.timezone.utc)
-    days = int(config.get("schedule", {}).get("lookback_days", 1))
-    end = current.replace(microsecond=0)
-    start = end - dt.timedelta(days=days)
-    return start.isoformat(), end.isoformat()
+    schedule = schedule_settings(config)
+    mode = schedule.get("window_mode", "daily_fixed")
+    if mode == "lookback":
+        days = int(schedule.get("lookback_days", 1))
+        end = current.replace(microsecond=0)
+        return (end - dt.timedelta(days=days)).isoformat(), end.isoformat()
+    local_tz = tz or dt.datetime.now().astimezone().tzinfo
+    local = current.astimezone(local_tz)
+    start_parts = validate_time(str(schedule.get("daily_window_start", "06:00"))).split(":")
+    end_parts = validate_time(str(schedule.get("daily_window_end", "18:30"))).split(":")
+    end = local.replace(hour=int(end_parts[0]), minute=int(end_parts[1]), second=0, microsecond=0)
+    if end > local:  # 触发前手动补跑：使用最近一个完整窗口
+        end -= dt.timedelta(days=1)
+    start = end.replace(hour=int(start_parts[0]), minute=int(start_parts[1]))
+    if start >= end:  # 跨午夜窗口（如 22:00–06:00）
+        start -= dt.timedelta(days=1)
+    return start.astimezone(dt.timezone.utc).isoformat(), end.astimezone(dt.timezone.utc).isoformat()
 
 
 def run_argv(argv: list[str], cwd: Path | None = None, timeout: int = 180) -> tuple[int, str, str]:
@@ -797,7 +843,7 @@ def cmd_draft_init(args: argparse.Namespace) -> int:
     draft = run / "draft.md"
     if draft.exists() and not args.force:
         return fail(2, f"草稿已存在：{draft}", "确认不会覆盖后加 --force")
-    text = """# 工作经验沉淀草稿\n\n> 状态：待用户审核。本文只提供沉淀原料，不修改任何目标产物。\n\n## 汇总窗口\n- 开始：待填写\n- 结束：待填写\n- 数据源完整性：待填写\n\n## <analysis>分析\n### 事实\n- 待填写。引用 `work/` 中的来源文件和记录标识。\n\n### 工作主题\n- 待填写。\n\n### 重复问题与可复用做法\n- 待填写。\n\n### 失败模式与决策依据\n- 待填写。\n\n## <conclusion>沉淀候选\n### skill\n- 目标：新增 / 优化 / 不建议。\n- 沉淀原料：待填写。\n- 证据：待填写。\n- 边界与反例：待填写。\n- 置信度：待填写。\n\n### 工作流\n- 目标：新增 / 优化 / 不建议。\n- 沉淀原料：待填写。\n- 证据：待填写。\n\n### MCP\n- 目标：新增 / 优化 / 不建议。\n- 沉淀原料：待填写。\n- 证据：待填写。\n\n### 知识库知识\n- 目标：新增 / 优化 / 不建议。\n- 沉淀原料：待填写。\n- 证据：待填写。\n\n## 审核说明\n- 本草稿不修改 skill、工作流、MCP 或知识库知识。\n- 用户审核通过后，必须先执行 `approve` 和 `verify-approved`。\n"""
+    text = """# 工作经验沉淀草稿\n\n> 状态：待用户审核。本文只提供沉淀原料，不修改任何目标产物。\n\n## 汇总窗口\n- 开始：待填写\n- 结束：待填写\n- 数据源完整性：待填写\n\n## <analysis>分析\n### 事实\n- 待填写。引用 `work/` 中的来源文件和记录标识。\n\n### 工作项清单\n逐项列出本窗口内的每项工作，不确定的内容在“待确定”列标注，不得省略。\n\n| 序号 | 工作项 | 做了什么 | 来源证据 | AI 可提效 | 提效方式 | 是否沉淀 | 沉淀目标 | 触发方式 | 待确定项 |\n|---|---|---|---|---|---|---|---|---|---|\n| 1 | 待填写 | 待填写 | 待填写 | 是/否/待确定 | 待填写 | 是/否/待确定 | skill/工作流/MCP/知识库/无 | 定时/自动/手动/待确定 | 待填写 |\n\n### 聊天记录逐条细节\n逐条审阅聊天记录，单条消息里的问题排查、结论、决策也可沉淀为知识；无法判断的标注待确定。\n\n| 时间 | 会话标识 | 消息要点 | 可沉淀知识/思路 | 待确定标注 |\n|---|---|---|---|---|\n| 待填写 | 待填写 | 待填写 | 待填写 | 待填写 |\n\n### 工作主题\n- 待填写。\n\n### 重复问题与可复用做法\n- 待填写。\n\n### 失败模式与决策依据\n- 待填写。\n\n## 待确定事项\n集中列出所有不确定的事实、推断和归属；每条写明不确定原因和建议的核实路径；无则写“无”。\n\n- 待填写。\n\n## <conclusion>沉淀候选\n### skill\n- 目标：新增 / 优化 / 不建议。\n- 沉淀原料：待填写。\n- 证据：待填写。\n- 边界与反例：待填写。\n- 置信度：待填写。\n\n### 触发方式与辅助设计\n逐个候选说明：触发方式（定时 / 事件自动 / 手动唤起）、使用入口、如何高效辅助人、以及不增设触发时的替代用法。\n\n- 待填写。\n\n### 工作流\n- 目标：新增 / 优化 / 不建议。\n- 沉淀原料：待填写。\n- 证据：待填写。\n\n### MCP\n- 目标：新增 / 优化 / 不建议。\n- 沉淀原料：待填写。\n- 证据：待填写。\n\n### 知识库知识\n- 目标：新增 / 优化 / 不建议。\n- 沉淀原料：待填写。\n- 证据：待填写。\n\n## 审核说明\n- 本草稿不修改 skill、工作流、MCP 或知识库知识。\n- 用户审核通过后，必须先执行 `approve` 和 `verify-approved`。\n- 汇总报告 `report.html` 由草稿渲染生成，内容以本草稿为准。\n"""
     draft.write_text(text, encoding="utf-8")
     return ok({"draft": str(draft), "next": "AI补全草稿后通知用户审核"})
 
@@ -1065,6 +1111,154 @@ def prepare_agent_input(run: Path) -> dict[str, Any]:
     return bundle
 
 
+def local_label(iso: str) -> str:
+    try:
+        return dt.datetime.fromisoformat(iso).astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return iso
+
+
+def create_agentr_todo(config: dict[str, Any], run: Path, manifest: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """草稿就绪后在 AgentR 创建审核待办；幂等：成功一次后跳过。"""
+    todo_cfg = config.get("agentr_todo", {})
+    if not isinstance(todo_cfg, dict) or not todo_cfg.get("enabled", False):
+        return None, None
+    marker = run / "work" / "todo.json"
+    if marker.is_file():
+        try:
+            previous = json.loads(marker.read_text(encoding="utf-8-sig"))
+            if isinstance(previous, dict) and previous.get("created") is True:
+                return {"id": previous.get("id"), "skipped": "already_created"}, None
+        except (OSError, json.JSONDecodeError):
+            pass
+    draft, report = run / "draft.md", run / "report.html"
+    if not draft.is_file():
+        return None, "草稿不存在，无法创建待办"
+    window_info = manifest.get("window", {})
+    failed = [k for k, v in manifest.get("sources", {}).items() if not v]
+    context = {
+        "date": (window_info.get("end", "") or dt.datetime.now(dt.timezone.utc).isoformat())[:10],
+        "window_start": local_label(window_info.get("start", "")),
+        "window_end": local_label(window_info.get("end", "")),
+        "run_dir": str(run), "draft": str(draft),
+        "report": str(report) if report.is_file() else "（未生成）",
+        "sources_note": ("来源失败：" + "、".join(failed)) if failed else "全部来源采集成功",
+    }
+    import agentr_todo
+    return agentr_todo.create(todo_cfg, context, agentr_todo.post_json, write_json, marker)
+
+
+def _md_inline(text: str) -> str:
+    import html as html_module
+    escaped = html_module.escape(text, quote=False)
+    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
+    return re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+
+
+def _md_cell(text: str) -> str:
+    return (f'<td class="uncertain">{_md_inline(text)}</td>' if "待确定" in text
+            else f"<td>{_md_inline(text)}</td>")
+
+
+def render_markdown_html(markdown: str, title: str, window_note: str) -> str:
+    """把草稿 Markdown 渲染为自包含总结 HTML；含“待确定”的单元格/段落高亮。"""
+    lines = markdown.splitlines()
+    out: list[str] = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped:
+            index += 1
+            continue
+        heading = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        if heading:
+            level = len(heading.group(1))
+            out.append(f"<h{level}>{_md_inline(heading.group(2))}</h{level}>")
+            index += 1
+            continue
+        if (stripped.startswith("|") and index + 1 < len(lines)
+                and re.match(r"^\|[\s:|-]+\|?$", lines[index + 1].strip())):
+            header = [c.strip() for c in stripped.strip("|").split("|")]
+            index += 2
+            rows = []
+            while index < len(lines) and lines[index].strip().startswith("|"):
+                rows.append([c.strip() for c in lines[index].strip().strip("|").split("|")])
+                index += 1
+            out.append("<table><thead><tr>"
+                       + "".join(f"<th>{_md_inline(c)}</th>" for c in header)
+                       + "</tr></thead><tbody>"
+                       + "".join("<tr>" + "".join(_md_cell(c) for c in row) + "</tr>" for row in rows)
+                       + "</tbody></table>")
+            continue
+        if stripped.startswith("> "):
+            quote = []
+            while index < len(lines) and lines[index].strip().startswith(">"):
+                quote.append(lines[index].strip().lstrip("> "))
+                index += 1
+            content = _md_inline(" ".join(quote))
+            cls = ' class="uncertain"' if "待确定" in content else ""
+            out.append(f"<blockquote{cls}>{content}</blockquote>")
+            continue
+        if re.match(r"^-\s+", stripped) or re.match(r"^\d+\.\s+", stripped):
+            ordered = bool(re.match(r"^\d+\.\s+", stripped))
+            items = []
+            while index < len(lines) and (re.match(r"^-\s+", lines[index].strip()) or re.match(r"^\d+\.\s+", lines[index].strip())):
+                item_text = re.sub(r"^(-|\d+\.)\s+", "", lines[index].strip())
+                cls = ' class="uncertain"' if "待确定" in item_text else ""
+                items.append(f"<li{cls}>{_md_inline(item_text)}</li>")
+                index += 1
+            tag = "ol" if ordered else "ul"
+            out.append(f"<{tag}>{''.join(items)}</{tag}>")
+            continue
+        out.append(f"<p>{_md_inline(stripped)}</p>")
+        index += 1
+    style = (
+        "body{font-family:'Microsoft YaHei',system-ui,sans-serif;margin:0 auto;max-width:1100px;padding:24px;color:#1f2933;}"
+        "h1{font-size:1.6em;border-bottom:2px solid #2563eb;padding-bottom:8px;}"
+        "h2{font-size:1.3em;border-bottom:1px solid #d5dbe1;padding-bottom:6px;margin-top:32px;}"
+        "h3{font-size:1.1em;margin-top:24px;}"
+        "table{border-collapse:collapse;width:100%;margin:12px 0;font-size:0.92em;}"
+        "th,td{border:1px solid #cbd2d9;padding:6px 8px;text-align:left;vertical-align:top;}"
+        "th{background:#e4e9ee;}"
+        "td.uncertain,li.uncertain{background:#fff3cd;}"
+        "blockquote{background:#f0f4f8;border-left:4px solid #2563eb;margin:12px 0;padding:8px 12px;}"
+        "blockquote.uncertain{background:#fff3cd;border-left-color:#d97706;}"
+        "code{background:#f0f4f8;padding:1px 4px;border-radius:3px;}"
+        ".meta{color:#616e7c;font-size:0.9em;}"
+    )
+    return ("<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head><meta charset=\"utf-8\">\n"
+            f"<title>{_md_inline(title)}</title>\n<style>{style}</style></head>\n<body>\n"
+            f"<h1>{_md_inline(title)}</h1>\n<p class=\"meta\">{_md_inline(window_note)}</p>\n"
+            + "\n".join(out) + "\n</body></html>\n")
+
+
+def render_report(run: Path) -> Path:
+    draft, manifest_file = run / "draft.md", run / "work" / "manifest.json"
+    if not draft.is_file():
+        raise ValueError(f"草稿不存在：{draft}")
+    markdown = draft.read_text(encoding="utf-8-sig")
+    window_note = ""
+    if manifest_file.is_file():
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8-sig"))
+        window_info = manifest.get("window", {})
+        window_note = "汇总窗口：{} ~ {}（UTC）；来源状态：{}".format(
+            window_info.get("start", ""), window_info.get("end", ""),
+            "，".join(f"{k}={'成功' if v else '失败'}" for k, v in manifest.get("sources", {}).items()))
+    title = next((line[2:].strip() for line in markdown.splitlines() if line.startswith("# ")), "工作经验沉淀报告")
+    report = run / "report.html"
+    report.write_text(render_markdown_html(markdown, title, window_note), encoding="utf-8")
+    return report
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    run = Path(args.run).expanduser().resolve()
+    try:
+        report = render_report(run)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return fail(2, f"报告生成失败：{exc}", "确认 draft.md 与 work/manifest.json 存在后重试")
+    return ok({"report": str(report), "run_dir": str(run)})
+
+
 def cmd_notify_draft(args: argparse.Namespace) -> int:
     run = Path(args.run).resolve()
     draft = run / 'draft.md'
@@ -1126,16 +1320,41 @@ def cmd_run_cycle(args: argparse.Namespace) -> int:
     tmp = draft.with_suffix('.tmp')
     tmp.write_text(body, encoding='utf-8')
     tmp.replace(draft)
+    cycle_errors: list[dict[str, str]] = []
+    report_path = None
+    try:
+        report_path = render_report(run)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        cycle_errors.append({"stage": "report", "message": str(exc)})
     if not getattr(args, 'no_notify', False):
         code = cmd_notify_draft(argparse.Namespace(workdir=args.workdir, run=str(run)))
         if code:
-            return code
-    result = {'run_dir': str(run), 'draft': str(draft), 'sources': manifest['sources'],
+            cycle_errors.append({"stage": "dingtalk_notify", "message": "钉钉通知未确认送达；草稿保留，可用 notify-draft 重试"})
+    todo_state, todo_error = create_agentr_todo(config, run, manifest)
+    if todo_error:
+        cycle_errors.append({"stage": "agentr_todo", "message": todo_error})
+    result = {'run_dir': str(run), 'draft': str(draft),
+              'report': str(report_path) if report_path else None,
+              'sources': manifest['sources'], 'todo': todo_state,
+              'errors': cycle_errors,
               'notification_enabled': not getattr(args, 'no_notify', False)}
-    if not all(manifest['sources'].values()):
+    if cycle_errors or not all(manifest['sources'].values()):
         print(json.dumps({'status': 'partial', 'data': result}, ensure_ascii=False))
         return 3
     return ok(result)
+
+
+def cmd_todo_create(args: argparse.Namespace) -> int:
+    config = load_config(args.workdir)
+    run = Path(args.run).expanduser().resolve()
+    manifest_file = run / 'work' / 'manifest.json'
+    if not manifest_file.is_file():
+        return fail(2, f'运行目录缺少 work/manifest.json：{run}', '先运行 collect')
+    manifest = json.loads(manifest_file.read_text(encoding='utf-8-sig'))
+    state, error = create_agentr_todo(config, run, manifest)
+    if error:
+        return fail(3, error, '修正 agentr_todo 配置或确认 AgentR 服务可用后重试')
+    return ok({'run_dir': str(run), 'todo': state})
 
 
 def cmd_schedule(args: argparse.Namespace) -> int:
@@ -1144,7 +1363,7 @@ def cmd_schedule(args: argparse.Namespace) -> int:
     except ValueError as exc:
         return fail(2, str(exc), "修复配置后重试")
     frequency = config.get("schedule", {}).get("frequency", "daily")
-    time_value = args.time or config.get("schedule", {}).get("time", "09:00")
+    time_value = args.time or config.get("schedule", {}).get("time", "18:30")
     try:
         preview = windows_task_preview(config, args.workdir, time_value)
     except ValueError as exc:
@@ -1175,6 +1394,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("draft-init"); p.add_argument("--run", required=True); p.add_argument("--force", action="store_true"); p.set_defaults(func=cmd_draft_init)
     p = sub.add_parser("approve"); p.add_argument("--run", required=True); p.add_argument("--reviewer", required=True); p.set_defaults(func=cmd_approve)
     p = sub.add_parser("verify-approved"); p.add_argument("--run", required=True); p.set_defaults(func=cmd_verify)
+    p = sub.add_parser("report"); p.add_argument("--run", required=True); p.set_defaults(func=cmd_report)
+    p = sub.add_parser("todo-create"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run", required=True); p.set_defaults(func=cmd_todo_create)
     p = sub.add_parser("schedule"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--time"); p.add_argument("--confirm", action="store_true"); p.set_defaults(func=cmd_schedule)
     p = sub.add_parser("schedule-status"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_schedule_status)
     return parser

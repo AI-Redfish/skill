@@ -3,7 +3,7 @@ name: prd-techdoc
 description: "Use when the user wants to turn a PRD, prototype HTML, interaction draft, or product requirement into concise, implementation-ready backend technical documentation such as ER diagrams, MySQL incremental SQL, API lists, business flowcharts, data flowcharts, or incremental dictionaries, especially when the output must follow an existing backend/frontend code style. The only required input is at least one of PRD (markdown) or prototype (HTML); having both is best. This self-contained skill has no hard runtime dependencies: MCP services, host subagent tools, and mmdc are replaced by bundled local Python scripts under scripts/ (mermaid lint/render, doc structure checks, MySQL schema check via pymysql), with dependencies managed by uv for isolation, and optional environment settings stored in .agents/.env of the runtime working directory. It also supports integrating/improving existing tech docs and fact-checking a produced doc against the PRD/prototype."
 metadata:
   author: AI-Redfish
-  version: "1.0.0"
+  version: "1.2.0"
 ---
 
 # PRD 转后端开发文档
@@ -332,6 +332,10 @@ WSL/Windows 环境补充（实测有效）：
 5. **外部域条件驱动的可见性**：仅当 PRD/原型明确规定对象可见性由外部域标签、分类或资格条件控制时启用。必须写清实时列表、历史数据、进行中流程和条件移除后的处理口径；不得把示例业务规则套用到无关需求。
 6. **字典与状态用语一致**：同一状态/枚举的取值字符串与中文名称必须与 SQL 注释、字典项、状态机节点、接口备注完全一致，不得在不同章节用同义改写。
 7. **协作修订守则**：文档可能被用户在会话外直接修改。每次编辑前重新读取目标段落，不整篇覆盖；发现结构偏差（如引用了已被删除的章节名、出现未被契约允许的一级标题）时只报告并请示，不擅自恢复或删除用户内容。
+8. **接口对账闭环（必须改对接口）**：凡需求要求修改某页面某操作，必须先核对该操作在前端实际调用的 URL、Method、参数，以及后端 Controller/Service/Mapper 的实际实现，均附文件与行号证据；输出文档中修改的必须是该接口本身，不得改错接口。禁止凭接口名、DTO 字段存在或记忆断言接口能力（如“DTO 已有 name 字段”不等于“后端已实现 name 过滤”）；同一接口存在多个调用方时（含 Web、客户端、移动端、Unity 等非 Web 入口）逐一列全，改造时逐个评估影响。
+9. **既有能力改造的兼容性与稳定性（接口与全局）**：兼容性要求覆盖整个技术方案而不只是接口——数据结构变更（加列、新表、字段类型/默认值变化）、公共逻辑与工具类变更、模块依赖变更，均须评估对既有查询、写入、导入导出、报表和前端组件的影响。改造既有接口优先采用“新增可选参数、不传即原行为”的方式，确保既有调用方不传新参时行为不变；改造前必须检索全部既有调用方（含编辑器、素材库、客户端预览等隐蔽入口）并逐个说明影响；任何行为变更（默认过滤条件、排序、返回结构、空参语义）必须显式列出受影响调用方与变化后果，写入接口备注和“口径裁决与范围声明”段；无法静态确认的持久层行为（如空字段更新策略、逻辑删除拦截、事务回滚传播）标注“实施时验证”，不得断言已生效。
+10. **全代码面对账（引用点零遗漏）**：需求涉及实体、表结构、字段、公共逻辑或既有能力变更时，必须全仓检索并逐点核对项目内所有引用位置——其他 Service/Controller、定时任务（@Scheduled、xxl-job 等）、MQ 生产者与消费者、事件监听/钩子、导入导出与报表、缓存刷新、公共工具类，以及前端组件与共享 API 模块——逐一判定“受影响需同步改造 / 不受影响（写明理由）”，形成“既有代码改造点”清单落进文档对应章节；只核对单一调用链而遗漏其他引用点视为未完成，遗漏导致的运行期不一致按 P0 缺陷处理。
+11. **性能影响显式评估**：每个改造点（新增过滤条件、新增关联查询、新表增长、实体加列、公共逻辑变化）都必须给出性能影响结论并写入对应接口备注或链路说明：受影响查询的量级假设及来源、是否需要索引（受“只保留主键”约束时进入待确认结构点，说明查询场景与影响）、是否需要分页/异步/上限；对既有高频链路（列表、登录后首屏、定时任务、MQ 消费）的叠加影响必须单独说明；不得输出“注意性能”式泛化话术，也不得默认“数据量小”而不给依据——量级假设必须来自需求方裁决或需求文本。
 
 ## Execution Flow
 
@@ -340,7 +344,7 @@ WSL/Windows 环境补充（实测有效）：
 1. 先做依赖检查与降级（见 Dependency Checks）：确认 PRD/原型至少其一（Mode B 确认既有文档）、读取或提示补全 `.agents/.env`、确认本地脚本可运行；并确认输入形态选择 Mode A/B/C。
 2. 校验输入和路径，执行 Design Readiness Gate；`BLOCK` 时停止确定性设计，只列阻断项与所需输入。
 3. 读取 PRD/原型/既有文档，识别模块、页面动作、字段、权限、数据范围、约束、异常和验收点（PRD 与原型至少其一，按 Required Inputs 的缺失侧降级规则处理）。巨型 HTML 用关键词定位后按行区读取并附行号；旧口径只进入差异项。
-4. 读取真实前后端项目中的相似实现（路径来自用户指定或 `.agents/.env`），确认模块边界、复用对象、Controller/Service/Mapper 分层和跨服务依赖；未提供路径时使用内置参考并标建议稿。
+4. 读取真实前后端项目中的相似实现（路径来自用户指定或 `.agents/.env`），确认模块边界、复用对象、Controller/Service/Mapper 分层和跨服务依赖；未提供路径时使用内置参考并标建议稿。凡需求要求修改某页面某操作的接口，必须按 Hard Invariants 第 8 条完成前后端对账：定位该操作实际调用的 URL/Method/参数与后端实际实现（附文件与行号），并检索该接口的全部既有调用方评估兼容性（Hard Invariants 第 9 条）。涉及实体、表结构、字段或公共逻辑变更时，同步按 Hard Invariants 第 10 条完成全代码面引用点检索（定时任务、MQ 消费、其他 Service、导入导出、前端组件、公共逻辑），并按第 11 条对每个改造点给出性能影响结论。
 5. 生成字典草案：只识别实体字段实际使用的常量/全局/自定义字典及其枚举，不收录展示派生态。
 6. 完整读取 `agents/prd-entity-flow-extractor.md` 并按该角色规则执行（本地串行，见 Role Execution），提取实体、动作、流程、数据流、口径变更、权限/数据范围、异常、验收和待确认项。
 7. 完整读取 `agents/backend-contract-designer.md` 并按该角色规则执行，基于步骤 6 和真实项目风格产出简洁接口清单；关键接口补齐权限、校验、状态、事务、幂等、性能上限和最小测试依据。
@@ -414,6 +418,10 @@ WSL/Windows 环境补充（实测有效）：
 - 全文无背景复述、通用技术常识和章节总结；普通说明不超过 3 句，结构化内容优先表格，重复约束只定义一次
 - 接口风格看起来像来自当前仓库，而不是通用脚手架
 - 字典枚举与 SQL 注释、接口、状态机用词一致
+- 需求涉及的每个页面操作均已对账：文档修改的接口与该操作前端实际调用、后端实际实现一致，附调用点与实现位置证据，未凭接口名或 DTO 字段推断能力
+- 既有接口改造已列全全部既有调用方及兼容性结论；“新增可选参数、不传即原行为”为默认改造方式，任何行为变更均有受影响方清单与知悉记录
+- 实体/表结构/字段/公共逻辑变更已完成全代码面对账：文档含“既有代码改造点”清单，覆盖定时任务、MQ 消费、其他 Service、导入导出、前端组件与公共逻辑，每个引用点标注“需改造”或“不受影响（含理由）”
+- 每个改造点均有显式性能影响结论（量级假设及来源、索引/分页/异步结论），对既有高频链路的叠加影响已单独说明，无泛化性能话术
 - 交付包含内容一致的 Markdown 与 HTML；HTML 中 Mermaid 全部以内联 SVG 呈现，离线可读、可打印
 
 ## Failure Mode
