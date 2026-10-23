@@ -66,6 +66,7 @@ metadata:
 12. **如实汇报**：最终总结必须包含——修改内容 / 影响面（接口兼容性、数据行为、性能、部署注意）/ 验证状态（真实跑过什么、结果如何）/ 未覆盖项（如实库联调未做）；不夸大、不隐瞒、不虚构"已验证"。
 13. **安全前置阻断**：涉及权限、租户/数据范围、敏感数据、文件、外部调用、异步链路的改动，先过 [security-coding-constraints.md](references/security-coding-constraints.md) 的阻断条件；缺设计依据时标注为阻断并反馈，不得靠猜测落代码。
 14. **数据库变更走 Flyway**：表结构/索引/初始化数据变更必须以版本化 SQL 落盘，MySQL 与 KingBase 双端同步且幂等；禁止绕过 Flyway 手改库、禁止 `DROP TABLE`/`DROP COLUMN`。
+15. **分层纪律**：Controller 只做参数接收、登录上下文/接入层依赖（如 LoginService 院区集合）的解析与 Service 调用转发；参数校验、业务规则判断、分支决策与错误码语义一律放 Service 层（校验失败返回 `ResponseResult.error` 或抛业务异常），禁止在 Controller 编写业务 if/else 分支或拼装错误响应。Service 需要接入层数据时，由 Controller 解析后作为参数整体传入（无条件解析，是否使用由 Service 判定），不为省一次查询把业务判断留在 Controller。
 
 ---
 
