@@ -31,8 +31,10 @@ class Busy(RouteError):
 
 
 def git(repo, *args, env=None, input=None):
+    # CREATE_NO_WINDOW：监听器等无控制台父进程内调用时，避免每次 git 新建可见控制台（黑窗闪现）。
     p = subprocess.run(["git", *args], cwd=str(repo), env=env, input=input,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                       creationflags=0x08000000 if os.name == "nt" else 0)
     if p.returncode:
         raise RouteError(p.stderr.decode("utf-8", "replace").strip()[:1000])
     return p.stdout
@@ -161,7 +163,8 @@ def open_report(path):
         script = "Start-Process -FilePath '" + win.replace("'", "''") + "'"
         encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
         subprocess.run(["powershell.exe", "-NoProfile", "-EncodedCommand", encoded], check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                       stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                       creationflags=0x08000000)
         return True
     return webbrowser.open(path.as_uri())
 
@@ -407,7 +410,8 @@ def _finish(project, bug_id, files, check_command, no_change=False):
         cmd = [arg[1:-1] if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in "\"'" else arg for arg in cmd]
     if not cmd:
         raise RouteError("验证命令不能为空")
-    result = subprocess.run(cmd, cwd=str(p), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    result = subprocess.run(cmd, cwd=str(p), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            creationflags=0x08000000 if os.name == "nt" else 0)
     (report / "validation.log").write_bytes(result.stdout)
     rec["validation"] = {"command": cmd, "returncode": result.returncode}
     save(record_path(project, bug_id), rec)

@@ -54,7 +54,8 @@ def git_output(repo, *args, executable="git"):
         if match:
             repo_arg = match[1].upper() + ":/" + match[2]
     result = subprocess.run([executable, "-C", repo_arg, *args], capture_output=True,
-                            text=True, encoding="utf-8", errors="replace", timeout=30)
+                            text=True, encoding="utf-8", errors="replace", timeout=30,
+                            creationflags=0x08000000 if os.name == "nt" else 0)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or "Git validation failed")
     return result.stdout.strip()

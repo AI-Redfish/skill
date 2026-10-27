@@ -130,6 +130,7 @@ def run_git(args, cwd, check=True, capture=True):
         ["git"] + args, cwd=cwd, text=True,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
+        creationflags=0x08000000 if os.name == "nt" else 0,   # CREATE_NO_WINDOW：不弹黑窗
     )
     if check and proc.returncode != 0:
         raise RuntimeError("git %s 失败(%d): %s" % (
@@ -627,7 +628,8 @@ def info_from_worktree(project_dir, bug_id, wt_path, wt_branch=""):
         date = m.group(1)
     if not date:
         date = subprocess.run(["date", "+%Y%m%d"], text=True,
-                              stdout=subprocess.PIPE).stdout.strip()
+                              stdout=subprocess.PIPE,
+                              creationflags=0x08000000 if os.name == "nt" else 0).stdout.strip()
     report_dir = resolve_report_dir(wt_path, bug_id)
     base_branch = ""
     meta = load_meta(report_dir)
