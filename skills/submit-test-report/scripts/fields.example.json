@@ -2,7 +2,7 @@
   "iteration": "示例迭代名称",
   "basic": {
     "test_version": "V6.0.8.1",
-    "baseline_version": "V6.0.7.4",
+    "baseline_version": "V6.0.8.0",
     "submit_date": "2026-10-12",
     "expect_start": "2026-10-13",
     "expect_end": "—"
@@ -15,41 +15,37 @@
     "participants": "赵六、钱七"
   },
   "test_stages": ["冒烟测试", "功能测试"],
-  "env": {
-    "apps": "PC、App",
-    "hardware": "—",
-    "min_runtime": "—"
-  },
+  "env": { "apps": "PC、App", "hardware": "—", "min_runtime": "—" },
   "changes": [
     {
       "req_no": "",
-      "type": "优化",
-      "summary": "变更摘要一句话示例",
-      "modules": ["模块A-ModuleA（菜单路径）--「页面名」", "模块B-ModuleB（菜单路径）--「页面名」"],
-      "verification": "验证要点示例：主流程可走通、边界值校验"
+      "type": "新增",
+      "summary": "XX页面新增条件筛选，支持按类型和日期范围查找记录",
+      "modules": ["菜单路径A > 页面名 - 记录列表"],
+      "verification": "按类型、日期范围筛选后列表只显示符合条件的记录；清空条件后恢复全部；筛选无结果时显示空态提示"
     },
     {
       "req_no": "",
-      "type": "新增",
-      "summary": "第二个变更摘要",
-      "modules": ["模块C-ModuleC"],
-      "verification": "验证要点示例二"
+      "type": "优化",
+      "summary": "记录详情支持修改备注并保存，保存后列表与详情显示一致",
+      "modules": ["菜单路径A > 页面名 - 记录详情"],
+      "verification": "备注为空时无法保存并提示；保存后重新打开显示最新内容；超出长度限制时无法保存并提示"
     }
   ],
   "common_changes": [
     {
-      "item": "公共组件",
-      "description": "示例：升级了 XX 公共组件",
-      "impact": "影响所有使用该组件的页面，需连带回归"
+      "item": "数据库调整（随版本发布）",
+      "description": "记录数据新增备注存储，存量记录默认为空",
+      "impact": "无需停机刷库；存量记录备注为空属正常，编辑保存后即有值"
     }
   ],
   "self_test": {
     "conclusion": "通过",
-    "scope": "对照第四节需求变更表 + 公共变更连带项，确认已覆盖"
+    "scope": "对照第四节需求变更表＋公共变更连带项确认已覆盖：筛选查询、详情编辑保存、空态与提示；相关自动化用例随代码提交通过"
   },
   "docs": {
-    "requirement": "http://example.com/requirement.md",
-    "design": "无（本次为纯前端小改动，无系统分析文档）",
-    "tech": "http://example.com/tech.md"
+    "requirement": "D:/docs/示例需求PRD.md",
+    "design": "D:/docs/示例设计文档.md",
+    "tech": "D:/docs/示例技术方案.md"
   }
 }
