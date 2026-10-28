@@ -48,6 +48,7 @@ ARCH_GATE_BASE_REF=origin/release bash scripts/ci/check-architecture.sh --diff
 | 隐式行为变化 | 是否改变了老接口、老状态、老数据查询范围（例：给台账列表加状态过滤属于隐式收窄数据范围） |
 | 过度抽象 | 是否新增了当前只有一个调用方的复杂框架 |
 | 调试残留 | 是否留下日志、临时开关、演示数据、placeholder |
+| 字段链路遗漏 | 新增/变更字段是否覆盖 Entity/DTO/VO/Mapper XML（resultMap/列片段/select/insert/update/where 逐 statement 判断，跳过项有理由）/Service 转换；`git grep` 新字段名核对命中文件与盘点清单一致 |
 | 脏工作区 | 是否混入用户或生成工具已有改动 |
 
 Review 原则（来自 bps-review，自查与互查通用）：只审查本次变更引入的问题；少猜测多给触发场景（什么输入/状态/并发下触发）；按严重度排序（安全/正确性 > 生产故障/契约破坏 > 性能退化 > 测试缺口/可维护性）；输出指向具体文件和行、可执行。
@@ -69,3 +70,4 @@ rg -n "\$\{|ORDER BY \$|System\.out|printStackTrace|TODO|FIXME" <changed-files>
 - [ ] 无新增 `service -> service`、双向注入、自注入、`Helper/Util -> Service`
 - [ ] Javadoc + `@Operation` 完整
 - [ ] SQL 变更已走 Flyway 双端
+- [ ] 新增/变更字段：Entity/DTO/VO/Mapper XML 自定义查询/Service 全链路已逐项核对，`git grep` 复查无遗漏

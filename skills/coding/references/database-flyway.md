@@ -31,7 +31,7 @@ V{YYYY.MM.DD.HH.MM.SS}_{product_version}.{sequence}__{db}_{ops_type}.sql
 ## 3. 五种幂等模板（每个文件可重复执行，结果一致）
 
 1. **建表**：`CREATE TABLE IF NOT EXISTS ... ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='...'`
-2. **加字段**：通用存储过程 `add_column_if_not_exists`（查 information_schema 后 PREPARE EXECUTE），同文件可多次 CALL。
+2. **加字段**：通用存储过程 `add_column_if_not_exists`（查 information_schema 后 PREPARE EXECUTE），同文件可多次 CALL；**只落 SQL 不算完成**——必须同步 Java 全链路（Entity/DTO/VO/Mapper XML 自定义查询逐 statement 核对/Service/Controller，见 mybatis-plus-and-crud.md 第 5 节字段全链路清单）。
 3. **加主键**：通用存储过程 `SafeAddPrimaryKey`。
 4. **初始化/更新数据**：`REPLACE INTO`（按主键/唯一索引判存在）。
 5. **存储过程/函数**：`DROP PROCEDURE IF EXISTS` + `CREATE PROCEDURE` + `DELIMITER $$`。

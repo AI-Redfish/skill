@@ -1,0 +1,55 @@
+{
+  "iteration": "示例迭代名称",
+  "basic": {
+    "test_version": "V6.0.8.1",
+    "baseline_version": "V6.0.7.4",
+    "submit_date": "2026-10-12",
+    "expect_start": "2026-10-13",
+    "expect_end": "—"
+  },
+  "roles": {
+    "dev_owner": "张三",
+    "product_manager": "李四",
+    "project_manager": "",
+    "test_owner": "王五",
+    "participants": "赵六、钱七"
+  },
+  "test_stages": ["冒烟测试", "功能测试"],
+  "env": {
+    "apps": "PC、App",
+    "hardware": "—",
+    "min_runtime": "—"
+  },
+  "changes": [
+    {
+      "req_no": "",
+      "type": "优化",
+      "summary": "变更摘要一句话示例",
+      "modules": ["模块A-ModuleA（菜单路径）--「页面名」", "模块B-ModuleB（菜单路径）--「页面名」"],
+      "verification": "验证要点示例：主流程可走通、边界值校验"
+    },
+    {
+      "req_no": "",
+      "type": "新增",
+      "summary": "第二个变更摘要",
+      "modules": ["模块C-ModuleC"],
+      "verification": "验证要点示例二"
+    }
+  ],
+  "common_changes": [
+    {
+      "item": "公共组件",
+      "description": "示例：升级了 XX 公共组件",
+      "impact": "影响所有使用该组件的页面，需连带回归"
+    }
+  ],
+  "self_test": {
+    "conclusion": "通过",
+    "scope": "对照第四节需求变更表 + 公共变更连带项，确认已覆盖"
+  },
+  "docs": {
+    "requirement": "http://example.com/requirement.md",
+    "design": "无（本次为纯前端小改动，无系统分析文档）",
+    "tech": "http://example.com/tech.md"
+  }
+}

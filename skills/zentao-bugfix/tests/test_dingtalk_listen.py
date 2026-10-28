@@ -469,8 +469,61 @@ class TestFixPrompt(unittest.TestCase):
         # 分析报告落盘位置指向 worktree 的 .agents/zentao-bugfix
         self.assertIn(".agents/zentao-bugfix/", p)
 
+    def test_uncertain_cause_prompt_precedes_normal_flow(self):
+        prepared = {"mode": "inplace", "project": "/repo",
+                    "workspace": "/dev", "report_dir": "/reports"}
+        for context in (None, prepared):
+            with self.subTest(prepared=bool(context)):
+                prompt = dl.build_fix_prompt("101", prepared=context)
+                self.assertTrue(prompt.startswith("根因待确认分支优先"))
+                for requirement in ("操作、配置、数据、环境", "暂停代码、配置和数据修改",
+                                    "不调用 ready/finish", "包括 --no-change",
+                                    "不释放或删除锁", "**排查状态**: 等待用户补充",
+                                    "检查位置/只读操作", "预期结果与判定依据",
+                                    "最小必需/可选资料", "采集方法", "时间范围",
+                                    "脱敏要求", "在对话中告知", "恢复条件",
+                                    "未修改代码、未修复", "已确认"):
+                    self.assertIn(requirement, prompt)
+
 
 class TestRoutedRuns(unittest.TestCase):
+    def test_waiting_for_evidence_never_counts_as_success(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            rd = repo / "reports"
+            rd.mkdir()
+            rec = {"run_id": "current", "report_dir": str(rd),
+                   "workspace": str(repo), "validation": {"returncode": 0}}
+            dl._routes.save(rd / "meta.json", {"run_id": "current"})
+            for name in ("solution.md", "fix-report.md"):
+                (rd / name).write_text("暂停代码修改，等待补充；未修复", encoding="utf-8")
+            for mode in ("worktree", "inplace"):
+                for status in ("prepared", "no_change"):
+                    with self.subTest(mode=mode, status=status):
+                        rec.update(mode=mode, status=status)
+                        dl._routes.save(dl._routes.record_path(repo, "1"), rec)
+                        (rd / "analysis.md").write_text(
+                            "## 2. 问题归属\n\n**结论**: 待确认\n"
+                            "**排查状态**: 等待用户补充\n", encoding="utf-8")
+                        dl._routes._reports.render_reports(rd, require_complete=True)
+                        result = dl.verify_run("1", repo, "current")
+                        self.assertFalse(result["ok"])
+                        self.assertTrue(result["awaiting_evidence"])
+                        self.assertEqual(result["status"], "awaiting_evidence")
+                        self.assertTrue(result["analysis_complete"])
+                        self.assertTrue(all(result["html_complete"].values()))
+                        self.assertIsNotNone(result["report_html"])
+            # 非代码问题确认后，允许现有经验证 no_change 流程正常结束。
+            (rd / "analysis.md").write_text(
+                "## 2. 问题归属\n\n**结论**: 待确认\n"
+                "**排查状态**: 已确认\n\n## 5. 根因分析\n配置原因已验证，无需代码修改。\n",
+                encoding="utf-8")
+            dl._routes._reports.render_reports(rd, require_complete=True)
+            result = dl.verify_run("1", repo, "current")
+            self.assertTrue(result["ok"])
+            self.assertFalse(result["awaiting_evidence"])
+            self.assertEqual(result["status"], "no_change")
+
     def test_prepared_prompt_does_not_prepare_twice(self):
         prepared = {"mode": "inplace", "project": "/repo with space", "workspace": "/dev", "report_dir": "/dev/.agents/zentao-bugfix/1"}
         p = dl.build_fix_prompt("1", prepared=prepared)
@@ -650,6 +703,24 @@ class TestResolutionGate(unittest.TestCase):
 
 
 class TestResultNotifications(unittest.TestCase):
+    def test_awaiting_evidence_notification_is_actionable_and_redacted(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            notifier = dl.ResultNotifier(Path(td) / "outbox.json")
+            notifier.recipient = {"user_id": "me", "corp_id": "corp"}
+            result = {"bug_id": "1", "ok": False, "status": "awaiting_evidence",
+                      "report_dir": "/reports/1", "report_html": "/reports/1/fix-report.html",
+                      "error": "SECRET raw Bug text"}
+            with patch.object(dl, "run_dws", return_value='{"success":true}') as send:
+                self.assertTrue(notifier.publish(result, "message:evidence")["sent"])
+                args = send.call_args.args[0]
+                text = args[args.index("--text") + 1]
+                for expected in ("等待补充资料", "已暂停修改，未修复", "排查步骤",
+                                 "最小资料清单", "脱敏数据及环境信息", "/reports/1"):
+                    self.assertIn(expected, text)
+                self.assertNotIn("处理成功", text)
+                self.assertNotIn("SECRET", text)
+
     def test_current_user_required(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:

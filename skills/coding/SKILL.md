@@ -1,10 +1,10 @@
 ---
 name: coding
-description: WHEN：用户要求在 BPS 类 Java 多模块仓库（Spring Boot + MyBatis-Plus + MySQL/KingBase + Flyway）中实现需求、修改接口/Service/Mapper/XML/Flyway、开发批量或定时任务、修复缺陷，或要求"修改完成后提交/合并成一个 commit"、"整理前端修改文档"时使用。WHAT：按最小侵入原则落代码——开工前过准入门禁，复述需求并列关键假设，安全与性能前置自检，给共享接口加能力时只用可选通用参数，Mapper 优先 MyBatis-Plus 内置查询且不新增自定义查询，批量任务内置性能防护（分批短事务/批间休眠/单轮上限/游标翻页/内存有界），真实构建+测试+架构检查验证（警惕过期测试报告与并发构建），数据库变更走 Flyway 双端幂等，按用户要求提交并合并为单个 commit，同步更新文档并输出含影响面与未覆盖项的总结。WHEN NOT：仅生成标准 CRUD 用 bps-crud-code-generator（本 skill references 有速查）；worktree/分支操作用 git-flow；禅道 bug 修复用 zentao-bugfix；纯前端实现（输出交接文档交前端处理）。
+description: WHEN：用户要求在 BPS 类 Java 多模块仓库（Spring Boot + MyBatis-Plus + MySQL/KingBase + Flyway）中实现需求、修改接口/Service/Mapper/XML/Flyway、开发批量或定时任务、修复缺陷，或要求"修改完成后提交/合并成一个 commit"、"整理前端修改文档"时使用。WHAT：按最小侵入原则落代码——开工前过准入门禁，复述需求并列关键假设，安全与性能前置自检，给共享接口加能力时只用可选通用参数，Mapper 优先 MyBatis-Plus 内置查询且不新增自定义查询，字段级改动按全链路清单逐层核对（Entity/DTO/VO/Mapper XML 自定义查询逐 statement 判断，不遗漏），批量任务内置性能防护（分批短事务/批间休眠/单轮上限/游标翻页/内存有界），真实构建+测试+架构检查验证（警惕过期测试报告与并发构建），数据库变更走 Flyway 双端幂等，按用户要求提交并合并为单个 commit，同步更新文档并输出含影响面与未覆盖项的总结。WHEN NOT：仅生成标准 CRUD 用 bps-crud-code-generator（本 skill references 有速查）；worktree/分支操作用 git-flow；禅道 bug 修复用 zentao-bugfix；纯前端实现（输出交接文档交前端处理）。
 compatibility: 无脚本依赖；需 git 与 Maven/JDK17 环境（仓库标准工具链）；面向 BPS 基础平台服务仓库（CODING_STANDARDS.md 为权威规范，.share/skills/ 下 bps-* 系列为专项细则来源）。
 metadata:
   author: AI-Redfish
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # coding — 带约束的 AI 结对编码守门人
@@ -67,6 +67,7 @@ metadata:
 13. **安全前置阻断**：涉及权限、租户/数据范围、敏感数据、文件、外部调用、异步链路的改动，先过 [security-coding-constraints.md](references/security-coding-constraints.md) 的阻断条件；缺设计依据时标注为阻断并反馈，不得靠猜测落代码。
 14. **数据库变更走 Flyway**：表结构/索引/初始化数据变更必须以版本化 SQL 落盘，MySQL 与 KingBase 双端同步且幂等；禁止绕过 Flyway 手改库、禁止 `DROP TABLE`/`DROP COLUMN`。
 15. **分层纪律**：Controller 只做参数接收、登录上下文/接入层依赖（如 LoginService 院区集合）的解析与 Service 调用转发；参数校验、业务规则判断、分支决策与错误码语义一律放 Service 层（校验失败返回 `ResponseResult.error` 或抛业务异常），禁止在 Controller 编写业务 if/else 分支或拼装错误响应。Service 需要接入层数据时，由 Controller 解析后作为参数整体传入（无条件解析，是否使用由 Service 判定），不为省一次查询把业务判断留在 Controller。
+16. **字段新增全链路**：新增/修改表字段时，Flyway 双端 → Entity → DTO → VO → Mapper 接口 → Mapper XML → Service → Controller → 测试/文档逐层核对，缺一即返工；Mapper XML 中的**自定义查询**（resultMap、`<sql>` 列片段、select/insert/update、动态 where、JOIN/聚合子查询）必须**逐 statement 判断**该字段是否需要——需要则补齐，判断不需要也要在交付总结记录"跳过 + 理由"，禁止默认跳过。全链路大量环节是"静默丢字段"（同名拷贝、XML 不校验列名、MP 按实体映射），编译不报错，只能靠清单逐项核对 + `git grep` 复查；核对方法见 [mybatis-plus-and-crud.md](references/mybatis-plus-and-crud.md) 第 5 节字段全链路清单。
 
 ---
 
@@ -90,6 +91,7 @@ metadata:
 | git-commit-id 插件构建失败 | 验证场景加 `-Dmaven.gitcommitid.skip=true` 并在总结说明；不得以此替代路径/环境问题修复 |
 | 单模块编译报找不到其他模块新增类 | 依赖模块未安装到本地仓库；用 `-pl <目标模块> -am` 连带构建 |
 | 需求中途收窄/推翻此前实现 | 立即列出受影响的既有改动清单，逐项回退或改造，同步修正测试与文档 |
+| 新增字段后部分文件遗漏（历史实测：Mapper XML 自定义查询漏列） | 按字段全链路清单逐项打勾；XML 逐 statement 判断（补字段，或记录"跳过 + 理由"）；`git grep` 新字段名/新列名核对命中文件与清单一致 |
 
 ## 输出规范
 
@@ -136,6 +138,7 @@ metadata:
 - 输入：「还原 saveOrReuseForAsset 方法」→ 恢复原始实现与职责边界，清理夹带逻辑与过时用例。
 - 输入：「修改完成后提交，然后合并成一个 commit」→ soft reset 到基点或 amend，单条约定格式提交，不 push。
 - 输入：「新增一张业务表」→ Flyway 双端幂等脚本 + 实体/Mapper/Service/Controller 按模板生成，同步测试。
+- 输入：「给资产表加个备注字段」→ Flyway 双端加列 + Entity/DTO/VO + XML 自定义查询逐 statement 核对（resultMap/列片段/insert/update/where）+ Service 转换与过滤 + SQL 解析测试，`git grep` 复查零遗漏。
 
 ## 不适用场景
 
