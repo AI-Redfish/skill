@@ -44,7 +44,7 @@
     "scope": "对照第四节需求变更表＋公共变更连带项确认已覆盖：筛选查询、详情编辑保存、空态与提示；相关自动化用例随代码提交通过"
   },
   "docs": {
-    "requirement": "D:/docs/示例需求PRD.md",
+    "requirement": "http://gitlab.example.com/product/prototype/-/blob/main/示例需求PRD.md",
     "design": "D:/docs/示例设计文档.md",
     "tech": "D:/docs/示例技术方案.md"
   }
