@@ -4,7 +4,7 @@ description: 基于指定远程分支创建 git worktree 并行开发工作区�
 compatibility: Python 3.9+ 纯标准库（python/python3 直跑，零安装）；需 git ≥2.20；支持 Linux/macOS/Windows 与 WSL（自动转换 /mnt/<盘> 与盘符路径）。
 metadata:
   author: AI-Redfish
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # git-flow — 基于远程分支一键创建同级 worktree 并行开发
@@ -160,6 +160,18 @@ IDEA不显示Git时先验证IDE使用的Git，再检查Directory Mappings；不�
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
 5. **本 skill 针对性约束**：交付物只有 worktree 本身；验证结果用文字汇报，
    不另写验证记录、日志或说明文件。
+
+## 自我沉淀闭环（每次对话结束必检，最高优先级）
+
+1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——
+   新踩的 worktree/Git 指针坑与有效解法、被用户纠正的分支命名/流程默认值、
+   错误处理表与实战坑清单的缺口
+2. **有沉淀候选 → 主动询问用户**（一次只问一个）：
+   「本次对话发现 <X>，是否沉淀进本 skill（修改 SKILL.md / references/ / scripts/）？」
+3. **用户确认后**：遵循本 skill 的产出规范小步修改对应文件（不重写整个 skill），
+   并递增 frontmatter 的 `metadata.version`；用户拒绝则不强改
+4. **无沉淀候选 → 不打扰用户**，正常结束
+5. **判定标准**：只沉淀未来场景会复用的通用规律，一次性细节不沉淀
 
 ## 触发示例
 

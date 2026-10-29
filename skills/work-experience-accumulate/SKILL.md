@@ -4,7 +4,7 @@ description: 定时汇总钉钉聊天、本人已解决的禅道 Bug、指定 Gi
 compatibility: Windows 原生 Python 3.9+、Git、dws；定时运行需要可用的 Agent CLI 和 Windows 任务计划程序；AgentR 待办需要可访问的 AgentR Node 服务；脚本仅使用 Python 标准库。
 metadata:
   author: AI-Redfish
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # work-experience-accumulate — 工作经验定时采集与沉淀草稿
@@ -269,6 +269,18 @@ python3 <skill_dir>/scripts/work_experience.py git-preview --workdir <workdir>
 3. 写文件前先问“用户会直接使用它吗”；不会就不写，改为文字说明。
 4. 汇报只讲结论、路径、风险和待办，不复述过程日志。
 5. 本 skill 的草稿交付物只有 `draft.md` 和 `report.html`；原始采集、错误、运行状态和审批标记只放对应运行目录的 `work/` 或根目录隐藏状态文件。
+
+## 自我沉淀闭环（每次对话结束必检，最高优先级）
+
+1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——
+   新踩的采集边界/凭据处理坑与有效解法、被用户纠正的审核流与沉淀口径、
+   只读预览与脱敏规则的能力缺口
+2. **有沉淀候选 → 主动询问用户**（一次只问一个）：
+   「本次对话发现 <X>，是否沉淀进本 skill（修改 SKILL.md / references/ / scripts/）？」
+3. **用户确认后**：遵循本 skill 的产出规范小步修改对应文件（不重写整个 skill），
+   并递增 frontmatter 的 `metadata.version`；用户拒绝则不强改
+4. **无沉淀候选 → 不打扰用户**，正常结束
+5. **判定标准**：只沉淀未来场景会复用的通用规律，一次性细节不沉淀
 
 ## 触发示例
 

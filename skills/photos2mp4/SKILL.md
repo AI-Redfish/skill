@@ -4,7 +4,7 @@ description: 将批量图片与背景音乐合成为 MP4 幻灯片视频：图�
 compatibility: 用 uv 运行（uv run，脚本头部 PEP 723 声明依赖：python-pptx + pywin32(仅 Windows) + mutagen；photo_order.py 仅需 Pillow）；export / list-transitions 实测需 Windows + Microsoft PowerPoint 2010+；无 uv 且已装齐依赖时也可直接 python 运行。
 metadata:
   author: AI-Redfish
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # photos2mp4 — 批量图片 + 背景音乐 → MP4 视频
@@ -233,6 +233,18 @@ uv run <skill_dir>/pptx_video_builder.py all \
 # 回归测试套件（临时文件走系统 temp，产物走 PHOTOS2MP4_OUT_DIR，均不入仓库）
 uv run <skill_dir>/tests/run_tests.py --full
 ```
+
+## 自我沉淀闭环（每次对话结束必检，最高优先级）
+
+1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——
+   新踩的转场/导出/编码坑与有效解法、被用户纠正的默认参数与排序规则、
+   脚本能力缺口（photo_order / pptx_video_builder 可增强点）
+2. **有沉淀候选 → 主动询问用户**（一次只问一个）：
+   「本次对话发现 <X>，是否沉淀进本 skill（修改 SKILL.md / references/ / scripts/）？」
+3. **用户确认后**：遵循本 skill 的产出规范小步修改对应文件（不重写整个 skill），
+   并递增 frontmatter 的 `metadata.version`；用户拒绝则不强改
+4. **无沉淀候选 → 不打扰用户**，正常结束
+5. **判定标准**：只沉淀未来场景会复用的通用规律，一次性细节不沉淀
 
 ## 触发示例
 

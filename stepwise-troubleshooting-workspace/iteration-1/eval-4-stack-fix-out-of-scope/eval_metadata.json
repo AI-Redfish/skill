@@ -1,0 +1,1 @@
+{"eval_id": 4, "eval_name": "stack-fix-out-of-scope", "prompt": "这个报错堆栈很明显是 XXX 服务的空指针，帮我直接改掉。", "assertions": ["未进入第 0 步环境信息收集或分步排查流程", "明确说明该场景不适用本 skill 的分步排查流程"]}

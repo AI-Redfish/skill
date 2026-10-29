@@ -1,10 +1,10 @@
 ---
 name: fulllink-test
-description: 变更驱动的全链路测试引擎 + 项目测试工作空间管理器。WHEN：用户说"针对这次/当前分支的 git 修改做全链路测试"、"回归测试这个分支"、"提测前自测/回归"、"给这个项目建测试工作空间"、"初始化测试空间"、"刷新工作空间文档"、"更新工作空间环境信息"、"第三方组件/引擎升级了，回归相关链路"，或需要从 diff 分析影响面并按链路验证消息/接口/DB/缓存副作用时使用。WHAT：明确本地编译启动或现成已启动服务，对话确认被测仓库与各仓库被测分支（未提供分支则拒绝测试）→ 只读解析已登记路径中的指定分支与 commit → 解析变更（各仓库指定分支自分叉点以来的全部修改，monorepo 按应用分组；含第三方黑盒组件版本变更）→ 影响分析（查知识层：模块地图/模块链路/全局链路）→ 生成测试计划 → 执行对账（**脚本优先**：后端/中间件验证用 Python/uv，前后端项目的前端页面（Vue 等）优先用 skill 生成的 playwright 脚本；不值得写脚本的一次性查询/取证辅以 AgentR MCP（四端点约 90 工具）；人工兑底；测试输入与预期值均运行时从 DB 现查，不写死）→ 报告与资产沉淀回填；init 模式负责创建/刷新项目测试工作空间（组件三分类：源码仓库和黑盒组件可引用空间内或用户提供的外部路径、monorepo 多应用登记、第三方黑盒交付物只登记契约与部署；知识层〔全局架构 + 按模块分目录的功能/链路/技术文档 + 全局链路〕+ 探针按模块分目录 + runs 记录层；测试内容永不进业务仓库），目标环境信息从构建配置考古 + 对话登记入台账，后续可修改与按需校验。本地模式从指定 commit 的仓库外非 Git 副本编译启动，确保链路所需后端、Nginx、RabbitMQ 等服务就绪后测试。约束：空间内外 Git 仓库及黑盒代码/交付物/服务配置始终只读，启动或服务异常通过对话提示用户，不自动修复；业务仓库内容只读，不在仓库新增或修改单元/集成/E2E 测试；测试脚本仅用 Python（uv）与 Node.js，尽量使用真实入口到最终业务结果的 E2E；UI 自动化全程录屏、放慢操作并保留人工视频核对项。PRECONDITION：项目代码仓库可读；验证脚本优先（后端 Python/uv、前端 playwright），一次性查询/取证依赖 AgentR 本地网关 MCP（127.0.0.1:8319 四端点约 90 个工具），不可用时降级并在报告标注。WHEN NOT：写代码/CRUD 生成/技术设计→用对应开发类 skill；只查询概念→直接解答。
+description: 变更驱动的全链路测试引擎 + 项目测试工作空间管理器。当用户说"针对这次/当前分支的 git 修改做全链路测试"、"回归测试这个分支"、"提测前自测/回归"、"给这个项目建测试工作空间"、"初始化测试空间"、"刷新工作空间文档"、"更新工作空间环境信息"、"第三方组件/引擎升级了，回归相关链路"，或需要从 diff 分析影响面并按链路验证消息/接口/DB/缓存副作用时使用。流程：对话确认被测仓库与各仓库被测分支（未提供分支则拒绝测试）→ 只读解析变更（各仓库自分叉点以来的全部修改，monorepo 按应用分组，含第三方黑盒组件版本变更）→ 影响分析（查知识层模块地图/链路）→ 生成测试计划 → 脚本优先执行对账（后端/中间件用 Python/uv，前端页面优先 playwright 脚本；不值得写脚本的一次性查询/取证辅以 AgentR MCP；测试输入与预期值运行时从 DB 现查，不写死）→ 报告与资产沉淀回填工作空间；init 模式负责创建/刷新项目测试工作空间（组件三分类登记、知识层〔全局架构+模块文档+全局链路〕+ 探针 + runs 记录层；测试内容永不进业务仓库），环境信息从构建配置考古+对话登记入台账。本地模式从指定 commit 的仓库外非 Git 副本编译启动，确保后端、Nginx、RabbitMQ 等服务就绪后测试。约束：空间内外 Git 仓库及黑盒代码/交付物/服务配置始终只读，服务异常对话提示用户不自动修复；不在业务仓库新增或修改测试；测试脚本仅 Python（uv）与 Node.js，尽量真实入口到最终业务结果的 E2E；UI 自动化全程录屏、放慢操作并保留人工视频核对项。不适用：写代码/CRUD 生成/技术设计→用对应开发类 skill；只查询概念→直接解答。
 compatibility: skill 内置脚本为 Python 3.9+ 纯标准库（python 或 uv run 均可）；需 git。**测试脚本优先 Python（uv run，PEP 723 内联依赖）**；测试脚本仅允许 Python（uv）与 Node.js，Python 不适合时使用 Node.js（见"探针脚本契约"）；模板自带 Python 与 Node 两套公共库；依赖一律安装在工作空间侧，不进 skill 包。
 metadata:
   author: AI-Redfish
-  version: "1.16.0"
+  version: "1.17.0"
 ---
 
 # fulllink-test — 变更驱动的全链路测试引擎
@@ -338,44 +338,11 @@ E2E 是从真实业务入口触发，经过实际服务/组件，验证最终业
 执行通道**脚本优先**；AgentR MCP 是脚本之外的一次性查询与取证工具源（Nginx 网关
 `http://127.0.0.1:8319`，四个语言后端各一个端点，登记见 workspace.yaml `mcp.agentr`）
 ——需要什么工具直接调用其 MCP 工具，不要让用户另配零散的 MCP server；
-脚本需要长期用到的能力，沉淀为探针而不依赖 MCP：
+脚本需要长期用到的能力，沉淀为探针而不依赖 MCP。
 
-| 端点 | 工具组 |
-|---|---|
-| `/api/rust/mcp` | **MySQL / Kingbase / SQLite**（`*_query`、`*_tables`、`*_table_ddl`、`*_databases`）；**Redis**（`scan_keys`、`get_key`、`overview`）；**MQTT**（`subscribe`+`read`、`publish`）；**WebSocket**（`connect`+`read`）；`http_send` |
-| `/api/go/mcp` | **RabbitMQ**（`list_queues`、`list_exchanges`、`list_consumers`、`publish`、`consumer_start`+`consumer_messages`）；**RocketMQ**（`send_message`、`subscription_start`+`subscription_messages`） |
-| `/api/node/mcp` | **SSH**（`ssh_exec` 万能命令行、`ssh_files_preview` 远程日志取证）；**TDEngine**（`tdengine_query` 等）；`nginx_gateway_status`、`image_to_base64` |
-| `/api/python/mcp` | **schedule**（`schedule_run_task` 触发定时型链路、`schedule_list_tasks`、`schedule_list_records`） |
-
-### 测试场景 → 工具映射（优先按此选工具）
-
-| 测试场景 | AgentR MCP 工具 |
-|---|---|
-| DB 查询对账（改前查改后查，样本现查） | `mysql_query` / `kingbase_query` / `sqlite_query`；表结构 `*_table_ddl` |
-| 时序库对账 | `tdengine_query` |
-| 缓存断言（键存在/值/扫描） | `redis_scan_keys` / `redis_get_key` / `redis_overview` |
-| MQ 队列状态/发消息/消费监听 | `rabbitmq_list_queues` / `rabbitmq_publish` / `rabbitmq_consumer_start`+`consumer_messages`；RocketMQ 同理 |
-| MQTT 订阅收推/发布 | `mqtt_subscribe` + `mqtt_read` / `mqtt_publish` |
-| WebSocket 推送验证 | `websocket_connect` + `websocket_read` |
-| HTTP 接口调用 | `http_send` |
-| 定时型链路触发 | `schedule_run_task` |
-| 远程命令行/日志取证/服务存活 | `ssh_exec` / `ssh_files_preview`（systemctl/端口/进程检查） |
-
-使用规则：
-
-1. **连接引用**：各工具用已保存连接的 `connectionId`，先 `*_list_connections` 查可用
-   连接；连接由 AgentR 侧管理，报告与对话只引连接名，不明文引凭据
-2. 调用前先 `tools/list` 确认工具存在与入参，**不臆造 AgentR 没有的工具**；
-   需要的能力 AgentR 确实没有（如 prefetch 精细控制、压测、多步事务对账、
-   页面 e2e）→ 生成探针脚本（Python/uv / playwright，凭据 env.secret.json）
-3. **MCP 一次性查询同样受对账标准约束**：断言到字段/行数，不得因"用 MCP 查的"
-   就放松 L0 规则；同一验证预计要复跑 → 写成脚本沉淀，不反复手工调 MCP
-4. AgentR MCP 不可用（网关没起/工具缺失）→ 该项降级探针脚本或人工清单，
-   报告标注；先调 `nginx_gateway_status` 自检，不因此中断流程
-5. **周期回归（进阶）**：稳定沉淀的探针可注册为 AgentR 定时任务
-   （`schedule_run_task` 周期执行 `uv run <探针>`），实现夜间自动回归；结果经
-   `schedule_list_records` 查看，异常再人工介入——把空间从"人触发"升级为
-   "持续回归"
+四端点工具明细（DB/Redis/MQ/MQTT/WebSocket/SSH/TDEngine/定时任务）、
+「测试场景 → 工具映射」表与使用规则（连接引用、不臆造工具、对账标准不放松、
+不可用降级、周期回归）见 [references/agentr-mcp.md](references/agentr-mcp.md)。
 
 ## 探针脚本契约（Python 优先）
 
@@ -474,6 +441,18 @@ Git/环境查询等工具命令可直接执行，不作为测试脚本。两种�
 - plan.md / report.md 严格按 [contracts/report-contract.md](contracts/report-contract.md) 的模板
 - 每个门禁阶段结束向用户简报：本轮做了什么、结论、下一步
 - 汇报产物路径时给出绝对路径
+
+## 自我沉淀闭环（每次对话结束必检，最高优先级）
+
+1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——
+   新踩的工作空间/链路/服务就绪坑与有效解法、被用户纠正的对账口径与测试策略、
+   探针契约与知识层文档的缺口
+2. **有沉淀候选 → 主动询问用户**（一次只问一个）：
+   「本次对话发现 <X>，是否沉淀进本 skill（修改 SKILL.md / references/ / scripts/）？」
+3. **用户确认后**：遵循本 skill 的产出规范小步修改对应文件（不重写整个 skill），
+   并递增 frontmatter 的 `metadata.version`；用户拒绝则不强改
+4. **无沉淀候选 → 不打扰用户**，正常结束
+5. **判定标准**：只沉淀未来场景会复用的通用规律，一次性细节不沉淀
 
 ## 触发示例
 

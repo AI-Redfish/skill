@@ -29,7 +29,7 @@ ARCH_GATE_BASE_REF=origin/release bash scripts/ci/check-architecture.sh --diff
 | 7 | CRUD 端点用 `@RequestBody` | `@MyRequestBody`（RPC 端点才用 `@RequestBody`；view GET 用 `@RequestParam`） | review |
 | 8 | Mapper 返回 `Map<String, Object>` | 返回明确 DO/Model/VO | review |
 | 9 | 低层 `common/*` 依赖 `application/*` | 只向下依赖；遗留依赖登记 `scripts/ci/layer-dep-whitelist.txt`（限时技术债+治理方向，季度清零） | ★ |
-| 10 | 循环逐行查库 | 批量 API（inList）+ 内存组装 | review |
+| 10 | 循环逐行查库；循环内 Redis/远程调用（Feign/缓存等） | 批量 API（inList）+ 内存组装；Redis 用 mGet/pipeline 批量，远程调用合并为批量接口或移出循环 | review |
 | 11 | 行内全限定类名 | import | Checkstyle |
 | 12 | 空 placeholder 实现/测试 | 补齐实际逻辑或 `UnsupportedOperationException` 附因 | review |
 

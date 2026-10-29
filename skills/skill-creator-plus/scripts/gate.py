@@ -45,7 +45,7 @@ HINTS = {
     "review": "继续评审（机器检查 + AI 双评审 + 置信度自评）",
     "testing": "评审已通过：执行测试门（准备用例/收环境信息/跑测试/落盘结果）",
     "report": "测试已通过：运行 gen_test_report.py 生成测试报告，然后 report-done",
-    "done": "流程完成；如需再改动，先 reset 回到 writing（需求变更另走 clarify）",
+    "done": "流程完成；交付后执行自我沉淀检查（有无通用经验可回流到 skill-creator-plus，问用户）；如需再改动，先 reset 回到 writing（需求变更另走 clarify）",
 }
 
 

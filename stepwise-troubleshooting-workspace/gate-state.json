@@ -1,0 +1,54 @@
+{
+  "skill": "D:\\develop\\GitNote\\AI-Redfish\\skill\\skills\\stepwise-troubleshooting",
+  "skill_name": "stepwise-troubleshooting",
+  "workspace": "D:\\develop\\GitNote\\AI-Redfish\\skill\\stepwise-troubleshooting-workspace",
+  "phase": "done",
+  "created_at": "2026-10-29T15:25:01+0800",
+  "updated_at": "2026-10-29T15:47:57+0800",
+  "clarify": {
+    "rounds": 1,
+    "passed": true,
+    "confidence": 95,
+    "qa_log": "D:\\develop\\GitNote\\AI-Redfish\\skill\\stepwise-troubleshooting-workspace\\clarify-qa.md",
+    "history": [
+      {
+        "round": 1,
+        "result": "pass",
+        "confidence": 95,
+        "time": "2026-10-29T15:27:49+0800",
+        "notes": "通用分步排查skill；案例脱敏入references；无脚本；第0步收集环境信息(前后端地址/分支版本/数据库)"
+      }
+    ]
+  },
+  "review": {
+    "rounds": 1,
+    "passed": true,
+    "confidence": 96,
+    "checklist": "D:\\develop\\GitNote\\AI-Redfish\\skill\\stepwise-troubleshooting-workspace\\checklist-round-2.json",
+    "history": [
+      {
+        "round": 1,
+        "result": "pass",
+        "confidence": 96,
+        "time": "2026-10-29T15:35:16+0800",
+        "notes": "双评审通过；P2注入隔离已修复复检通过；P2环境清单与一次一问张力已论证接受"
+      }
+    ]
+  },
+  "test": {
+    "rounds": 1,
+    "passed": true,
+    "history": [
+      {
+        "round": 1,
+        "result": "pass",
+        "time": "2026-10-29T15:47:57+0800",
+        "summary": "结构校验通过；触发评估降级人工模拟8/8一致(官方run_eval在Windows spawn失败已留档)；端到端4/4 pass_rate=1.0(author-executed,断言附证据)；无基线双跑未伪造"
+      }
+    ]
+  },
+  "report": {
+    "path": "D:\\develop\\GitNote\\AI-Redfish\\skill\\stepwise-troubleshooting-workspace\\reports\\test-report.md",
+    "benchmark": null
+  }
+}

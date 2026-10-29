@@ -3,7 +3,7 @@ name: prd-techdoc
 description: "Use when the user wants to turn a PRD, prototype HTML, interaction draft, or product requirement into concise, implementation-ready backend technical documentation such as ER diagrams, MySQL incremental SQL, API lists, business flowcharts, data flowcharts, or incremental dictionaries, especially when the output must follow an existing backend/frontend code style. The only required input is at least one of PRD (markdown) or prototype (HTML); having both is best. This self-contained skill has no hard runtime dependencies: MCP services, host subagent tools, and mmdc are replaced by bundled local Python scripts under scripts/ (mermaid lint/render, doc structure checks, MySQL schema check via pymysql), with dependencies managed by uv for isolation, and optional environment settings stored in .agents/.env of the runtime working directory. It also supports integrating/improving existing tech docs and fact-checking a produced doc against the PRD/prototype."
 metadata:
   author: AI-Redfish
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # PRD 转后端开发文档
@@ -192,7 +192,7 @@ WSL/Windows 环境补充（实测有效）：
 
 以下通常可判为 `CONDITIONAL`：非核心文案、低优先级排序、未分配的自定义字典编码、建议稿类名/包路径、暂不可用但已有明确契约的联调环境。
 
-## Output Contract
+## Output Contract（输出格式规范）
 
 最终文档只允许保留以下 6 个一级章节，且顺序固定（**“接口清单”与“增量字典”必须放在文档最后面**）：
 1. `ER图`
@@ -434,3 +434,15 @@ WSL/Windows 环境补充（实测有效）：
 - 命中 Design Readiness Gate 的 `BLOCK` 条件：停止生成确定性接口、ER 和 SQL，列出问题、影响与责任方/所需输入。
 - 仅非核心信息不确定：按 `CONDITIONAL` 继续，在对应位置标“待确认”并归集文末，不硬造真实表名、权限码、字典码或模块路径。
 - 任何情况下都只输出 MySQL SQL，不生成或讨论其他数据库方言。
+
+## Self-Evolution Deposit（自我沉淀闭环，每次对话结束必检，最高优先级）
+
+1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——
+   新踩的文档解析/口径一致性/SQL 生成坑与有效解法、被用户纠正的评审口径、
+   检查清单与角色提示词的能力缺口
+2. **有沉淀候选 → 主动询问用户**（一次只问一个）：
+   「本次对话发现 <X>，是否沉淀进本 skill（修改 SKILL.md / references/ / scripts/）？」
+3. **用户确认后**：遵循本 skill 的产出规范小步修改对应文件（不重写整个 skill），
+   并递增 frontmatter 的 `metadata.version`；用户拒绝则不强改
+4. **无沉淀候选 → 不打扰用户**，正常结束
+5. **判定标准**：只沉淀未来场景会复用的通用规律，一次性细节不沉淀

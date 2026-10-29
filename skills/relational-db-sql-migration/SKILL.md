@@ -4,7 +4,7 @@ description: 为 basic-platform-service SQL 归档仓库创建、同步、审查
 compatibility: 修复脚本为 Python 3.9+ 纯标准库（uv run 或 python 直跑）；预检依赖仓库内 scripts/ci/check-dict-timestamp.sh（bash）。适用于 basic-platform-service-sql 仓库（<engine>/<database>/ 归档结构，已落地 mysql/ 与 kingbase/）。
 metadata:
   author: AI-Redfish
-  version: "3.1.0"
+  version: "3.2.0"
 ---
 
 # 关系型数据库 SQL 迁移 — 多引擎 Flyway 归档编写与字典表时间字段治理
@@ -181,6 +181,18 @@ bash scripts/ci/check-dict-timestamp.sh files-from /tmp/list.txt
 3. **落盘前自问**：写文件前先问"用户会直接使用它吗"；不会就不写，改为文字说明。
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
 5. **本 skill 针对性约束**：交付物只有 SQL 变更本身（及用户要求的迁移脚本）；命中清单、对比副本、临时重建文件一律放系统临时目录或 `.agents/`，用完即删。
+
+## 自我沉淀闭环（每次对话结束必检，最高优先级）
+
+1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——
+   新发现的引擎兼容性差异与转换规则、实测回滚闭环踩的新坑、
+   幂等模板与豁免规则的缺口
+2. **有沉淀候选 → 主动询问用户**（一次只问一个）：
+   「本次对话发现 <X>，是否沉淀进本 skill（修改 SKILL.md / references/ / scripts/）？」
+3. **用户确认后**：遵循本 skill 的产出规范小步修改对应文件（不重写整个 skill），
+   并递增 frontmatter 的 `metadata.version`；用户拒绝则不强改
+4. **无沉淀候选 → 不打扰用户**，正常结束
+5. **判定标准**：只沉淀未来场景会复用的通用规律，一次性细节不沉淀
 
 ## 触发示例
 

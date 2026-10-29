@@ -1,10 +1,10 @@
 ---
 name: skill-creator-plus
-description: 基于 anthropics skill-creator 的增强版 Skill 创建器（元技能）。当用户想创建、编写、开发一个新 skill，把当前对话流程沉淀为可复用的 skill，或修改、增强、评审、测试已有 skill 时使用本 skill。它在官方 skill-creator 的骨架生成、评审、打包、触发评估与测试报告能力之上，增加强制质量门禁：skill 编写完成后必须先通过「机器检查 + AI 双评审」，评审置信度达到 95% 才允许进入测试；测试需要账号等环境信息时提示用户输入并保存到工作目录 .agents/.env；测试不通过则修改后重新评审，直到通过；测试通过后调用官方 skill-creator 脚本生成测试报告。产出的 skill 遵循：脚本优先 Python + uv（PEP 723）管理依赖、重复操作优先脚本化、环境信息集中存 .agents/.env。用户说「帮我写一个 skill」「创建/开发一个技能」「做一个 skill」「把这个流程做成 skill」「评审/测试这个 skill」「生成 skill 测试报告」时都应使用。
+description: 基于 anthropics skill-creator 的增强版 Skill 创建器（元技能）。当用户想创建、编写、开发一个新 skill，把当前对话流程沉淀为可复用的 skill，或修改、增强、评审、测试已有 skill 时使用本 skill。每次对话结束自动执行自我沉淀检查，把新经验沉淀回本 skill；并由它创建的 skill 同样内嵌沉淀自进化能力。它在官方 skill-creator 的骨架生成、评审、打包、触发评估与测试报告能力之上，增加强制质量门禁：skill 编写完成后必须先通过「机器检查 + AI 双评审」，评审置信度达到 95% 才允许进入测试；测试需要账号等环境信息时提示用户输入并保存到工作目录 .agents/.env；测试不通过则修改后重新评审，直到通过；测试通过后调用官方 skill-creator 脚本生成测试报告。产出的 skill 遵循：脚本优先 Python + uv（PEP 723）管理依赖、重复操作优先脚本化、环境信息集中存 .agents/.env。用户说「帮我写一个 skill」「创建/开发一个技能」「做一个 skill」「把这个流程做成 skill」「评审/测试这个 skill」「生成 skill 测试报告」时都应使用。
 compatibility: 脚本为 Python 3.9+ 纯标准库（python 直跑或 uv run 均可）；首次使用需网络安装依赖 skill（git clone 优先，备选 stdlib 下载 zip、npx skills add），安装到 <工作目录>/.agents/skills/skill-creator；可选环境变量 SKILL_CREATOR_PLUS_DEP_PATH 指定本地已有副本实现离线。
 metadata:
   author: AI-Redfish
-  version: "1.2.0"
+  version: "1.3.0"
   depends-on: anthropics/skills 的 skill-creator
 ---
 
@@ -21,6 +21,7 @@ anthropics skill-creator 的增强层，不是替代品：
 | **强制门禁流程**（评审不过不测试、测试不过回评审） | 本 skill | `gate.py` 状态机，防止跳步 |
 | **机器评审清单**（结构/规范/密钥扫描/提示词工程） | 本 skill | `review_checklist.py` |
 | **产出规范**（Python + uv、.agents/.env、脚本化重复操作） | 本 skill | [references/authoring-standards.md](references/authoring-standards.md) |
+| **自我沉淀闭环**（每次对话结束检查沉淀回本 skill，用户确认后修改） | 本 skill | 见下方「自我沉淀闭环」章节；生成的 skill 同样内嵌 |
 | **提示词工程规范**（五段式/清晰指令/标签分离/输出模板/少样本/防幻觉） | 本 skill | [references/prompt-engineering.md](references/prompt-engineering.md) |
 
 路径约定：`<skill_dir>` = 本 SKILL.md 所在目录；`<workdir>` = 用户当前工作目录；
@@ -48,6 +49,29 @@ anthropics skill-creator 的增强层，不是替代品：
 同时，**生成的 skill 必须内嵌同一套双闭环规则**（模板见
 [references/authoring-standards.md](references/authoring-standards.md)，
 `review_checklist.py` 以 error 级强制检查），确保 skill 执行时也遵循。
+
+---
+
+## 自我沉淀闭环（每次对话结束必检，最高优先级）
+
+使用本 skill 的**每次对话结束前**（提问、编写、评审、测试、交付中的每一轮回复落定前），
+必须执行一次**沉淀检查**——判断本次对话是否有值得回流到本 skill 自身的经验：
+
+1. **回顾识别**：本次对话是否出现以下信号——
+   - skill 编写/评审/测试中踩的新坑（边界、降级、官方脚本版本差异）与有效解法
+   - 用户纠正过的默认值、流程、规范或输出习惯
+   - 可复用的模板片段、评审检查项、脚本能力缺口
+2. **有沉淀候选 → 主动询问用户**（一次只问一个）：
+   「本次对话发现 <X>，是否沉淀进 skill-creator-plus（修改 SKILL.md / references/ / scripts/）？」
+3. **用户确认后**：按本 skill 自身产出规范**小步修改**对应文件（不重写整个 skill），
+   并递增 frontmatter 的 `metadata.version`；用户拒绝则不强改
+4. **无沉淀候选 → 不打扰用户**，正常结束
+5. **判定标准**：只沉淀未来场景会复用的通用规律，一次性细节不沉淀；
+   沉淀修改同样遵循输出精简约束
+
+同时，**由本 skill 创建/修改的每个 skill 也必须内嵌同样的沉淀规则**（模板见
+[references/authoring-standards.md](references/authoring-standards.md)，
+`review_checklist.py` 以 error 级强制检查），使其在自身领域持续自进化。
 
 ---
 
@@ -223,6 +247,7 @@ uv run <skill_dir>/scripts/gen_test_report.py --workspace <workspace> \
       已配置的环境键（脱敏）
    3. **关键假设与剩余不确定性**：列出理解闭环的关键假设、遗留 warning、降级项
    4. **95% 信心论证**：引用评审自评（review-round-N.md）与测试通过率
+4. 交付后执行「自我沉淀闭环」章节的沉淀检查，有候选则询问用户是否回流到本 skill
 
 ## 错误处理速查
 

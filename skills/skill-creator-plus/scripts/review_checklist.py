@@ -2,7 +2,8 @@
 """review_checklist.py — 对被创建/修改的 skill 做机器评审（静态检查）。
 
 评审门（SKILL.md §4.1）的第一步：结构、frontmatter、触发描述质量、正文预算、
-脚本规范（PEP 723 / shebang / 无交互输入）、密钥硬编码扫描、.env 卫生、测试存在性。
+脚本规范（PEP 723 / shebang / 无交互输入）、密钥硬编码扫描、.env 卫生、测试存在性、
+自我沉淀闭环内嵌（每次对话结束检查沉淀，error 级）。
 本脚本不替代 AI 双评审，只拦截"机器可判定"的问题。
 
 用法：
@@ -239,6 +240,15 @@ def check(skill: Path, workdir: Path) -> dict:
           "输出精简约束已内嵌 | 缺少输出精简约束章节（只落盘有用产物/中间产物隔离/落盘前自问/答复精简）",
           "按 references/authoring-standards.md 的「输出精简约束」模板整段写入 SKILL.md，"
           "含针对本 skill 交付物的第 5 条约束")
+    # 自我沉淀闭环（error 级，见 references/authoring-standards.md 模板）
+    deposit = ("沉淀" in body) and \
+        bool(re.search(r"每次对话结束|对话结束前", body)) and \
+        bool(re.search(r"是否沉淀", body)) and \
+        bool(re.search(r"metadata\.version", body))
+    c.add("body.self_deposit", "error", deposit,
+          "自我沉淀闭环已内嵌 | 缺少自我沉淀闭环规则（每次对话结束检查沉淀/主动询问用户/确认后修改并递增版本）",
+          "按 references/authoring-standards.md 的「自我沉淀闭环」模板整段写入 SKILL.md，"
+          "放在「输出精简约束」章节之后")
     has_ref_dir = (skill / "references").is_dir()
     if lines > LONG_BODY_NO_REF and not has_ref_dir:
         c.add("body.progressive_disclosure", "warn", False,

@@ -110,7 +110,7 @@ class QueryTests(unittest.TestCase):
 
     def test_detail_recheck_race_and_whitelist_redaction(self):
         client = zq.Client("https://example.test", USER, "secret-value")
-        client.token = "token-value"
+        client.token = "dummy-token-value"
         candidates = [bug(id=1), bug(id=2), bug(id=3), bug(id=4)]
         details = [bug(id=1, title="secret-value", steps="private body", unknown="private-field"),
                    bug(id=2, status="closed"), bug(id=3, resolvedBy="other"), bug(id=4, resolvedDate=END)]
@@ -139,8 +139,8 @@ class QueryTests(unittest.TestCase):
 
     def test_transport_http_errors_and_request_limits_are_safe(self):
         client = zq.Client("https://example.test", USER, "secret")
-        client.token = "private-token"
-        error = urllib.error.HTTPError("https://example.test/?private-token", 403, "private-error", {}, None)
+        client.token = "dummy-private-token"
+        error = urllib.error.HTTPError("https://example.test/?dummy-private-token", 403, "private-error", {}, None)
         with patch.object(client.opener, "open", side_effect=error), self.assertRaises(zq.QueryError) as caught:
             client.request("/products")
         self.assertNotIn("private", str(caught.exception))

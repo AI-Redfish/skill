@@ -1,0 +1,9 @@
+{
+  "summary": {"pass_rate": 1.0, "passed": 4, "failed": 0, "total": 4},
+  "expectations": [
+    {"text": "明确回答'是否代码问题'的判定方向并说明依据", "passed": true, "evidence": "outputs/response.md 源码只读判定段：同步机制在代码中存在，结论方向为配置或数据问题/待现场数据验证"},
+    {"text": "给出分步只读查询并附结果判断对照表", "passed": true, "evidence": "response.md 第 2 步孤儿盘点 SQL + 三行对照表"},
+    {"text": "指出直接改库绕过同步需手工补齐对端并复核", "passed": true, "evidence": "response.md 末段：'属直接改库、绕过 MQ，必须手工补齐对端清理并两端复核'"},
+    {"text": "标注 tenant_custom=1 不删除", "passed": true, "evidence": "response.md 对照表第三行及末段说明"}
+  ]
+}

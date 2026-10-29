@@ -1,0 +1,9 @@
+{
+  "summary": {"pass_rate": 1.0, "passed": 4, "failed": 0, "total": 4},
+  "expectations": [
+    {"text": "删除前存在预检与用户确认环节", "passed": true, "evidence": "outputs/response.md 第 1 段只读预检 + '预检结果给你确认后才执行删除'"},
+    {"text": "备份表命名 bak_YYYYMMDD_<对象> 且备份先于删除", "passed": true, "evidence": "response.md 第 2 段 bak_20261029_monitor_system 等，位于删除段之前"},
+    {"text": "先关联表后本体表，每条单独执行核对行数", "passed": true, "evidence": "response.md 第 3 段顺序 1→4 与'每条单独执行、看行数'"},
+    {"text": "包含复核查询与回滚方式", "passed": true, "evidence": "response.md 第 4 段 + '回滚方式：从 bak_ 表 INSERT 回原表…'"}
+  ]
+}

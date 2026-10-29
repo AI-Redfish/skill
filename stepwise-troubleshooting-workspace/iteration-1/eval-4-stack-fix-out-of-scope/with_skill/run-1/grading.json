@@ -1,0 +1,7 @@
+{
+  "summary": {"pass_rate": 1.0, "passed": 2, "failed": 0, "total": 2},
+  "expectations": [
+    {"text": "未进入第 0 步环境信息收集或分步排查流程", "passed": true, "evidence": "outputs/response.md 无环境信息清单、无分步 SQL，直接说明按常规缺陷修复处理"},
+    {"text": "明确说明该场景不适用本 skill 的分步排查流程", "passed": true, "evidence": "response.md 首句：'这个场景不适用分步排查流程…属于单点代码缺陷修复'"}
+  ]
+}

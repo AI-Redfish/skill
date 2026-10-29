@@ -4,7 +4,7 @@ description: 制作动森(动物森友会)风格电子婚礼请柬 H5 页面，�
 compatibility: 脚本 Python 3.9+ 纯标准库（python3 直跑，无需 uv）；MP4 导出另需 node+npm 与 Chrome/Edge（自动探测），ffmpeg 缺失时自动从 PyPI 镜像获取；Windows/WSL/Linux 均可（WSL 坑位已固化处理）。
 metadata:
   author: AI-Redfish
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # wedding-invitation — 动森风婚礼请柬 H5 + HTML→MP4 自动导出
@@ -165,6 +165,18 @@ WSL/npm/镜像等踩坑速查见 [references/tech-notes.md](references/tech-note
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
 5. **本 skill 针对性约束**：交付物只有四步四产物；调试 HTML、录屏片段、
    日志等临时文件放系统临时目录，不进输出目录、不列为交付物。
+
+## 自我沉淀闭环（每次对话结束必检，最高优先级）
+
+1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——
+   新踩的 H5/视频导出坑与有效解法、被用户纠正的默认参数与风格偏好、
+   四步法脚本能力缺口与降级经验
+2. **有沉淀候选 → 主动询问用户**（一次只问一个）：
+   「本次对话发现 <X>，是否沉淀进本 skill（修改 SKILL.md / references/ / scripts/）？」
+3. **用户确认后**：遵循本 skill 的产出规范小步修改对应文件（不重写整个 skill），
+   并递增 frontmatter 的 `metadata.version`；用户拒绝则不强改
+4. **无沉淀候选 → 不打扰用户**，正常结束
+5. **判定标准**：只沉淀未来场景会复用的通用规律，一次性细节不沉淀
 
 ## 触发示例
 

@@ -1,0 +1,9 @@
+{
+  "summary": {"pass_rate": 1.0, "passed": 4, "failed": 0, "total": 4},
+  "expectations": [
+    {"text": "最终输出开头一句话复述了需求", "passed": true, "evidence": "outputs/response.md 首行复述：排查空调监测在租户菜单下缺少分组管理和视频监控的原因"},
+    {"text": "第 0 步一次性列出环境信息清单，包含后端分支/版本号与数据库信息", "passed": true, "evidence": "outputs/response.md 第 0 步 1~4 项：后端仓库+分支/版本号、前端仓库+分支、数据库类型/地址/库名、中间件"},
+    {"text": "未在未拿到数据的情况下直接给出最终结论", "passed": true, "evidence": "response.md 初步判定写明'倾向配置或数据问题…需现场数据确认，暂不下最终结论'"},
+    {"text": "排查计划为分步推进（每步一个只读查询）", "passed": true, "evidence": "response.md 仅给【第 1 步】一条 SELECT，并附三行结果判断对照表"}
+  ]
+}
