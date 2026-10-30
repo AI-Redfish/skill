@@ -13,8 +13,6 @@
   notify-draft    对已完成的草稿发一次本人通知
   todo-create     为已有草稿在 AgentR 创建/重试审核待办
   approve / verify-approved   审核闭环
-  schedule        注册 Windows 定时任务（需 --confirm）
-  schedule-status 只读核对任务注册与执行状态
 退出码：0 成功；2 参数或配置错误；3 外部数据源失败或不完整；4 未审核或审批不匹配。
 所有确定性输出为 JSON stdout，诊断写 stderr。脚本不执行 shell 字符串。
 """
@@ -35,7 +33,7 @@ from typing import Any
 
 NAME = "work-experience-accumulate"
 DEFAULT_CONFIG = {
-    "schedule": {"frequency": "daily", "time": "18:30", "window_mode": "daily_fixed",
+    "schedule": {"window_mode": "daily_fixed",
                  "daily_window_start": "06:00", "daily_window_end": "18:30", "lookback_days": 1},
     "dingtalk": {"search_args": [], "notify_user_id": "", "notify_command": []},
     "zentao": {"query_command": [], "user_id": ""},
@@ -172,14 +170,8 @@ def required_missing(config: dict[str, Any]) -> list[str]:
         if (not any("daily_window" in item for item in missing)
                 and schedule.get("daily_window_start") == schedule.get("daily_window_end")):
             missing.append("schedule.daily_window_start/end 不能相同")
-    if schedule.get("frequency", "daily") not in {"daily", "weekly"}:
-        missing.append("schedule.frequency= daily|weekly（Windows原生任务）")
     if mode == "lookback" and (not isinstance(schedule.get("lookback_days", 1), int) or schedule.get("lookback_days", 1) < 1):
         missing.append("schedule.lookback_days>=1")
-    try:
-        validate_time(str(schedule.get("time", "09:00")))
-    except ValueError:
-        missing.append("schedule.time= HH:MM（24 小时制）")
     if not str(get_path(config, "dingtalk.notify_user_id") or "").strip():
         missing.append("dingtalk.notify_user_id")
     repos = config.get("git_repositories")
@@ -874,27 +866,6 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return ok({"approved": True, "reviewer": data["reviewer"], "run": str(run)})
 
 
-def schedule_command(workdir: Path) -> list[str]:
-    return [sys.executable, str(Path(__file__).resolve()), "run-cycle", "--workdir", str(workdir)]
-
-
-def ps_quote(value: str) -> str:
-    """Quote a literal for a PowerShell single-quoted string."""
-    return "'" + value.replace("'", "''") + "'"
-
-
-def win_arg_quote(value: str) -> str:
-    """Quote one argument using the Windows C runtime command-line rules."""
-    return subprocess.list2cmdline([value])
-
-
-def windows_task_name(config: dict[str, Any]) -> str:
-    name = str(config.get("schedule", {}).get("task_name", "AI-Redfish-work-experience-accumulate"))
-    if not name.strip() or any(c in name for c in '\\/:*?"<>|') or any(ord(c) < 32 for c in name):
-        raise ValueError("task_name 必须是非空任务名称，不含目录分隔符或控制字符")
-    return name
-
-
 def validate_time(value: str) -> str:
     if not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value):
         raise ValueError(f"时间格式错误：{value}，必须是 HH:MM")
@@ -903,121 +874,6 @@ def validate_time(value: str) -> str:
     except ValueError as exc:
         raise ValueError(f"时间格式错误：{value}，必须是 HH:MM") from exc
     return parsed.strftime("%H:%M")
-
-
-def windows_task_preview(config: dict[str, Any], workdir: Path, time_value: str) -> dict[str, Any]:
-    time_value = validate_time(time_value)
-    frequency = str(config.get("schedule", {}).get("frequency", "daily"))
-    if frequency == "daily":
-        trigger = f"每日 {time_value}，StartWhenAvailable=true"
-    elif frequency == "weekly":
-        trigger = f"每周一 {time_value}，StartWhenAvailable=true"
-    else:
-        raise ValueError("Windows 原生任务只支持 daily 或 weekly；custom 需要明确实现规则")
-    command = schedule_command(workdir)
-    return {
-        "task_name": windows_task_name(config),
-        "trigger": trigger,
-        "restart_behavior": "任务注册在 Windows 任务计划程序中；系统重启后重新登录时继续有效",
-        "command": command,
-        "logon_requirement": "当前用户需要登录；dws 和 Agent 使用当前用户配置",
-    }
-
-
-def install_windows_task(config: dict[str, Any], workdir: Path, time_value: str) -> tuple[bool, str]:
-    """Register a persistent current-user Windows Scheduled Task."""
-    preview = windows_task_preview(config, workdir, time_value)
-    command = preview["command"]
-    argument = subprocess.list2cmdline([str(part) for part in command[1:]])
-    script = "\n".join([
-        "$ErrorActionPreference = 'Stop'",
-        f"$action = New-ScheduledTaskAction -Execute {ps_quote(str(command[0]))} -Argument {ps_quote(argument)} -WorkingDirectory {ps_quote(str(workdir))}",
-        (f"$trigger = New-ScheduledTaskTrigger -Daily -At ([datetime]::ParseExact({ps_quote(time_value)}, 'HH:mm', $null))"
-         if str(config.get("schedule", {}).get("frequency", "daily")) == "daily" else
-         f"$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At ([datetime]::ParseExact({ps_quote(time_value)}, 'HH:mm', $null))"),
-        "$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)",
-        "$userId = \"${env:USERDOMAIN}\\${env:USERNAME}\"",
-        "$principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited",
-        f"Register-ScheduledTask -TaskName {ps_quote(preview['task_name'])} -TaskPath '\\' -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null",
-        f"$registered = Get-ScheduledTask -TaskName {ps_quote(preview['task_name'])} -TaskPath '\\' -ErrorAction Stop",
-        "if (-not $registered.Settings.StartWhenAvailable) { throw 'StartWhenAvailable was not persisted' }",
-    ])
-    encoded = script.encode("utf-16le")
-    import base64
-    code, _, stderr = run_argv(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", base64.b64encode(encoded).decode("ascii")], timeout=60)
-    if code:
-        return False, scrub_text(stderr)[:1500] or "PowerShell 注册任务失败"
-    return True, json.dumps(preview, ensure_ascii=False)
-
-
-def query_windows_task(name: str) -> tuple[dict[str, Any], str | None]:
-    """只读取 Windows 任务计划程序状态；不注册、不修改、不删除任务。"""
-    script = "\n".join([
-        "$ErrorActionPreference = 'Stop'",
-        f"$t = Get-ScheduledTask -TaskName {ps_quote(name)} -TaskPath '\\' -ErrorAction Stop",
-        f"$i = Get-ScheduledTaskInfo -TaskName {ps_quote(name)} -TaskPath '\\' -ErrorAction Stop",
-        "$o = [pscustomobject]@{",
-        "  State = [string]$t.State",
-        "  LogonType = [string]$t.Principal.LogonType",
-        "  RunLevel = [string]$t.Principal.RunLevel",
-        "  StartWhenAvailable = [bool]$t.Settings.StartWhenAvailable",
-        "  LastRunTime = $(if ($i.LastRunTime) { $i.LastRunTime.ToString('o') } else { $null })",
-        "  NextRunTime = $(if ($i.NextRunTime) { $i.NextRunTime.ToString('o') } else { $null })",
-        "  LastTaskResult = $i.LastTaskResult",
-        "}",
-        "$o | ConvertTo-Json -Compress",
-    ])
-    import base64
-    code, stdout, stderr = run_argv(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-         "-EncodedCommand", base64.b64encode(script.encode("utf-16le")).decode("ascii")], timeout=60)
-    if code:
-        # 任务不存在是状态，不是查询失败；其它失败不保留原始输出。
-        if "No MSFT_ScheduledTask" in (stderr or ""):
-            return {"registered": False, "state": "not-installed"}, None
-        return {"registered": False}, "查询 Windows 任务状态失败；未保留原始错误"
-    try:
-        raw = json.loads(stdout[stdout.find("{"):])
-    except (ValueError, TypeError):
-        return {"registered": False}, "Windows 任务状态输出无法解析"
-    if not isinstance(raw, dict):
-        return {"registered": False}, "Windows 任务状态输出结构无效"
-    mapping = {"State": "state", "LogonType": "logon_type", "RunLevel": "run_level",
-               "StartWhenAvailable": "start_when_available", "LastRunTime": "last_run_time",
-               "NextRunTime": "next_run_time", "LastTaskResult": "last_task_result"}
-    info: dict[str, Any] = {mapping[k]: raw[k] for k in mapping if k in raw}
-    info["registered"] = True
-    last = info.get("last_run_time")
-    info["never_run"] = not isinstance(last, str) or not last or last.startswith("1899-12-30")
-    return info, None
-
-
-def cmd_schedule_status(args: argparse.Namespace) -> int:
-    """只读核对定时任务：本地标记 + 实际注册状态 + 最近一次执行结果。"""
-    try:
-        config = load_config(args.workdir)
-        name = windows_task_name(config)
-    except ValueError as exc:
-        return fail(2, str(exc), "修正 config.json 后重试")
-    marker = base_dir(args.workdir) / "schedule.json"
-    status: dict[str, Any] = {"task_name": name, "marker_file": str(marker), "marker": None}
-    if marker.is_file():
-        try:
-            recorded = json.loads(marker.read_text(encoding="utf-8-sig"))
-            status["marker"] = recorded if isinstance(recorded, dict) else None
-        except (OSError, json.JSONDecodeError):
-            status["marker"] = None
-    if os.name != "nt":
-        status["error"] = "Windows 原生任务状态只能在 Windows Python 下查询"
-        print(json.dumps({"status": "partial", "data": status}, ensure_ascii=False))
-        return 3
-    info, error = query_windows_task(name)
-    status.update(info)
-    if error:
-        status["error"] = error
-        print(json.dumps({"status": "partial", "data": status}, ensure_ascii=False))
-        return 3
-    return ok(status)
 
 
 def format_agent_command(command: Any, run: Path) -> tuple[list[str] | None, str | None]:
@@ -1357,29 +1213,6 @@ def cmd_todo_create(args: argparse.Namespace) -> int:
     return ok({'run_dir': str(run), 'todo': state})
 
 
-def cmd_schedule(args: argparse.Namespace) -> int:
-    try:
-        config = load_config(args.workdir)
-    except ValueError as exc:
-        return fail(2, str(exc), "修复配置后重试")
-    frequency = config.get("schedule", {}).get("frequency", "daily")
-    time_value = args.time or config.get("schedule", {}).get("time", "18:30")
-    try:
-        preview = windows_task_preview(config, args.workdir, time_value)
-    except ValueError as exc:
-        return fail(2, str(exc), "修正 schedule 配置后重试")
-    if not args.confirm:
-        return fail(2, "安装 Windows 定时任务需要明确确认", json.dumps(preview, ensure_ascii=False))
-    if os.name != "nt":
-        return fail(2, "Windows 原生任务必须由 Windows Python 执行", "请在 Windows PowerShell 或 cmd 中使用 python.exe/py.exe 重新运行本命令；不要使用 WSL Python")
-    installed, detail = install_windows_task(config, args.workdir, time_value)
-    if not installed:
-        return fail(2, "Windows 任务计划程序注册失败", detail)
-    marker = base_dir(args.workdir) / "schedule.json"
-    write_json(marker, {"installed": True, "backend": "Windows Task Scheduler", "frequency": frequency, "time": time_value, "task_name": windows_task_name(config), "command": schedule_command(args.workdir), "preview": json.loads(detail)})
-    return ok({"schedule_file": str(marker), "backend": "Windows Task Scheduler", "task_name": windows_task_name(config), "preview": json.loads(detail)})
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1396,8 +1229,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("verify-approved"); p.add_argument("--run", required=True); p.set_defaults(func=cmd_verify)
     p = sub.add_parser("report"); p.add_argument("--run", required=True); p.set_defaults(func=cmd_report)
     p = sub.add_parser("todo-create"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--run", required=True); p.set_defaults(func=cmd_todo_create)
-    p = sub.add_parser("schedule"); p.add_argument("--workdir", type=Path, required=True); p.add_argument("--time"); p.add_argument("--confirm", action="store_true"); p.set_defaults(func=cmd_schedule)
-    p = sub.add_parser("schedule-status"); p.add_argument("--workdir", type=Path, required=True); p.set_defaults(func=cmd_schedule_status)
     return parser
 
 

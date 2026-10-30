@@ -10,7 +10,7 @@
 
 - `window_mode=daily_fixed`（默认）：窗口为本地时间当天 `[daily_window_start, daily_window_end)`，默认 06:00–18:30。当前时刻早于今天的结束时间（如提前手动补跑）时回退到昨天同窗口；`start>=end` 支持跨午夜（如 22:00–06:00）。输出统一转换为 UTC。
 - `window_mode=lookback`：旧滑动窗口，`end` 为当前时刻，`start` 回湋 `lookback_days` 天。
-- `schedule.time` 是 Windows 定时任务触发时刻，默认 18:30，与 `daily_window_end` 相互独立：触发晚于窗口结束（含 StartWhenAvailable 补跑）不影响窗口计算，仍采集当天 06:00–18:30。
+- 采集窗口由 `schedule.window_mode` 与 `daily_window_start/end`（或 `lookback_days`）决定；运行时刻由 AgentR 工作流定时触发器的 cron 决定，与窗口计算相互独立。
 - 缺省键回退默认值；只有显式非法值（格式错误、start=end）才会 `missing`。
 
 ## AgentR 待办适配器
@@ -24,7 +24,7 @@
 
 ```json
 {
-  "schedule": {"frequency": "daily", "time": "18:30", "window_mode": "daily_fixed", "daily_window_start": "06:00", "daily_window_end": "18:30", "lookback_days": 1, "task_name": "AI-Redfish-work-experience-accumulate"},
+  "schedule": {"window_mode": "daily_fixed", "daily_window_start": "06:00", "daily_window_end": "18:30", "lookback_days": 1},
   "agentr_todo": {
     "enabled": true,
     "endpoint": "http://127.0.0.1:8320/todos",
@@ -156,15 +156,12 @@
 
 - `dingtalk.search_args` 只放上述两个已核实的分页参数。脚本固定添加共享窗口、账号、全量分页、`--no-reactions` 和 JSON 格式。dws 契约漂移时停止并报告，不静默更换接口。只在无部分输出时重试：`retryable=true` 按服务端等待时间重试一次（不缩短 `retry_after_seconds` / `next_retry_at`）；「下游缺少明确的集合字段」按 `shape_retries` 退避重试（默认 2 次：5s/10s），仍失败则按原诊断失败关闭。认证与权限错误不重试。
 - `dingtalk.notify_enabled=true` 才发送通知。`dingtalk.notify_command` 只放经当前 dws Schema/help 确认过的 argv。允许 `{executable}`、`{profile}`、`{user_id}`、`{text}`、`{key}` 和 `{run_dir}` 占位符。发送前验证当前账号与本人用户 ID，发送后查询 `openTaskId`；只有 `sendStatus=SUCCESS` 才报告送达。
-- `agent_command` 是可选的 argv 数组。允许 `{run_dir}` 和 `{skill_dir}` 占位符。未配置时定时任务只生成草稿模板，不假装完成总结。
+- `agent_command` 是可选的 argv 数组。允许 `{run_dir}` 和 `{skill_dir}` 占位符。未配置时 `run-cycle` 只生成草稿模板，不假装完成总结。
 - `zentao.query_command` 是 argv 数组，不经过 shell。支持 `{start}`、`{end}`、`{user_id}` 占位符替换，不自动追加参数。输出必须满足上面的成功信封和记录契约；非 JSON、退出码非零或不完整结果均使来源失败。
 - `targets` 只记录审核后允许写入的位置。首次运行可以为空。
 - Git 仓库必须提供非空 `branches` 或非空 `branch_selection`。可以同时提供，范围取并集。脚本不会使用当前分支兜底。
 - `agent_workspaces` 至少一个路径。多个路径用于多个 Agent 或项目的会话范围。
-- `schedule.frequency` 只能是 `daily` 或 `weekly`。`weekly` 固定每周一执行。
-- `schedule.time` 必须是 24 小时制 `HH:MM`；`config-status` 会对空值和非法格式报 `missing`。
-- `config-status` 的 `missing` 是阻断项；`warnings` 只报告不存在的路径（`git_repositories[].path`、`agent_workspaces`、`targets.*`），不阻断采集，但应在安装定时任务前修正。`platform` 表示当前解释器平台，路径判断按该平台语义。
-- `schedule-status --workdir <workdir>` 只读核对任务：输出 `registered`、`state`、`logon_type`、`run_level`、`start_when_available`、`last_run_time`、`last_task_result`、`next_run_time`、`never_run` 和本地 `schedule.json` 标记；不注册、不修改、不删除任务。任务不存在时 `registered=false`、`state=not-installed`。非 Windows 或查询失败返回 3（`partial`）。安装成功不等于计划执行成功：`never_run=true` 或 `last_task_result` 非 0 必须如实报告。
+- `config-status` 的 `missing` 是阻断项；`warnings` 只报告不存在的路径（`git_repositories[].path`、`agent_workspaces`、`targets.*`），不阻断采集。`platform` 表示当前解释器平台，路径判断按该平台语义。
+- 定时调度由 AgentR 工作流承担；本 skill 不再包含 `schedule` / `schedule-status` 子命令，不注册操作系统计划任务。运行结果以每次 `run-cycle` 的 JSON 输出为准，失败时如实报告。
 - `run-cycle` 草稿写盘后自动执行：渲染 `report.html`（失败按阶段报告，不阻断通知）、钉钉通知、AgentR 待办（enabled 时）。任一阶段失败退出码为 3（partial），草稿与证据保留。
-- `schedule.task_name` 是 Windows 任务计划程序根目录下的任务名称。默认值为 `AI-Redfish-work-experience-accumulate`。不得包含目录分隔符或控制字符。
 - Windows 任务使用当前用户的 `Interactive` 登录类型，不保存 Windows 密码。电脑重启后任务定义仍存在，用户重新登录后继续执行。

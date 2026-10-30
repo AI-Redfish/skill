@@ -15,7 +15,7 @@ SKILL.md「工具依赖」的完整版：四端点工具明细、测试场景 �
 | `/api/rust/mcp` | **MySQL / Kingbase / SQLite**（`*_query`、`*_tables`、`*_table_ddl`、`*_databases`）；**Redis**（`scan_keys`、`get_key`、`overview`）；**MQTT**（`subscribe`+`read`、`publish`）；**WebSocket**（`connect`+`read`）；`http_send` |
 | `/api/go/mcp` | **RabbitMQ**（`list_queues`、`list_exchanges`、`list_consumers`、`publish`、`consumer_start`+`consumer_messages`）；**RocketMQ**（`send_message`、`subscription_start`+`subscription_messages`） |
 | `/api/node/mcp` | **SSH**（`ssh_exec` 万能命令行、`ssh_files_preview` 远程日志取证）；**TDEngine**（`tdengine_query` 等）；`nginx_gateway_status`、`image_to_base64` |
-| `/api/python/mcp` | **schedule**（`schedule_run_task` 触发定时型链路、`schedule_list_tasks`、`schedule_list_records`） |
+| `/api/python/mcp` | **workflow**（`workflow_list` 查询、`workflow_run` 手动触发工作流、`workflow_trigger_status` 触发器状态；AgentR 定时任务模块已由工作流替代） |
 
 ### 测试场景 → 工具映射（优先按此选工具）
 
@@ -28,7 +28,7 @@ SKILL.md「工具依赖」的完整版：四端点工具明细、测试场景 �
 | MQTT 订阅收推/发布 | `mqtt_subscribe` + `mqtt_read` / `mqtt_publish` |
 | WebSocket 推送验证 | `websocket_connect` + `websocket_read` |
 | HTTP 接口调用 | `http_send` |
-| 定时型链路触发 | `schedule_run_task` |
+| 工作流手动触发 | `workflow_run`（定时/钉钉监听触发在工作流画布配置） |
 | 远程命令行/日志取证/服务存活 | `ssh_exec` / `ssh_files_preview`（systemctl/端口/进程检查） |
 
 使用规则：
@@ -42,8 +42,7 @@ SKILL.md「工具依赖」的完整版：四端点工具明细、测试场景 �
    就放松 L0 规则；同一验证预计要复跑 → 写成脚本沉淀，不反复手工调 MCP
 4. AgentR MCP 不可用（网关没起/工具缺失）→ 该项降级探针脚本或人工清单，
    报告标注；先调 `nginx_gateway_status` 自检，不因此中断流程
-5. **周期回归（进阶）**：稳定沉淀的探针可注册为 AgentR 定时任务
-   （`schedule_run_task` 周期执行 `uv run <探针>`），实现夜间自动回归；结果经
-   `schedule_list_records` 查看，异常再人工介入——把空间从"人触发"升级为
-   "持续回归"
+5. **周期回归（进阶）**：稳定沉淀的探针可注册为 AgentR 工作流
+   （工作流「定时触发」节点 cron 周期执行脚本节点 `uv run <探针>`），实现夜间自动回归；
+   AgentR 服务关闭时定时失效，异常再人工介入——把空间从"人触发"升级为"持续回归"
 

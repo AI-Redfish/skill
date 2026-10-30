@@ -4,84 +4,70 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""zentao-bugfix skill · 钉钉消息监听器（全自动触发禅道 bug 修复）
+"""zentao-bugfix skill · 钉钉触发与轮询修复的单次执行入口
 
 纯标准库、无第三方依赖。Windows 原生 Python 与 WSL/Linux 均可运行。
 推荐 uv 隔离运行：uv run --no-project scripts/dingtalk_listen.py <子命令>
 
-功能链路：
-    监听多个指定人员/机器人的钉钉单聊消息（dws Stream 长连接 + 定时轮询
-    「过去X分钟」消息的拉取兜底，message_id 去重，两通道互为冗余）
-    → 消息交给本地 Agent（pi/codex/claude/custom）无头提取"是否修 bug + bugId"
-    → 命中则由监听器执行 prepare，按目标项目 routes.json 的 Bug ID/标题规则分流
-       到已有开发工作区或新 worktree；Agent 分析/修复/报告，绑定模式 finish 独立提交
-    → 命中后只读查询 resolution，仅无解决方案的 Bug 进入 prepare/修复
-    → 跳过、成功、失败结果写本地日志，并用 dws 单聊通知当前登录用户本人。
+定位（触发方式已外移）：
+    本脚本不再包含常驻监听循环或系统级定时（原 start/stop/autostart 已移除）。
+    定时与钉钉监听由 AgentR「工作流」承担（服务内调度，AgentR 关闭即失效）：
+    - 定时轮询：工作流定时触发器 cron 到点 → 脚本/CLI 节点调用 `poll-once`
+    - 钉钉监听：工作流钉钉监听触发器收到指定联系人消息 → 节点调用 `fix-from-message`
+    本脚本每次运行只处理一次即退出，无常驻进程、无操作系统计划任务。
+
+执行链路（与原监听器一致）：
+    `poll-once`：查禅道活跃 Bug（v1 API），仅 resolution 为空的进入自动修复
+    `fix-from-message`：Agent 无头提取消息中"是否修 bug + bugId"，命中则修复
+    → prepare 按目标项目 routes.json 的 Bug ID/标题规则分流到已有开发工作区或新 worktree
+    → Agent 分析/修复/报告，绑定模式 finish 独立提交
+    → 跳过、成功、失败结果写本地日志，并用 dws 单聊通知当前登录用户本人
 
 配置（启动工作区 .agents/zentao-bugfix/routes.json 的 config 对象；所有值为字符串。
 同文件 rules 数组保留 Bug 匹配规则；不读取旧 .env）：
     ZENTAO_BASE_URL / ZENTAO_ACCOUNT / ZENTAO_PASSWORD   禅道（自动修复必需）
-    DWS_LISTEN_USERS=李四,张三                            监听人员（逗号分隔；
-                                                          只监听机器人时可留空）
-    DWS_LISTEN_BOTS=通知机器人                              监听机器人（可选）
     BUGFIX_BASE_BRANCH=dev/v6.0.6.3                     worktree 基准分支（可选）
-    TARGET_PROJECT_PATH=D:\\path\\to\\repo                目标仓库（缺省=启动目录）
+    TARGET_PROJECT_PATH=D:/path/to/repo                目标仓库（缺省=启动目录）
     AGENT_TYPE=pi|codex|claude|custom                     执行 Agent（缺省=自动探测）
     AGENT_MODEL=provider-x/model-y                     Agent 模型（provider/model 或模型名）
     AGENT_CUSTOM_CMD=dsh -p --model {model} {prompt}      custom 适配器命令模板（可选）
-    LISTEN_MODE=auto                                     auto=推送+拉取双通道(默认)/stream/poll
-    POLL_INTERVAL_SECONDS=20                             拉取兜底轮询间隔（可选，默认20秒）
-    POLL_LOOKBACK_MINUTES=10                             兜底每轮重扫「过去X分钟」窗口（默认10）
-    POLL_MAX_CATCHUP_MINUTES=60                          停机后兜底最多回看分钟数（默认60）
-    LISTEN_AUTOSTART=on                                  系统级开机自启开关（默认 on：首次 start
-                                                          成功后自动创建，跨平台：Windows 计划任务
-                                                          （开机和登录双触发）/ macOS LaunchAgent / Linux
-                                                          systemd 用户服务或 cron @reboot；off 关闭）
 
 Agent/模型选择优先级：命令行参数 > routes.json > 自动探测当前 pi 会话 > 交互询问。
 目标仓库优先级：routes.json 的 TARGET_PROJECT_PATH > 启动时所在项目目录。
-注意：配置/日志/守护状态均锚定启动时所在工作空间（.agents/），start/status/stop
-需在同一工作空间目录执行；不要在 skill 目录内运行，避免产生嵌套 .agents。
+注意：配置/日志锚定启动时所在工作空间（.agents/）；不要在 skill 目录内运行。
 
 子命令：
-    start [--foreground] [--no-autostart]
-         [--agent T] [--model M]                       启动监听（默认后台守护；配置缺失退出码 2）
-    status                                            查看运行状态（JSON，含开机自启状态）
-    stop                                              停止监听（优雅退出；开机自启保留）
-    autostart [install|remove|status]                 管理系统级开机自启（默认 status；首次
-                                                      start 成功后自动 install）
+    poll-once [--limit N] [--agent T] [--model M]      单次轮询禅道活跃 Bug 并逐个自动修复（JSON 汇总）
+    fix-from-message <消息文本|-> [--agent T] [--model M]
+                                                       提取单条消息意图并修复（JSON 结果；- 从 stdin 读）
     config-status                                     检查配置完整性（JSON，密码脱敏）
     save-config KEY=VALUE...                          保存/合并写入 .agents/zentao-bugfix/routes.json
-    test-extract <消息文本>                           手动测试意图提取（不监听）
+    test-extract <消息文本>                           手动测试意图提取（不修复）
     retry <bugId> [--agent T] [--model M]              恢复失败/路径异常的 Bug
 
 配置缺失时脚本不交互提问（避免无终端环境卡死）：退出码 2 并列出缺失键，
 由调用方（AI）按双闭环逐项向用户索取后 save-config 写入，再重新执行。
 
-前置条件：dws 已安装且已登录（dws auth login）；pi/codex/claude 已登录对应服务。
-已知限制：dws 登录账号自己发出的消息不会进入事件流（钉钉官方过滤，非本脚本缺陷）。
+前置条件：禅道配置可用；结果通知需 dws 已安装并登录；pi/codex/claude 已登录对应服务。
 
-退出码：0 成功；2 配置/参数错误；3 运行环境错误（dws 未登录/未安装等）。
+退出码：0 成功；1 存在失败 Bug；2 配置/参数错误。
 
-排障日志（均在启动工作空间 .agents/logs/）：start.log 记录启动全过程与失败原因；
-listener.log 为运行主日志；events.log 为原始消息；fix-<bugId>.log 含修复会话输出末尾
+排障日志（均在启动工作空间 .agents/logs/）：fix-<bugId>.log 含修复会话输出末尾
 与 [VERIFY] 产物校验结果（含 analysis_complete 分析先行校验；无头会话退出码 0 不代表
-流程完成，以本次 run_id、完整报告、绑定模式的 commit 为准）；
-status.last_fix 展示最近结果；占用任务存 pending-bugs.json；工作区异常 HTML 写启动目录 .agents 下。
+流程完成，以本次 run_id、完整报告、绑定模式的 commit 为准）；result-notifications.json
+为结果通知发件箱；工作区异常 HTML 写启动目录 .agents 下。
 """
 import argparse
 import hashlib
 import importlib.util
 import json
 import os
-import queue as queue_mod
 import re
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
-import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -99,24 +85,12 @@ _bug_api_spec.loader.exec_module(_bug_api)
 BASE_DIR = Path.cwd().resolve()
 CONFIG_FILE = _routes.config_path(BASE_DIR)
 LOG_DIR = BASE_DIR / ".agents" / "logs"
-STATE_FILE = LOG_DIR / "state.json"
-PID_FILE = LOG_DIR / "listener.pid"
-STOP_FILE = LOG_DIR / "stop.flag"
-PROCESSED_FILE = LOG_DIR / "processed-ids.json"
+PROCESSED_MAX = 1000         # 结果通知发件箱已完成历史上限
 EXTRACT_TIMEOUT = 300        # 意图提取超时（秒）
 FIX_TIMEOUT = 7200           # 自动修复会话超时（秒）
-RESTART_BACKOFF = (5, 15, 60, 300)   # dws 子进程退出后的重启退避（秒）
-PROCESSED_MAX = 1000         # message_id 去重环形容量
-POLL_INTERVAL = 20           # 拉取兜底轮询间隔（秒，可用 POLL_INTERVAL_SECONDS 覆盖）
-POLL_LOOKBACK_MIN = 10       # 兜底每轮重扫「过去X分钟」窗口（自愈：不依赖水位正确性）
-POLL_MAX_CATCHUP_MIN = 60    # 水位过旧（停机等）时最多回看上限（分钟）
-STREAM_STABLE_SEC = 600      # 推送流稳定运行超过该时长后重置重启退避计数
 
 REQUIRED_KEYS = ["ZENTAO_BASE_URL", "ZENTAO_ACCOUNT", "ZENTAO_PASSWORD"]
 KEY_HELP = {
-    "DWS_LISTEN_USERS": "监听人员姓名，多个用英文逗号分隔（如：李四,张三）；"
-                        "只监听机器人时可留空（需配 DWS_LISTEN_BOTS）",
-    "DWS_LISTEN_BOTS": "监听机器人名称，多个逗号分隔（可留空）",
     "ZENTAO_BASE_URL": "禅道站点根地址（如 http://host:port）",
     "ZENTAO_ACCOUNT": "禅道登录账号",
     "ZENTAO_PASSWORD": "禅道登录密码（敏感，仅存本地 routes.json）",
@@ -128,13 +102,6 @@ KEY_HELP = {
     "FRONTEND_WORKSPACES": "前端只读分析工作区（可选，多个用英文逗号分隔）；"
                            "用于在 analysis.md 中判定「前端问题还是后端问题」；"
                            "只读，不是修复目标，不写入/不提交；从目标项目 routes.json 读取",
-    "LISTEN_MODE": "监听模式 auto/stream/poll（默认 auto：推送+拉取双通道，自动互为兜底）",
-    "POLL_INTERVAL_SECONDS": "拉取兜底轮询间隔秒数（默认 20）",
-    "POLL_LOOKBACK_MINUTES": "兜底每轮重扫的「过去X分钟」窗口（默认 10；调大更抗丢消息）",
-    "POLL_MAX_CATCHUP_MINUTES": "停机/水位过旧时兜底最多回看的分钟数（默认 60）",
-    "LISTEN_AUTOSTART": "系统级开机自启 on/off（默认 on：首次 start 成功后自动创建，"
-                        "跨平台 Windows 计划任务/macOS LaunchAgent/Linux systemd 或 cron；"
-                        "off 关闭自动创建；彻底卸载用 autostart remove 子命令）",
 }
 
 
@@ -168,10 +135,6 @@ def save_config(path, updates):
 
 def missing_keys(cfg, required=REQUIRED_KEYS):
     miss = [k for k in required if not cfg.get(k)]
-    # 监听名单：人员与机器人至少其一（只监听机器人时 DWS_LISTEN_USERS 可留空）
-    if required is REQUIRED_KEYS and not miss \
-            and not (cfg.get("DWS_LISTEN_USERS") or cfg.get("DWS_LISTEN_BOTS")):
-        miss.append("DWS_LISTEN_USERS")
     return miss
 
 
@@ -723,75 +686,6 @@ def _run_auto_fix(adapter, bug_id, repo, base_branch=None, reuse=False):
 
 # ---------------------------------------------------------------- 目标解析
 
-def resolve_targets(users, bots):
-    """把姓名/机器人名解析为 openDingTalkId 列表 [(名称, id, 类型)]。"""
-    targets = []
-    problems = []
-    for name in filter(None, [x.strip() for x in users.split(",")]):
-        try:
-            data = parse_json_loose(run_dws(
-                ["contact", "user", "search", "--query", name, "-f", "json"]))
-            hits = [r for r in (data.get("result") or [])
-                    if (r.get("name") == name or r.get("nick") == name)
-                    and r.get("openDingTalkId")]
-            if len(hits) != 1:
-                problems.append("人员[%s]精确匹配 %d 个（需唯一）" % (name, len(hits)))
-            else:
-                targets.append((name, hits[0]["openDingTalkId"], "user"))
-        except (RuntimeError, ValueError) as e:
-            problems.append("人员[%s]解析失败: %s" % (name, e))
-    for name in filter(None, [x.strip() for x in bots.split(",")]):
-        try:
-            data = parse_json_loose(run_dws(
-                ["chat", "bot", "find", "--query", name, "--limit", "50", "-f", "json"]))
-            hits = [b for b in ((data.get("result") or {}).get("bots") or [])
-                    if b.get("name") == name and b.get("botOpenDingTalkId")]
-            if len(hits) != 1:
-                problems.append("机器人[%s]精确匹配 %d 个（需唯一）" % (name, len(hits)))
-            else:
-                targets.append((name, hits[0]["botOpenDingTalkId"], "bot"))
-        except (RuntimeError, ValueError) as e:
-            problems.append("机器人[%s]解析失败: %s" % (name, e))
-    if not targets:
-        raise SystemExit("无可监听目标：%s" % "；".join(problems or ["名单为空"]))
-    for p in problems:
-        log("警告: %s" % p)
-    return targets
-
-
-class DedupStore:
-    """message_id 去重（内存 + 环形持久化）。"""
-
-    def __init__(self, path=None):
-        self.path = Path(path) if path else PROCESSED_FILE
-        self.ids = deque(maxlen=PROCESSED_MAX)
-        if self.path.is_file():
-            try:
-                self.ids.extend(json.loads(self.path.read_text(encoding="utf-8"))[-PROCESSED_MAX:])
-            except (json.JSONDecodeError, OSError):
-                pass
-        self.lock = threading.Lock()
-
-    def seen(self, mid):
-        with self.lock:
-            return mid in self.ids
-
-    def claim(self, mid):
-        """Atomically claim a message across stream and poll threads."""
-        if not mid:
-            return True
-        with self.lock:
-            if mid in self.ids:
-                return False
-            self.ids.append(mid)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(list(self.ids)), encoding="utf-8")
-            return True
-
-    def add(self, mid):
-        self.claim(mid)
-
-
 NOTICE_PREFIX = "[禅道自动处理结果]"
 
 
@@ -899,473 +793,7 @@ class ResultNotifier:
         return sum(not entry.get("sent") for entry in self.entries.values())
 
 
-# ---------------------------------------------------------------- 拉取兜底(poll)
-
-_POLL_STATE_LOCK = threading.Lock()
-POLL_STATE_FILE = LOG_DIR / "poll-state.json"
-
-
-def _load_poll_states():
-    """读取各目标的拉取水位（canonical 归一化格式；损坏时视为空，自愈重建）。"""
-    with _POLL_STATE_LOCK:
-        try:
-            return json.loads(POLL_STATE_FILE.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return {}
-
-
-def _save_poll_state(name, wm):
-    """读-改-写合并单个目标水位（多拉取线程并发写同一文件，锁内整体重读）。"""
-    with _POLL_STATE_LOCK:
-        try:
-            states = json.loads(POLL_STATE_FILE.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            states = {}
-        states[name] = wm
-        try:
-            POLL_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            POLL_STATE_FILE.write_text(json.dumps(states), encoding="utf-8")
-        except OSError:
-            pass
-
-
-def _norm_ts(v):
-    """时间归一化为可字典序比较的定长数字串 YYYYmmddHHMMSSffffff；无法解析返回 ''。
-
-    兼容常见格式：'2026-09-19 21:00:00'、ISO8601（'T'/毫秒/时区后缀，时区按同一
-    墙钟忽略）、epoch 毫秒/秒（纯数字）。定长保证不同来源可直接比较。
-    """
-    if v is None:
-        return ""
-    s = str(v).strip()
-    if not s:
-        return ""
-    if s.isdigit() and len(s) in (10, 13):
-        ep = int(s) / (1000.0 if len(s) == 13 else 1.0)
-        return time.strftime("%Y%m%d%H%M%S", time.localtime(ep)) + "000000"
-    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?", s)
-    if not m:
-        return ""
-    frac = (m.group(7) or "")[:6].ljust(6, "0")
-    return "".join(m.groups()[:6]) + frac
-
-
-def _epoch_to_norm(ep):
-    """epoch 秒 → canonical 归一化串（本地时区）。"""
-    return time.strftime("%Y%m%d%H%M%S", time.localtime(ep)) + "000000"
-
-
-def _norm_to_epoch(norm):
-    """canonical 串 → epoch 秒（本地时区）；坏值抛 ValueError 由调用方容忍。"""
-    return time.mktime(time.strptime(norm[:14], "%Y%m%d%H%M%S"))
-
-
-def _fmt_local_rfc3339(epoch):
-    """epoch 秒 → 本地时区 RFC3339 整秒串（dws --start/--end 只接受整秒）。"""
-    lt = time.localtime(epoch)
-    off = -time.altzone if (lt.tm_isdst and time.daylight) else -time.timezone
-    return "%s%+03d:%02d" % (time.strftime("%Y-%m-%dT%H:%M:%S", lt),
-                             int(off / 3600), abs(off) % 3600 // 60)
-
-
-def poll_cutoff_epoch(wm, now=None, lookback_sec=None, max_catchup_sec=None):
-    """计算本轮拉取窗口下界（epoch 秒）：min(水位, now-回看窗)，再被最大回看上限托底。
-
-    - 水位正常时窗口 = 过去 X 分钟（自愈重扫，不依赖水位正确性）；
-    - 停机后水位较旧 → 窗口前探到水位（补停机期间漏收的消息）；
-    - 水位过旧（首次部署/长期停机）→ 最多回看 max_catchup，防远古消息重放。
-    """
-    now = time.time() if now is None else now
-    lookback_sec = POLL_LOOKBACK_MIN * 60 if lookback_sec is None else lookback_sec
-    max_catchup_sec = POLL_MAX_CATCHUP_MIN * 60 if max_catchup_sec is None else max_catchup_sec
-    lower = now - lookback_sec
-    if wm:
-        try:
-            lower = min(lower, _norm_to_epoch(wm))
-        except (ValueError, OverflowError, OSError):
-            pass
-    return max(lower, now - max_catchup_sec)
-
-
-def poll_messages(oid, start_epoch=None, limit=50):
-    """拉取与指定 openDingTalkId 的单聊消息（拉取通道与推送流独立，互为冗余）。
-
-    start_epoch 非空时用服务端时间窗（--start/--order asc，区间 [start, now)），
-    避免依赖 limit 截断；旧版 dws 不认识该参数会报错，由调用方降级重试。
-    兼容 result 包裹与裸信封两种输出形态。
-    """
-    args = ["chat", "+chat-messages", "--open-dingtalk-id", oid,
-            "--limit", str(limit), "-f", "json"]
-    if start_epoch is not None:
-        args += ["--start", _fmt_local_rfc3339(start_epoch), "--order", "asc"]
-    out = run_dws(args, timeout=60)
-    data = parse_json_loose(out)
-    env = data.get("result") if isinstance(data.get("result"), dict) else data
-    return env.get("messages") or []
-
-
-def normalize_poll_message(m):
-    """把拉取到的消息归一化为事件流同构 dict（worker 无需区分来源）。"""
-    return {
-        "type": "poll_message",
-        "sender": m.get("sender") or "",
-        "sender_open_dingtalk_id": m.get("senderId") or "",
-        "sender_type": m.get("senderType") or "",
-        "content": m.get("text") or "",
-        "message_id": m.get("messageId") or "",
-        "conversation_id": m.get("conversationId") or "",
-        "create_time": m.get("createTime") or "",
-        "source": "poll",
-    }
-
-
-def pick_new_poll_messages(msgs, cutoff):
-    """筛出时间窗内（归一化 createTime ≥ cutoff）的消息，按时间正序返回。
-
-    语义是「窗口重扫」而非「水位增量」：窗口内已处理过的消息由调用方的
-    DedupStore（message_id）去重，这样水位损坏/进程重启也不会永久漏消息。
-    无法解析时间的消息保守丢弃（防重放）。
-    """
-    got = []
-    for m in msgs:
-        mn = _norm_ts(m.get("createTime"))
-        if mn and mn >= cutoff:
-            got.append((mn, m))
-    got.sort(key=lambda t: t[0])
-    return [m for _mn, m in got]
-
-
-# ---------------------------------------------------------------- 监听核心
-
-class Listener:
-    """多目标 dws 监听 + 串行修复队列。"""
-
-    def __init__(self, targets, adapter, repo, base_branch=None, mode="auto",
-                 poll_interval=None, poll_lookback_min=None, poll_max_catchup_min=None):
-        self.targets = targets
-        self.adapter = adapter
-        self.repo = repo
-        self.base_branch = (base_branch or "").strip() or None
-        self.mode = (mode or "auto").strip().lower()
-        if self.mode not in ("auto", "stream", "poll"):
-            raise SystemExit("LISTEN_MODE 必须是 auto/stream/poll: %s" % mode)
-        # 拉取兜底参数（X 分钟窗口/同隔/停机回看上限，均可 routes.json 覆盖）
-        self.poll_interval = _positive_int(poll_interval, "POLL_INTERVAL_SECONDS", POLL_INTERVAL)
-        self.poll_lookback_min = _positive_int(poll_lookback_min, "POLL_LOOKBACK_MINUTES", POLL_LOOKBACK_MIN)
-        self.poll_max_catchup_min = _positive_int(
-            poll_max_catchup_min, "POLL_MAX_CATCHUP_MINUTES", POLL_MAX_CATCHUP_MIN)
-        self.dedup = DedupStore()
-        self.queue = queue_mod.Queue()
-        self.procs = {}          # name -> {"proc", "restarts", "last_event"}
-        self.stop_flag = threading.Event()
-        self.state_lock = threading.Lock()
-        self.stats = {"processed": 0, "fix_ok": 0, "fix_fail": 0, "skipped": 0}
-        self.notifier = ResultNotifier()
-        self.worker_ids = deque(maxlen=PROCESSED_MAX)
-
-    def _publish_result(self, result, job_key):
-        if result.get("status") in ("skipped_resolved", "duplicate"):
-            self.stats["skipped"] += 1
-        elif result.get("status") != "waiting":
-            self.stats["fix_ok" if result.get("ok") else "fix_fail"] += 1
-        try:
-            result["notification"] = self.notifier.publish(result, job_key)
-        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
-            result["notification"] = {"sent": False, "error": "结果通知落盘或身份查询失败，请检查本地日志"}
-            log(result["notification"]["error"])
-        self.stats["last_fix"] = dict(result, ts=time.strftime("%Y-%m-%d %H:%M:%S"))
-
-    # ---- dws 子进程管理 ----
-    def _spawn(self, name, oid):
-        cmd = [find_dws(), "event", "+listen-im", "--kind", "sender",
-               "--open-dingtalk-id", oid, "--events", "message",
-               "--duration", "0", "-f", "ndjson"]
-        # stdin 保持打开：dws 把 stdin EOF 视为退出信号；关闭 stdin 即优雅停机
-        # stderr 落盘（ready 标志/连接错误可观测，不与事件流混流）
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-        safe = re.sub(r"[^\w\u4e00-\u9fff-]", "_", name)
-        errf = (LOG_DIR / ("dws-%s.log" % safe)).open("ab")
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE,
-                                stderr=errf,
-                                creationflags=creation_flags())   # 无窗口后台运行
-        return proc
-
-    def _reader(self, name, oid):
-        restarts = 0
-        while not self.stop_flag.is_set():
-            t0 = time.time()
-            info = self.procs.get(name) or {}
-            proc = self._spawn(name, oid)
-            with self.state_lock:
-                self.procs[name] = {"proc": proc, "restarts": restarts,
-                                    "last_event": info.get("last_event")}
-            log("[%s] dws 监听已启动 pid=%s" % (name, proc.pid))
-            try:
-                for raw in proc.stdout:
-                    line = raw.decode("utf-8", errors="replace").strip()
-                    if not line:
-                        continue
-                    try:
-                        ev = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    mid = ev.get("message_id")
-                    if not self.dedup.claim(mid):
-                        continue
-                    with self.state_lock:
-                        if name in self.procs:
-                            self.procs[name]["last_event"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                    write_log("events.log", json.dumps(
-                        {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-                         "target": name, "event": ev}, ensure_ascii=False))
-                    self.queue.put((name, ev))
-            except Exception as e:                          # 读流异常：记日志后重启
-                log("[%s] 读流异常: %s" % (name, e))
-            if self.stop_flag.is_set():
-                try:
-                    proc.stdin.close()   # 优雅退出：dws 收到 EOF 自动退订清理
-                    proc.wait(timeout=15)
-                except Exception:
-                    proc.kill()
-                return
-            if time.time() - t0 >= STREAM_STABLE_SEC:
-                restarts = 0        # 稳定运行过一段时间的属于新故障：重置退避，避免累计放弃
-            restarts += 1
-            if restarts > len(RESTART_BACKOFF):
-                log("[%s] 重启次数过多，放弃该目标" % name)
-                return
-            wait = RESTART_BACKOFF[min(restarts - 1, len(RESTART_BACKOFF) - 1)]
-            log("[%s] dws 异常退出(rc=%s)，%ds 后第 %d 次重启"
-                % (name, proc.returncode, wait, restarts))
-            self.stop_flag.wait(wait)
-
-    def _poll_reader(self, name, oid, ttype="user"):
-        """拉取兜底：每 poll_interval 秒重扫「过去 X 分钟」窗口，补推送流丢的消息。
-
-        自愈设计：不依赖单一水位的正确性——每轮都重扫时间窗（X 分钟），窗口内
-        漏掉的消息（水位跳过/进程重启/限流截断）下一轮仍会被重新捞到；重复处理
-        由 DedupStore 的 message_id 去重拦截。持久化水位只用于停机后把窗口
-        向前延伸（上限 max_catchup 分钟，防首次部署/长期停机重放远古消息）。
-        旧版 dws 不支持 --start 时自动降级为纯 limit 拉取 + 客户端窗口过滤。
-        """
-        wm = _norm_ts(_load_poll_states().get(name))    # 兼容旧版水位格式
-        legacy = False
-        lookback = self.poll_lookback_min * 60
-        max_catchup = self.poll_max_catchup_min * 60
-        while not self.stop_flag.is_set():
-            self.stop_flag.wait(self.poll_interval)
-            if self.stop_flag.is_set():
-                return
-            lower = poll_cutoff_epoch(wm, lookback_sec=lookback, max_catchup_sec=max_catchup)
-            cutoff = _epoch_to_norm(lower)
-            try:
-                msgs = poll_messages(oid, None if legacy else lower - 1)
-            except Exception as e1:
-                if legacy:
-                    log("[%s] 拉取失败(下次重试): %s" % (name, str(e1)[:200]))
-                    continue
-                legacy = True
-                log("[%s] 带时间窗拉取失败，降级为 limit 拉取: %s" % (name, str(e1)[:200]))
-                try:
-                    msgs = poll_messages(oid)
-                except Exception as e2:
-                    log("[%s] 拉取失败(下次重试): %s" % (name, str(e2)[:200]))
-                    continue
-            newest = wm
-            for m in pick_new_poll_messages(msgs, cutoff):
-                mn = _norm_ts(m.get("createTime"))
-                if mn and mn > newest:
-                    newest = mn
-                sid = str(m.get("senderId") or "").strip()
-                stype = str(m.get("senderType") or "").lower()
-                # 只处理目标发来的消息（单聊里非目标即为自己发出的）；senderId 缺失
-                # 或机器人类型标记时放行，交给去重与意图提取兜底，防字段形态差异漏拉
-                if sid and sid != oid and not (ttype == "bot"
-                                               and ("bot" in stype or "app" in stype)):
-                    continue
-                mid = m.get("messageId")
-                if not self.dedup.claim(mid):
-                    continue
-                ev = normalize_poll_message(m)
-                write_log("events.log", json.dumps(
-                    {"ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-                     "target": name, "event": ev}, ensure_ascii=False))
-                with self.state_lock:
-                    if name in self.procs:
-                        self.procs[name]["last_event"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                log("[%s] 拉取兜底命中消息 mid=%s" % (name, mid or "?"))
-                self.queue.put((name, ev))
-            if newest != wm:
-                wm = newest
-                _save_poll_state(name, wm)
-
-    # ---- 串行处理 ----
-    def _retry_waiting(self, pending, path):
-        for bug in list(pending):
-            if self.stop_flag.is_set():
-                break
-            result = run_auto_fix(self.adapter, bug, self.repo, self.base_branch, reuse=True)
-            self._publish_result(dict(result, bug_id=bug), "bug:" + str(bug))
-            if result.get("status") != "waiting":
-                pending.remove(bug)
-                _routes.save(path, pending)
-        return pending
-
-    def _worker(self):
-        pending_path = LOG_DIR / "pending-bugs.json"
-        pending = _routes.read(pending_path) if pending_path.is_file() else []
-        while not self.stop_flag.is_set() or not self.queue.empty():
-            if not self.stop_flag.is_set():
-                try:
-                    self.notifier.retry_pending()
-                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
-                    log("结果通知补发失败，保留待补发记录")
-                self._retry_waiting(pending, pending_path)
-                if pending:
-                    self.stop_flag.wait(5)
-            try:
-                name, ev = self.queue.get(timeout=2)
-            except queue_mod.Empty:
-                continue
-            sender = ev.get("sender") or name
-            content = str(ev.get("content") or "")
-            mid = ev.get("message_id")
-            if content.startswith(NOTICE_PREFIX) or (mid and mid in self.worker_ids):
-                self.queue.task_done()
-                continue
-            if mid:
-                self.worker_ids.append(mid)
-            if not content.strip():                     # 图片/文件等无文本消息：不可能含 bugId
-                log("[%s] 消息无文本内容，跳过" % name)
-                self.queue.task_done()
-                continue
-            try:
-                intent = extract_bug_intent(self.adapter, sender, content)
-            except Exception as e:                     # 提取失败不致命，记录后跳过
-                log("[%s] 提取失败: %s" % (name, e))
-                self._publish_result({"ok": False, "status": "intent_failed"},
-                                     "message:" + str(mid or time.time_ns()))
-                self.queue.task_done()
-                continue
-            self.stats["processed"] += 1
-            if not intent.get("is_bugfix") or not intent.get("bug_id"):
-                log("[%s] 非修bug消息(%s)，忽略" % (name, intent.get("reason", "")))
-                self.queue.task_done()
-                continue
-            bug_id = intent["bug_id"]
-            log("[%s] 命中 bug %s，先核对确认状态 (repo=%s, agent=%s/%s)"
-                % (name, bug_id, self.repo, self.adapter.name, self.adapter.model))
-            result = run_auto_fix(self.adapter, bug_id, self.repo, self.base_branch)
-            if result.get("status") == "waiting" and bug_id not in pending:
-                pending.append(bug_id)
-                _routes.save(pending_path, pending)
-            self._publish_result(dict(result, bug_id=bug_id),
-                                 "bug:" + str(bug_id) if result.get("status") == "waiting" else "message:" + str(mid or time.time_ns()))
-            log("[bug %s] 修复会话结束: %s" % (bug_id, result))
-            self.queue.task_done()
-
-    def _save_state(self):
-        with self.state_lock:
-            targets = [{"name": n, "id": i, "restarts": self.procs.get(n, {}).get("restarts", 0),
-                        "last_event": self.procs.get(n, {}).get("last_event")}
-                       for n, i, _ in self.targets]
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STATE_FILE.write_text(json.dumps({
-            "pid": os.getpid(), "started": self.started, "agent": self.adapter.name,
-            "model": self.adapter.model, "repo": str(self.repo), "base_branch": self.base_branch,
-            "targets": targets, "mode": self.mode, "queue": self.queue.qsize(),
-            "poll": {"interval_s": self.poll_interval,
-                     "lookback_min": self.poll_lookback_min,
-                     "max_catchup_min": self.poll_max_catchup_min},
-            "stats": self.stats, "notification_pending": self.notifier.pending_count(),
-            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-        }, ensure_ascii=False, indent=1), encoding="utf-8")
-
-    def run(self):
-        self.notifier.bind_current_user()
-        self.started = time.strftime("%Y-%m-%d %H:%M:%S")
-        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PID_FILE.write_text(str(os.getpid()))
-        STOP_FILE.unlink(missing_ok=True)
-        threads = []
-        for n, i, _t in self.targets:
-            if self.mode in ("auto", "stream"):
-                threads.append(threading.Thread(target=self._reader, args=(n, i), daemon=True))
-            if self.mode in ("auto", "poll"):
-                threads.append(threading.Thread(
-                    target=self._poll_reader, args=(n, i, _t), daemon=True))
-        threads.append(threading.Thread(target=self._worker, daemon=True))
-        for t in threads:
-            t.start()
-        note = {"auto": "（stream推送+poll拉取双通道：每%ds重扫过去%dmin，message_id去重）"
-                % (self.poll_interval, self.poll_lookback_min),
-                "poll": "（仅poll拉取：每%ds重扫过去%dmin，停机回看上限%dmin）"
-                % (self.poll_interval, self.poll_lookback_min, self.poll_max_catchup_min),
-                "stream": ""}[self.mode]
-        log("监听就绪：%d 个目标 | agent=%s/%s | repo=%s | mode=%s%s"
-            % (len(self.targets), self.adapter.name, self.adapter.model, self.repo,
-               self.mode, note))
-        try:
-            while not STOP_FILE.is_file():
-                alive = sum(1 for t in threads if t.is_alive())
-                if alive <= 1:            # 只剩 worker：所有 reader 已放弃
-                    log("所有监听目标线程已退出，主进程退出")
-                    break
-                self._save_state()
-                time.sleep(5)
-        finally:
-            self.stop_flag.set()
-            with self.state_lock:
-                for info in self.procs.values():
-                    try:
-                        info["proc"].stdin.close()
-                        info["proc"].wait(timeout=15)
-                    except Exception:
-                        try:
-                            info["proc"].kill()
-                        except Exception:
-                            pass
-            self._save_state()
-            PID_FILE.unlink(missing_ok=True)
-            STOP_FILE.unlink(missing_ok=True)
-            log("监听已停止")
-
-
-# ---------------------------------------------------------------- 守护进程管理
-
-def _daemon_spawn(args, adapter):
-    """以后台守护方式重新拉起自身（--foreground 模式）。
-
-    显式传入已解析的 --agent/--model，确保子进程无终端环境下不再需要任何交互。
-    """
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, str(Path(__file__).resolve()), "start", "--foreground",
-           "--agent", adapter.name, "--model", adapter.model]
-    out = (LOG_DIR / "daemon.out").open("ab")
-    kwargs = {"stdin": subprocess.DEVNULL, "stdout": out, "stderr": out}
-    if os.name == "nt":
-        kwargs["creationflags"] = 0x00000008 | 0x00000200   # DETACHED_PROCESS|NEW_PROCESS_GROUP
-    else:
-        kwargs["start_new_session"] = True
-    subprocess.Popen(cmd, **kwargs)
-    time.sleep(2)
-    log("后台守护已启动(agent=%s/%s)，日志: %s/daemon.out"
-        % (adapter.name, adapter.model, LOG_DIR))
-
-
-def _pid_alive(pid):
-    try:
-        if os.name == "nt":
-            r = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid],
-                               capture_output=True, text=True,
-                               creationflags=creation_flags())
-            return str(pid) in (r.stdout or "")
-        os.kill(pid, 0)
-        return True
-    except (OSError, ValueError):
-        return False
-
+# ---------------------------------------------------------------- 子命令
 
 def resolve_repo(cfg):
     repo = cfg.get("TARGET_PROJECT_PATH", "").strip()
@@ -1376,505 +804,11 @@ def resolve_repo(cfg):
     return Path(repo).resolve()
 
 
-# ---------------------------------------------------------------- 开机自启（跨平台）
-# 系统级开机自启：首次成功 start 监听后自动创建（--no-autostart / LISTEN_AUTOSTART=off 跳过）。
-#   Windows : 任务计划程序·开机和当前用户登录双触发（Register-ScheduledTask 优先，schtasks+bat 兜底）
-#   macOS   : LaunchAgent（~/Library/LaunchAgents/<label>.plist + launchctl）
-#   Linux   : systemd 用户服务优先（无 systemd 的 WSL/容器回退 cron @reboot）
-
-AUTOSTART_NAME = "zentao-bugfix-listener"                   # Windows 任务名 / Linux 服务名
-AUTOSTART_LABEL = "com.ai-redfish.zentao-bugfix-listener"   # macOS LaunchAgent Label
-CRON_BEGIN = "# zentao-bugfix-listener:managed-begin"       # cron 托管块标记（成对出现）
-CRON_END = "# zentao-bugfix-listener:managed-end"
-
-
-def _autostart_python():
-    """自启入口使用的解释器。
-
-    sys.executable 可能是 uv/venv 的临时解释器（缓存目录可能被清理），本脚本零第
-    三方依赖，回退到基础解释器更稳；Windows 优先 pythonw.exe（无控制台黑窗）。
-    """
-    base = Path(sys.base_prefix)
-    if os.name == "nt":
-        for name in ("pythonw.exe", "python.exe"):
-            if (base / name).exists():
-                return str(base / name)
-    elif sys.prefix != sys.base_prefix:                      # venv/uv → 基础解释器
-        for name in ("bin/python3", "bin/python"):
-            if (base / name).exists():
-                return str(base / name)
-    return sys.executable
-
-
-def _autostart_entry():
-    """开机自启要执行的完整入口（解释器/脚本/参数/工作目录=启动工作空间）。"""
-    return {"python": _autostart_python(),
-            "script": str(Path(__file__).resolve()),
-            "args": ["start", "--foreground"],
-            "workspace": str(BASE_DIR)}
-
-
-def _listener_running():
-    if PID_FILE.is_file():
-        try:
-            return _pid_alive(int(PID_FILE.read_text().strip() or 0))
-        except ValueError:
-            pass
-    return False
-
-
-# ---- Windows：任务计划程序（开机和登录双触发）
-
-def _ps_quote(s):
-    return "'" + str(s).replace("'", "''") + "'"
-
-
-def _run_powershell(ps, timeout=30):
-    exe = shutil.which("powershell") or os.path.join(
-        os.environ.get("SystemRoot", r"C:\Windows"),
-        "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    return subprocess.run([exe, "-NoProfile", "-NonInteractive", "-Command", ps],
-                          capture_output=True, timeout=timeout,
-                          creationflags=creation_flags())
-
-
-def _ps_err(r):
-    return (r.stderr or b"").decode("utf-8", errors="replace").strip()[:300]
-
-
-def _win_ps_command(entry):
-    """构造 Register-ScheduledTask 命令（纯函数，便于测试）。
-
-    要点：开机和当前用户登录双触发，使用当前用户的交互凭据以复用 dws/Agent 登录。
-    未登录时不保证运行；禁用默认执行时限、电池供电不中断、错过后尽快运行、失败重试。
-    """
-    arg = '"%s" %s' % (entry["script"], " ".join(entry["args"]))
-    return ("$ErrorActionPreference='Stop';"
-            "$u=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name;"
-            "$p=New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited;"
-            "$a=New-ScheduledTaskAction -Execute %s -Argument %s -WorkingDirectory %s;"
-            "$t=@(New-ScheduledTaskTrigger -AtStartup;New-ScheduledTaskTrigger -AtLogOn -User $u);"
-            "$s=New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries"
-            " -DontStopIfGoingOnBatteries -StartWhenAvailable"
-            " -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)"
-            " -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero);"
-            "Register-ScheduledTask -TaskName %s -Action $a -Trigger $t -Settings $s"
-            " -Principal $p -Force | Out-Null; 'OK'"
-            ) % (_ps_quote(entry["python"]), _ps_quote(arg),
-                 _ps_quote(entry["workspace"]), _ps_quote(AUTOSTART_NAME))
-
-
-def _win_install(entry):
-    r = _run_powershell(_win_ps_command(entry))
-    if r.returncode != 0 or b"OK" not in (r.stdout or b""):
-        raise RuntimeError("Register-ScheduledTask 失败(%d): %s"
-                           % (r.returncode, _ps_err(r)))
-
-
-AUTOSTART_STARTUP_NAME = AUTOSTART_NAME + "-startup"
-AUTOSTART_LOGON_NAME = AUTOSTART_NAME + "-logon"
-
-
-def _win_task_exists(name):
-    r = subprocess.run(["schtasks", "/Query", "/TN", name],
-                       capture_output=True, creationflags=creation_flags())
-    return r.returncode == 0
-
-
-def _win_install_schtasks(entry):
-    """Register-ScheduledTask 不可用时的兜底：两个 schtasks 任务覆盖开机和登录。"""
-    bat = LOG_DIR / "autostart-listener.bat"
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    bat.write_text('@echo off\r\ncd /d "%s"\r\n"%s" "%s" %s >> "%s" 2>&1\r\n'
-                   % (entry["workspace"], entry["python"], entry["script"],
-                      " ".join(entry["args"]), LOG_DIR / "autostart.out"),
-                   encoding="mbcs", errors="replace", newline="")
-    for name, schedule in ((AUTOSTART_STARTUP_NAME, "ONSTART"),
-                           (AUTOSTART_LOGON_NAME, "ONLOGON")):
-        r = subprocess.run(["schtasks", "/Create", "/F", "/SC", schedule,
-                            "/RL", "LIMITED", "/IT", "/TN", name,
-                            "/TR", '\\"%s\\"' % bat],
-                           stdin=subprocess.DEVNULL, timeout=30,
-                           capture_output=True, creationflags=creation_flags())
-        if r.returncode != 0:
-            raise RuntimeError("schtasks /Create 失败(%d): %s"
-                               % (r.returncode, (r.stderr or r.stdout or b"")
-                                  .decode("utf-8", errors="replace").strip()[:300]))
-
-
-def _win_installed():
-    return any(_win_task_exists(name) for name in
-               (AUTOSTART_NAME, AUTOSTART_STARTUP_NAME, AUTOSTART_LOGON_NAME))
-
-
-def _win_remove():
-    r = _run_powershell("$ErrorActionPreference='SilentlyContinue';"
-                        "Unregister-ScheduledTask -TaskName %s -Confirm:$false;"
-                        "Unregister-ScheduledTask -TaskName %s -Confirm:$false;"
-                        "Unregister-ScheduledTask -TaskName %s -Confirm:$false"
-                        % (_ps_quote(AUTOSTART_NAME), _ps_quote(AUTOSTART_STARTUP_NAME),
-                           _ps_quote(AUTOSTART_LOGON_NAME)))
-    for name in (AUTOSTART_NAME, AUTOSTART_STARTUP_NAME, AUTOSTART_LOGON_NAME):
-        if _win_task_exists(name):
-            subprocess.run(["schtasks", "/Delete", "/F", "/TN", name],
-                           capture_output=True, creationflags=creation_flags())
-    (LOG_DIR / "autostart-listener.bat").unlink(missing_ok=True)
-    if _win_installed():
-        raise RuntimeError("计划任务删除失败: %s" % _ps_err(r))
-
-
-# ---- macOS：LaunchAgent
-
-def _mac_plist_path():
-    return Path.home() / "Library" / "LaunchAgents" / (AUTOSTART_LABEL + ".plist")
-
-
-def _mac_plist_xml(entry):
-    from xml.sax.saxutils import escape
-    items = "\n".join("        <string>%s</string>" % escape(a)
-                      for a in [entry["python"], entry["script"]] + entry["args"])
-    out = escape(str(LOG_DIR / "launchd.out"))
-    return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
-            "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-            "<plist version=\"1.0\">\n<dict>\n"
-            "    <key>Label</key>\n    <string>%s</string>\n"
-            "    <key>ProgramArguments</key>\n    <array>\n%s\n    </array>\n"
-            "    <key>WorkingDirectory</key>\n    <string>%s</string>\n"
-            "    <key>RunAtLoad</key>\n    <true/>\n"
-            "    <key>KeepAlive</key>\n    <false/>\n"
-            "    <key>StandardOutPath</key>\n    <string>%s</string>\n"
-            "    <key>StandardErrorPath</key>\n    <string>%s</string>\n"
-            "</dict>\n</plist>\n"
-            ) % (escape(AUTOSTART_LABEL), items,
-                 escape(entry["workspace"]), out, out)
-
-
-def _mac_install(entry):
-    plist = _mac_plist_path()
-    plist.parent.mkdir(parents=True, exist_ok=True)
-    plist.write_text(_mac_plist_xml(entry), encoding="utf-8")
-    uid = os.getuid()
-    subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (uid, AUTOSTART_LABEL)],
-                   capture_output=True)                    # 未加载时失败属正常
-    r = subprocess.run(["launchctl", "bootstrap", "gui/%d" % uid, str(plist)],
-                       capture_output=True)
-    if r.returncode != 0:                                  # 旧版 macOS 无 bootstrap
-        r2 = subprocess.run(["launchctl", "load", "-w", str(plist)],
-                            capture_output=True)
-        if r2.returncode != 0:
-            raise RuntimeError("launchctl 加载失败: %s"
-                               % (r2.stderr or b"").decode("utf-8", errors="replace")[:300])
-
-
-def _mac_remove():
-    uid = os.getuid()
-    subprocess.run(["launchctl", "bootout", "gui/%d/%s" % (uid, AUTOSTART_LABEL)],
-                   capture_output=True)
-    subprocess.run(["launchctl", "remove", AUTOSTART_LABEL], capture_output=True)
-    _mac_plist_path().unlink(missing_ok=True)
-
-
-# ---- Linux：systemd 用户服务优先，无 systemd 回退 cron @reboot
-
-def _linux_unit_path():
-    return Path.home() / ".config" / "systemd" / "user" / (AUTOSTART_NAME + ".service")
-
-
-def _linux_unit_content(entry):
-    """systemd 用户服务单元内容（纯函数，便于测试）。"""
-    return ("[Unit]\n"
-            "Description=zentao-bugfix DingTalk listener\n\n"
-            "[Service]\n"
-            "Type=simple\n"
-            "WorkingDirectory=%s\n"
-            "ExecStart=%s start --foreground\n"
-            "Restart=on-failure\n"
-            "RestartSec=15\n\n"
-            "[Install]\n"
-            "WantedBy=default.target\n"
-            ) % (entry["workspace"],
-                 " ".join(shlex.quote(x) for x in (entry["python"], entry["script"])))
-
-
-def _linux_systemd_available():
-    try:
-        r = subprocess.run(["systemctl", "--user", "show-environment"],
-                           capture_output=True, timeout=10)
-        return r.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-
-
-def _linux_mechanism():
-    """Linux 自启机制选择：AUTOSTART_MECHANISM=cron 可强制回退；默认自动探测。"""
-    pref = os.environ.get("AUTOSTART_MECHANISM", "").strip().lower()
-    if pref == "cron":
-        return "cron"
-    return "systemd" if _linux_systemd_available() else "cron"
-
-
-def _linux_install_systemd(entry):
-    unit = _linux_unit_path()
-    unit.parent.mkdir(parents=True, exist_ok=True)
-    unit.write_text(_linux_unit_content(entry), encoding="utf-8")
-    r = subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-    if r.returncode != 0:
-        raise RuntimeError("systemctl --user daemon-reload 失败: %s"
-                           % (r.stderr or b"").decode("utf-8", errors="replace")[:300])
-    # 已在运行则只 enable（下次登录生效），避免 --now 撞上 pid 防重
-    cmd = ["systemctl", "--user", "enable"] \
-        + ([] if _listener_running() else ["--now"]) + [AUTOSTART_NAME + ".service"]
-    r = subprocess.run(cmd, capture_output=True)
-    if r.returncode != 0:
-        raise RuntimeError("systemctl --user enable 失败: %s"
-                           % (r.stderr or b"").decode("utf-8", errors="replace")[:300])
-    subprocess.run(["loginctl", "enable-linger", str(os.getuid())],
-                   capture_output=True)      # 尽力而为：免登录也随开机自启，失败不阻断
-    return "linux-systemd-user（%s）" % unit
-
-
-def _cron_lines():
-    r = subprocess.run(["crontab", "-l"], capture_output=True)
-    if r.returncode != 0:
-        return []
-    return r.stdout.decode("utf-8", errors="replace").splitlines()
-
-
-def _cron_strip_managed(lines):
-    """去掉本脚本的托管块（BEGIN..END 成对标记），保留用户既有条目。"""
-    out, inside = [], False
-    for ln in lines:
-        if ln.strip() == CRON_BEGIN:
-            inside = True
-            continue
-        if ln.strip() == CRON_END:
-            inside = False
-            continue
-        if not inside:
-            out.append(ln)
-    while out and not out[-1].strip():
-        out.pop()
-    return out
-
-
-def _linux_cron_entry(entry):
-    return "@reboot cd %s && %s start --foreground >> %s 2>&1" % (
-        shlex.quote(entry["workspace"]),
-        " ".join(shlex.quote(x) for x in (entry["python"], entry["script"])),
-        shlex.quote(str(LOG_DIR / "cron.out")))
-
-
-def _linux_install_cron(entry):
-    lines = _cron_strip_managed(_cron_lines())
-    lines += ["", CRON_BEGIN, _linux_cron_entry(entry), CRON_END]
-    r = subprocess.run(["crontab", "-"],
-                       input=("\n".join(lines) + "\n").encode("utf-8"),
-                       capture_output=True)
-    if r.returncode != 0:
-        raise RuntimeError("crontab 写入失败: %s"
-                           % (r.stderr or b"").decode("utf-8", errors="replace")[:300])
-    return "linux-cron @reboot（crontab -l 可查看）"
-
-
-def _linux_remove():
-    removed = []
-    if _linux_unit_path().is_file():
-        subprocess.run(["systemctl", "--user", "disable", "--now",
-                        AUTOSTART_NAME + ".service"], capture_output=True)
-        _linux_unit_path().unlink(missing_ok=True)
-        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-        removed.append("systemd")
-    old = _cron_lines()
-    new = _cron_strip_managed(old)
-    if new != old:
-        subprocess.run(["crontab", "-"],
-                       input=("\n".join(new) + "\n").encode("utf-8"),
-                       capture_output=True)
-        removed.append("cron")
-    return removed
-
-
-# ---- 跨平台统一入口
-
-def autostart_status():
-    """查询系统级开机自启状态（纯查询，无副作用）。"""
-    if sys.platform.startswith("win"):
-        installed, mech = _win_installed(), "windows-task-scheduler（开机和登录双触发）"
-    elif sys.platform == "darwin":
-        installed, mech = _mac_plist_path().is_file(), "macos-launchagent（RunAtLoad）"
-    else:
-        if _linux_unit_path().is_file():
-            installed, mech = True, "linux-systemd-user（default.target）"
-        else:
-            installed = any(l.strip() == CRON_BEGIN for l in _cron_lines())
-            mech = "linux-cron（@reboot）"
-    return {"platform": sys.platform, "mechanism": mech, "installed": installed,
-            "name": AUTOSTART_NAME, "entry": _autostart_entry(),
-            "config_ok": not missing_keys(load_config())}
-
-
-def autostart_install():
-    """创建系统级开机自启（幂等：重复执行覆盖为最新入口/工作空间）。"""
-    entry = _autostart_entry()
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    if sys.platform.startswith("win"):
-        try:
-            _win_install(entry)
-            mech = "windows-task-scheduler（开机和登录双触发，任务计划程序）"
-        except Exception as e1:
-            try:
-                _win_install_schtasks(entry)
-                mech = "windows-task-scheduler/schtasks+bat（开机和登录双触发）"
-            except Exception as e2:
-                raise RuntimeError("注册计划任务失败: %s | 兜底也失败: %s" % (e1, e2))
-    elif sys.platform == "darwin":
-        _mac_install(entry)
-        mech = "macos-launchagent（%s）" % _mac_plist_path()
-    else:
-        mech = _linux_install_systemd(entry) if _linux_mechanism() == "systemd" \
-            else _linux_install_cron(entry)
-    log("开机自启已创建: %s（autostart remove 可移除）" % mech)
-    return {"installed": True, "mechanism": mech, "name": AUTOSTART_NAME,
-            "entry": entry}
-
-
-def autostart_remove():
-    """移除系统级开机自启（不影响当前正在运行的监听进程；stop 才停进程）。"""
-    if sys.platform.startswith("win"):
-        _win_remove()
-        mech = "windows-task-scheduler"
-    elif sys.platform == "darwin":
-        _mac_remove()
-        mech = "macos-launchagent"
-    else:
-        removed = _linux_remove()
-        mech = "+".join(removed) if removed else "无（本就未安装）"
-    log("开机自启已移除(%s)" % mech)
-    return {"installed": False, "removed": mech, "name": AUTOSTART_NAME}
-
-
-def _ensure_autostart(args, cfg):
-    """首次成功启动监听后创建系统级开机自启（--no-autostart / LISTEN_AUTOSTART=off 跳过）。"""
-    if getattr(args, "no_autostart", False):
-        write_log("start.log", "[start] 开机自启: --no-autostart，跳过")
-        return
-    if (cfg.get("LISTEN_AUTOSTART") or "on").strip().lower() in ("off", "0", "no", "false"):
-        write_log("start.log", "[start] 开机自启: LISTEN_AUTOSTART=off，跳过")
-        return
-    try:
-        info = autostart_install()
-        write_log("start.log", "[start] 开机自启已创建: %s"
-                  % json.dumps(info, ensure_ascii=False))
-    except Exception as e:
-        log("开机自启创建失败(不影响监听运行): %s" % e)
-
-
-def _stop_autostart_hint():
-    try:
-        st = autostart_status()
-        if st.get("installed"):
-            log("提示: 开机自启仍保留(%s)，开机/登录后会自动拉起；"
-                "彻底关闭请执行 autostart remove" % st.get("mechanism"))
-    except Exception:
-        pass
-
-
-# ---------------------------------------------------------------- 子命令
-
-def cmd_start(args):
-    """启动监听。全阶段写入 .agents/logs/start.log：会话关闭后失败原因仍可排查。"""
-    write_log("start.log", "[start] 开始 (cwd=%s, pid=%d, foreground=%s)"
-              % (BASE_DIR, os.getpid(), bool(getattr(args, "foreground", False))))
-    try:
-        _cmd_start_impl(args)
-    except SystemExit as e:
-        write_log("start.log", "[start] 失败退出: %s" % (e.code if e.code is not None else 0))
-        raise
-    except Exception:
-        import traceback
-        write_log("start.log", "[start] 异常:\n%s" % traceback.format_exc())
-        raise
-
-
-def _cmd_start_impl(args):
-    cfg = load_config()
-    missing = missing_keys(cfg)
-    write_log("start.log", "[start] 配置: %s"
-              % ("缺失 %s" % missing if missing else "OK（config=%s）" % CONFIG_FILE))
-    if PID_FILE.is_file():
-        pid = int(PID_FILE.read_text().strip() or 0)
-        if pid and _pid_alive(pid):
-            write_log("start.log", "[start] 已在运行 (pid=%d)，拒绝重复启动" % pid)
-            raise SystemExit("监听已在运行 (pid=%d)，可用 stop 子命令停止" % pid)
-        PID_FILE.unlink(missing_ok=True)
-    if missing:
-        raise SystemExit("配置缺失: %s；请逐项向用户索取后 save-config 写入再重试"
-                         % ", ".join(missing))
-    adapter = build_adapter(cfg, args)
-    write_log("start.log", "[start] Agent 解析: %s/%s" % (adapter.name, adapter.model))
-    repo = resolve_repo(cfg)
-    write_log("start.log", "[start] 目标仓库: %s" % repo)
-    targets = resolve_targets(cfg.get("DWS_LISTEN_USERS", ""),
-                              cfg.get("DWS_LISTEN_BOTS", ""))
-    write_log("start.log", "[start] 监听目标(%d): %s"
-              % (len(targets), ", ".join("%s(%s)" % (n, t) for n, _, t in targets)))
-    if not args.foreground:
-        _daemon_spawn(args, adapter)
-        _ensure_autostart(args, cfg)     # 首次成功启动即创建系统级开机自启
-        return
-    write_log("start.log", "[start] 进入前台监听主循环")
-    Listener(targets, adapter, repo, cfg.get("BUGFIX_BASE_BRANCH"),
-             cfg.get("LISTEN_MODE", "auto"),
-             cfg.get("POLL_INTERVAL_SECONDS"),
-             cfg.get("POLL_LOOKBACK_MINUTES"),
-             cfg.get("POLL_MAX_CATCHUP_MINUTES")).run()
-
-
-def cmd_status(_args):
-    result = {"running": False}
-    if PID_FILE.is_file():
-        pid = int(PID_FILE.read_text().strip() or 0)
-        result["pid"] = pid
-        result["running"] = bool(pid and _pid_alive(pid))
-    if STATE_FILE.is_file():
-        try:
-            result.update(json.loads(STATE_FILE.read_text(encoding="utf-8")))
-        except json.JSONDecodeError:
-            pass
-    try:
-        result["autostart"] = autostart_status()
-    except Exception as e:
-        result["autostart"] = {"error": str(e)}
-    print(json.dumps(result, ensure_ascii=False, indent=1))
-
-
-def cmd_stop(_args):
-    if not PID_FILE.is_file():
-        raise SystemExit("未发现运行中的监听（pid 文件不存在）")
-    pid = int(PID_FILE.read_text().strip() or 0)
-    STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STOP_FILE.write_text("stop\n")            # 守护进程轮询到即优雅退出
-    for _ in range(12):
-        time.sleep(2.5)
-        if not _pid_alive(pid):
-            log("监听已停止 (pid=%d)" % pid)
-            _stop_autostart_hint()
-            return
-    log("优雅停止超时，强制结束 pid=%d" % pid)
-    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"]
-                   if os.name == "nt" else ["kill", "-9", str(pid)],
-                   creationflags=creation_flags())
-    _stop_autostart_hint()
-
-
 def cmd_config_status(_args):
     cfg = load_config()
-    optional = ["DWS_LISTEN_BOTS", "BUGFIX_BASE_BRANCH", "TARGET_PROJECT_PATH",
+    optional = ["BUGFIX_BASE_BRANCH", "TARGET_PROJECT_PATH",
                 "FRONTEND_WORKSPACES",
-                "AGENT_TYPE", "AGENT_MODEL", "AGENT_CUSTOM_CMD", "LISTEN_MODE",
-                "POLL_INTERVAL_SECONDS", "POLL_LOOKBACK_MINUTES",
-                "POLL_MAX_CATCHUP_MINUTES", "LISTEN_AUTOSTART"]
+                "AGENT_TYPE", "AGENT_MODEL", "AGENT_CUSTOM_CMD"]
     print(json.dumps({
         "config_file": str(CONFIG_FILE),
         "missing_required": missing_keys(cfg),
@@ -1897,15 +831,101 @@ def cmd_save_config(args):
                       "still_missing": missing_keys(cfg)}, ensure_ascii=False))
 
 
-def cmd_autostart(args):
-    """管理系统级开机自启：install 创建 / remove 移除 / status 查询（默认）。"""
-    if args.action == "install":
-        info = autostart_install()
-    elif args.action == "remove":
-        info = autostart_remove()
-    else:
-        info = autostart_status()
-    print(json.dumps(info, ensure_ascii=False, indent=1))
+def _message_text(args):
+    text = " ".join(args.text)
+    if text.strip() == "-":                       # 从 stdin 读（避开 argv 编码/长度限制）
+        raw = sys.stdin.buffer.read()
+        for enc in ("utf-8", "gbk"):
+            try:
+                text = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            text = raw.decode("utf-8", errors="replace")
+    return text
+
+
+def cmd_fix_from_message(args):
+    """单次入口（AgentR 工作流钉钉监听触发器调用）：提取消息中的 Bug 意图并自动修复。
+
+    运行一次 → 处理一条消息 → 退出；无常驻进程、无系统级定时。
+    """
+    cfg = load_config()
+    missing = missing_keys(cfg)
+    if missing:
+        raise SystemExit("配置缺失: %s；请逐项向用户索取后 save-config 写入再重试" % ", ".join(missing))
+    adapter = build_adapter(cfg, args)
+    repo = resolve_repo(cfg)
+    text = _message_text(args)
+    intent = extract_bug_intent(adapter, "workflow", text)
+    if not intent.get("is_bugfix") or not intent.get("bug_id"):
+        print(json.dumps({"triggered": False, "reason": intent.get("reason", "")},
+                         ensure_ascii=False, indent=1))
+        return 0
+    notifier = ResultNotifier()
+    notifier.bind_current_user()
+    result = run_auto_fix(adapter, intent["bug_id"], repo, cfg.get("BUGFIX_BASE_BRANCH"))
+    result["notification"] = notifier.publish(
+        result, "message:" + str(intent["bug_id"]) + ":" + str(time.time_ns()))
+    print(json.dumps(dict(result, triggered=True), ensure_ascii=False, indent=1))
+    return 0 if result.get("ok") else 1
+
+
+def _list_open_bug_ids(cfg, limit=100):
+    """禅道 v1 API 拉取活跃 Bug（id/title/resolution）；接口不可用抛异常由调用方报告。"""
+    base_url = cfg.get("ZENTAO_BASE_URL", "").rstrip("/")
+    token = _bug_api.zentao_token(base_url, cfg.get("ZENTAO_ACCOUNT", ""),
+                                  cfg.get("ZENTAO_PASSWORD", ""))
+    data = _bug_api.http_json(_bug_api.build_opener(),
+                              "%s/api.php/v1/bugs?status=active&limit=%d" % (base_url, limit),
+                              headers={"Token": token})
+    bugs = data.get("bugs") if isinstance(data, dict) else data
+    if not isinstance(bugs, list):
+        raise RuntimeError("禅道 Bug 列表响应结构未知，未开始修复")
+    out = []
+    for bug in bugs:
+        if not isinstance(bug, dict):
+            continue
+        bug_id = str(bug.get("id") or "").strip()
+        if bug_id:
+            out.append({"id": bug_id, "title": str(bug.get("title") or ""),
+                        "resolution": bug.get("resolution")})
+    return out
+
+
+def cmd_poll_once(args):
+    """单次轮询入口（AgentR 工作流定时触发调用）：查禅道活跃 Bug，逐个自动修复。
+
+    运行一次 → 查询当期待处理 Bug → 串行修复 → 退出；无常驻进程、无系统级定时。
+    仅处理 resolution 为空的 Bug；已有解决方案的跳过（与监听器口径一致）。
+    """
+    cfg = load_config()
+    missing = missing_keys(cfg)
+    if missing:
+        raise SystemExit("配置缺失: %s；请逐项向用户索取后 save-config 写入再重试" % ", ".join(missing))
+    adapter = build_adapter(cfg, args)
+    repo = resolve_repo(cfg)
+    notifier = ResultNotifier()
+    notifier.bind_current_user()
+    bugs = _list_open_bug_ids(cfg, limit=max(1, args.limit))
+    pending = [b for b in bugs if b.get("resolution") in (None, "", "0")]
+    summary = {"checked": len(bugs), "pending": len(pending),
+               "triggered": [], "skipped": [], "failed": []}
+    for bug in pending:
+        result = run_auto_fix(adapter, bug["id"], repo, cfg.get("BUGFIX_BASE_BRANCH"))
+        result["notification"] = notifier.publish(
+            result, "poll:" + str(bug["id"]) + ":" + str(time.time_ns()))
+        entry = {"id": bug["id"], "title": bug["title"], "status": result.get("status"),
+                 "ok": bool(result.get("ok"))}
+        if result.get("ok"):
+            summary["triggered"].append(entry)
+        elif result.get("status") == "skipped_resolved":
+            summary["skipped"].append(entry)
+        else:
+            summary["failed"].append(dict(entry, error=str(result.get("error") or "")[:300]))
+    print(json.dumps(summary, ensure_ascii=False, indent=1))
+    return 1 if summary["failed"] else 0
 
 
 def cmd_retry(args):
@@ -1943,32 +963,26 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    ap = argparse.ArgumentParser(description="zentao-bugfix 钉钉消息监听器")
+    ap = argparse.ArgumentParser(description="zentao-bugfix 钉钉触发与轮询修复单次执行入口")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, fn in (("start", cmd_start), ("status", cmd_status),
-                     ("stop", cmd_stop), ("autostart", cmd_autostart),
+    for name, fn in (("poll-once", cmd_poll_once),
+                     ("fix-from-message", cmd_fix_from_message),
                      ("config-status", cmd_config_status),
                      ("save-config", cmd_save_config),
                      ("test-extract", cmd_test_extract), ("retry", cmd_retry)):
         sp = sub.add_parser(name)
         sp.set_defaults(func=fn)
-        if name in ("start", "test-extract", "retry"):
+        if name in ("fix-from-message", "test-extract", "retry"):
             sp.add_argument("--agent", default="", help="pi/codex/claude/custom")
             sp.add_argument("--model", default="", help="模型（provider/model 或模型名）")
         if name == "retry":
             sp.add_argument("bug_id", help="重新触发/恢复失败 Bug（不受消息去重影响）")
-        if name == "start":
-            sp.add_argument("--foreground", action="store_true", help="前台运行（默认后台守护）")
-            sp.add_argument("--no-autostart", action="store_true",
-                            help="本次启动不创建系统级开机自启")
-        if name == "autostart":
-            sp.add_argument("action", nargs="?", default="status",
-                            choices=["install", "remove", "status"],
-                            help="install=创建 remove=移除 status=查询（默认）")
+        if name == "poll-once":
+            sp.add_argument("--limit", type=int, default=100, help="本轮最多检查的活跃 Bug 数（默认 100）")
+        if name in ("fix-from-message", "test-extract"):
+            sp.add_argument("text", nargs="+", help="消息文本；传 - 从 stdin 读")
         if name == "save-config":
             sp.add_argument("pairs", nargs="+", help="KEY=VALUE ...")
-        if name == "test-extract":
-            sp.add_argument("text", nargs="+", help="要测试的消息文本")
     args = ap.parse_args()
     signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
     try:

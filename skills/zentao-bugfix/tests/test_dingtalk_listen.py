@@ -91,31 +91,6 @@ class TestPiSessionDetect(unittest.TestCase):
             self.assertIsNone(dl.detect_pi_session_model(root, r"D:\\repo\\none"))
 
 
-class TestDedup(unittest.TestCase):
-    def test_seen_add_persist(self):
-        with tempfile.TemporaryDirectory() as td:
-            p = Path(td) / "processed.json"
-            s1 = dl.DedupStore(p)
-            self.assertFalse(s1.seen("m1"))
-            s1.add("m1")
-            self.assertTrue(s1.seen("m1"))
-            s2 = dl.DedupStore(p)                      # 重新加载持久化
-            self.assertTrue(s2.seen("m1"))
-
-
-    def test_default_path_instantiation(self):
-        """不传 path 时应回退到模块常量（曾经的真实 bug：默认参数 None 崩溃）。"""
-        with tempfile.TemporaryDirectory() as td:
-            old = dl.PROCESSED_FILE
-            try:
-                dl.PROCESSED_FILE = Path(td) / "processed.json"
-                s = dl.DedupStore()               # 不传参，不应抛异常
-                s.add("m9")
-                self.assertTrue(dl.DedupStore().seen("m9"))
-            finally:
-                dl.PROCESSED_FILE = old
-
-
 class TestAdapters(unittest.TestCase):
     def setUp(self):
         self._orig = dl.resolve_exe
@@ -351,6 +326,11 @@ class TestMissingAndMask(unittest.TestCase):
                                          ["ZENTAO_BASE_URL", "DWS_LISTEN_USERS"]),
                          ["DWS_LISTEN_USERS"])
 
+    def test_listener_name_list_no_longer_required(self):
+        """监听名单校验已随监听器移除：missing_keys 只看禅道必需键。"""
+        self.assertEqual(dl.missing_keys({"ZENTAO_BASE_URL": "http://x", "ZENTAO_ACCOUNT": "a",
+                                          "ZENTAO_PASSWORD": "p"}), [])
+
     def test_bots_only_allowed(self):
         """只监听机器人时 DWS_LISTEN_USERS 可留空（真实部署场景）。"""
         cfg = {"ZENTAO_BASE_URL": "u", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "p",
@@ -358,8 +338,9 @@ class TestMissingAndMask(unittest.TestCase):
         self.assertEqual(dl.missing_keys(cfg), [])
 
     def test_no_targets_at_all(self):
+        """监听名单校验已随监听器移除：禅道必需键齐全即视为完整。"""
         cfg = {"ZENTAO_BASE_URL": "u", "ZENTAO_ACCOUNT": "a", "ZENTAO_PASSWORD": "p"}
-        self.assertIn("DWS_LISTEN_USERS", dl.missing_keys(cfg))
+        self.assertEqual(dl.missing_keys(cfg), [])
 
     def test_mask(self):
         self.assertEqual(dl.mask("secret123"), "sec***")
@@ -584,22 +565,6 @@ class TestRoutedRuns(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["cwd"], str(workspace))
             self.assertEqual(fix.call_args.args[1], str(workspace))
 
-    def test_waiting_jobs_preserve_order_resume_and_persist(self):
-        from unittest.mock import patch
-        with tempfile.TemporaryDirectory() as td:
-            li = dl.Listener([], dl.PiAdapter("m"), Path(td))
-            path = Path(td) / "pending.json"
-            pending = ["101", "102", "103"]
-            with patch.object(li.notifier, "publish", return_value={"sent": True}), patch.object(dl, "run_auto_fix", side_effect=[
-                {"ok": True, "status": "committed"},
-                {"ok": False, "status": "waiting"},
-                {"ok": False, "status": "waiting"}]) as fix:
-                li._retry_waiting(pending, path)
-            self.assertEqual(pending, ["102", "103"])
-            self.assertEqual(dl._routes.read(path), ["102", "103"])
-            self.assertEqual([call.args[1] for call in fix.call_args_list], ["101", "102", "103"])
-            self.assertTrue(all(call.kwargs["reuse"] for call in fix.call_args_list))
-
     def test_workspace_error_never_starts_agent(self):
         from unittest.mock import patch
         import subprocess
@@ -816,75 +781,6 @@ class TestResultNotifications(unittest.TestCase):
                 self.assertFalse(n.publish({"bug_id": "1", "ok": False}, "message:m")["sent"])
             self.assertEqual(n.pending_count(), 1)
 
-    def test_stream_poll_worker_same_gate_and_one_result(self):
-        from unittest.mock import patch
-        for mode in ("stream", "poll", "auto"):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as td:
-                li = dl.Listener([], dl.PiAdapter("m"), Path(td), mode=mode)
-                li.queue.put(("bot", {"message_id": "m", "content": "1", "source": "stream"}))
-                li.queue.put(("bot", dl.normalize_poll_message({"messageId": "m", "text": "1"})))
-                li.queue.put(("bot", {"message_id": "notice", "content": dl.NOTICE_PREFIX + " Bug #1"}))
-                li.stop_flag.set()
-                with patch.object(dl, "extract_bug_intent", return_value={"is_bugfix": True, "bug_id": "1"}) as extract, patch.object(dl, "fetch_resolution", return_value={"resolution": "set"}) as query, patch.object(dl, "_run_auto_fix") as fix, patch.object(li.notifier, "publish", return_value={"sent": True}) as notice:
-                    li._worker()
-                self.assertEqual(extract.call_count, 1)
-                self.assertEqual(query.call_count, 1)
-                self.assertEqual(notice.call_count, 1)
-                self.assertEqual(li.stats["skipped"], 1)
-                self.assertEqual(li.stats["fix_fail"], 0)
-                self.assertTrue(li.stats["last_fix"]["notification"]["sent"])
-                fix.assert_not_called()
-
-    def test_worker_success_and_failure_always_publish(self):
-        from unittest.mock import patch
-        for outcome in ({"ok": True, "status": "committed"}, {"ok": False, "status": "blocked"}):
-            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as td:
-                li = dl.Listener([], dl.PiAdapter("m"), Path(td))
-                li.queue.put(("bot", {"message_id": "m", "content": "1"}))
-                li.stop_flag.set()
-                with patch.object(dl, "extract_bug_intent", return_value={"is_bugfix": True, "bug_id": "1"}), patch.object(dl, "run_auto_fix", return_value=outcome), patch.object(li.notifier, "publish", return_value={"sent": False}) as notice:
-                    li._worker()
-                self.assertEqual(notice.call_count, 1)
-                self.assertEqual(li.stats["fix_ok"], int(outcome["ok"]))
-                self.assertEqual(li.stats["fix_fail"], int(not outcome["ok"]))
-                self.assertEqual(li.stats["last_fix"]["ok"], outcome["ok"])
-
-    def test_extraction_failure_notifies_without_raw_message(self):
-        from unittest.mock import patch
-        with tempfile.TemporaryDirectory() as td:
-            li = dl.Listener([], dl.PiAdapter("m"), Path(td))
-            li.queue.put(("bot", {"message_id": "m", "content": "SECRET"}))
-            li.stop_flag.set()
-            with patch.object(dl, "extract_bug_intent", side_effect=RuntimeError("extract failed")), patch.object(li.notifier, "publish", return_value={"sent": True}) as notice:
-                li._worker()
-            self.assertEqual(notice.call_args.args[0]["status"], "intent_failed")
-            self.assertNotIn("SECRET", str(notice.call_args))
-
-    def test_waiting_resume_notifies_completion(self):
-        from unittest.mock import patch
-        with tempfile.TemporaryDirectory() as td:
-            li = dl.Listener([], dl.PiAdapter("m"), Path(td))
-            pending = ["1"]
-            with patch.object(dl, "run_auto_fix", return_value={"ok": True, "status": "committed"}), patch.object(li.notifier, "publish", return_value={"sent": True}) as notice:
-                li._retry_waiting(pending, Path(td) / "pending.json")
-            self.assertEqual(pending, [])
-            self.assertEqual(notice.call_args.args[0]["bug_id"], "1")
-            self.assertEqual(li.stats["fix_ok"], 1)
-
-    def test_atomic_claim_across_threads(self):
-        import threading
-        with tempfile.TemporaryDirectory() as td:
-            store = dl.DedupStore(Path(td) / "ids.json")
-            results = []
-            threads = [threading.Thread(target=lambda: results.append(store.claim("m"))) for _ in range(20)]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join()
-            self.assertEqual(results.count(True), 1)
-            self.assertFalse(dl.DedupStore(store.path).claim("m"))
-
-
 class TestCreationFlags(unittest.TestCase):
     def test_no_window_flag(self):
         """Windows 下必须返回 CREATE_NO_WINDOW(不弹黑窗)，其他平台为 0。"""
@@ -892,229 +788,81 @@ class TestCreationFlags(unittest.TestCase):
         self.assertIsInstance(dl.creation_flags(), int)
 
 
-class TestPollFallback(unittest.TestCase):
-    def test_normalize(self):
-        m = {"sender": "李四", "senderId": "oid-1", "text": "修 bug 12345",
-             "messageId": "m1", "conversationId": "c1", "createTime": "2026-09-19 21:00:00"}
-        ev = dl.normalize_poll_message(m)
-        self.assertEqual(ev["content"], "修 bug 12345")      # 事件同构字段
-        self.assertEqual(ev["sender_open_dingtalk_id"], "oid-1")
-        self.assertEqual(ev["source"], "poll")
+class TestSingleShotEntries(unittest.TestCase):
+    """单次执行入口：poll-once / fix-from-message（触发外移 AgentR 工作流后的替代能力）。"""
 
-    def test_norm_ts_formats(self):
-        """时间归一化：空格/ISO/毫秒/时区/epoch 均可比较；垃圾输入返回空。"""
-        self.assertEqual(dl._norm_ts("2026-09-19 21:00:00"), "20260919210000000000")
-        self.assertEqual(dl._norm_ts("2026-09-19T21:00:00.5Z"), "20260919210000500000")
-        self.assertEqual(dl._norm_ts("2026-09-19T21:00:00.123+08:00"), "20260919210000123000")
-        self.assertEqual(dl._norm_ts(""), "")
-        self.assertEqual(dl._norm_ts(None), "")
-        self.assertEqual(dl._norm_ts("不是时间"), "")
-        self.assertEqual(dl._norm_ts("1760000000123"),
-                         dl._epoch_to_norm(1760000000))          # epoch 毫秒
+    class Args:
+        def __init__(self, limit=50, text=("",), agent="", model=""):
+            self.limit, self.text, self.agent, self.model = limit, text, agent, model
 
-    def test_pick_new_by_cutoff_window(self):
-        """窗口重扫语义：≥cutoff 的都返回（去重由 DedupStore 负责），正序排列。"""
-        msgs = [{"createTime": "2026-09-19 20:47:16", "messageId": "a"},
-                {"createTime": "2026-09-19T21:05:00.250+08:00", "messageId": "b"},
-                {"createTime": "2026-09-19 21:10:00", "messageId": "c"},
-                {"createTime": "", "messageId": "d"}]
-        cutoff = dl._epoch_to_norm(dl._norm_to_epoch("20260919210000000000"))
-        fresh = dl.pick_new_poll_messages(msgs, cutoff)
-        self.assertEqual([m["messageId"] for m in fresh], ["b", "c"])   # ≥cutoff+正序，格式混用也可比
+    @staticmethod
+    def _config():
+        return {"ZENTAO_BASE_URL": "http://x", "ZENTAO_ACCOUNT": "a",
+                "ZENTAO_PASSWORD": "p", "BUGFIX_BASE_BRANCH": ""}
 
-    def test_cutoff_epoch_clamping(self):
-        now = 1760000000
-        # 无水位：窗口 = 过去 lookback
-        self.assertEqual(dl.poll_cutoff_epoch("", now=now, lookback_sec=600, max_catchup_sec=3600),
-                         now - 600)
-        # 水位在 lookback 与 max_catchup 之间：窗口前探到水位（停机补漏）
-        wm = dl._epoch_to_norm(now - 1200)
-        self.assertEqual(dl.poll_cutoff_epoch(wm, now=now, lookback_sec=600, max_catchup_sec=3600),
-                         now - 1200)
-        # 水位过旧：被 max_catchup 托底，防远古消息重放
-        wm_old = dl._epoch_to_norm(now - 86400)
-        self.assertEqual(dl.poll_cutoff_epoch(wm_old, now=now, lookback_sec=600, max_catchup_sec=3600),
-                         now - 3600)
-        # 坏水位容忍：当作无水位
-        self.assertEqual(dl.poll_cutoff_epoch("garbage", now=now, lookback_sec=600,
-                                              max_catchup_sec=3600), now - 600)
+    class FakeNotifier:
+        def bind_current_user(self):
+            pass
 
-    def test_rfc3339_local_whole_seconds(self):
-        """--start 参数必须是本地时区 RFC3339 整秒（dws 只接受整秒边界）。"""
-        s = dl._fmt_local_rfc3339(1760000000)
-        self.assertRegex(s, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$")
+        def publish(self, result, key):
+            return {"sent": True}
 
-    def test_poll_messages_window_args_and_fallback(self):
-        """带时间窗时用 --start/--order asc；旧版 dws 报错可降级；信封兼容两种形态。"""
+    def setUp(self):
+        self._saved = {name: getattr(dl, name) for name in
+                       ("_list_open_bug_ids", "run_auto_fix", "resolve_repo",
+                        "load_config", "extract_bug_intent", "ResultNotifier", "build_adapter")}
+        dl.resolve_repo = lambda cfg: Path(".")
+        dl.load_config = lambda path=None: self._config()
+        dl.ResultNotifier = self.FakeNotifier
+        dl.build_adapter = lambda cfg, args: object()
+
+    def tearDown(self):
+        for name, value in self._saved.items():
+            setattr(dl, name, value)
+
+    def test_poll_once_filters_resolved_and_reports_failure_exit_code(self):
+        bugs = [{"id": "101", "title": "A", "resolution": None},
+                {"id": "102", "title": "B", "resolution": "fixed"},
+                {"id": "103", "title": "C", "resolution": ""}]
+        dl._list_open_bug_ids = lambda cfg, limit=100: bugs
+        fixes = []
+
+        def fake_fix(adapter, bug_id, repo, base=None, reuse=False):
+            fixes.append(bug_id)
+            return {"bug_id": bug_id, "ok": bug_id == "101",
+                    "status": "done" if bug_id == "101" else "blocked",
+                    "error": None if bug_id == "101" else "boom"}
+        dl.run_auto_fix = fake_fix
+        code = dl.cmd_poll_once(self.Args(limit=50))
+        self.assertEqual(fixes, ["101", "103"])      # resolved 的 102 不进修复
+        self.assertEqual(code, 1)                    # 103 失败 → 退出码 1
+
+    def test_poll_once_all_ok_exit_zero(self):
+        dl._list_open_bug_ids = lambda cfg, limit=100: [{"id": "201", "title": "X", "resolution": ""}]
+        dl.run_auto_fix = lambda adapter, bug_id, repo, base=None, reuse=False: {
+            "bug_id": bug_id, "ok": True, "status": "done"}
+        self.assertEqual(dl.cmd_poll_once(self.Args(limit=10)), 0)
+
+    def test_poll_once_config_missing_exits(self):
+        dl.load_config = lambda path=None: {}
+        with self.assertRaises(SystemExit):
+            dl.cmd_poll_once(self.Args())
+
+    def test_fix_from_message_non_bug_does_not_fix(self):
+        dl.extract_bug_intent = lambda adapter, sender, text: {
+            "is_bugfix": False, "bug_id": None, "reason": "chat"}
+        dl.run_auto_fix = lambda *a, **k: self.fail("非 bug 消息不应触发修复")
+        self.assertEqual(dl.cmd_fix_from_message(self.Args(text=["今天天气不错"])), 0)
+
+    def test_fix_from_message_bug_triggers_fix(self):
+        dl.extract_bug_intent = lambda adapter, sender, text: {
+            "is_bugfix": True, "bug_id": "308", "reason": ""}
         calls = []
-        orig = dl.run_dws
-
-        def fake(args, timeout=60):
-            calls.append(list(args))
-            if "--start" in args:
-                raise RuntimeError("unknown flag: --start")
-            return json.dumps({"result": {"messages": [
-                {"messageId": "m1", "text": "x", "createTime": "2026-09-19 21:00:00"}]}})
-        try:
-            dl.run_dws = fake
-            with self.assertRaises(RuntimeError):
-                dl.poll_messages("oid-1", start_epoch=1760000000)   # 现代路径失败即抛，由调用方降级
-            msgs = dl.poll_messages("oid-1")                        # 降级路径（无时间窗）
-            self.assertEqual(msgs[0]["messageId"], "m1")
-            self.assertIn("--start", calls[0])
-            self.assertIn("asc", calls[0])
-            self.assertNotIn("--start", calls[1])
-        finally:
-            dl.run_dws = orig
-
-    def test_poll_state_merge(self):
-        """多目标水位读-改-写合并不互相关覆盖。"""
-        old = dl.POLL_STATE_FILE
-        try:
-            with tempfile.TemporaryDirectory() as td:
-                dl.POLL_STATE_FILE = Path(td) / "poll-state.json"
-                dl._save_poll_state("甲", "20260919210000000000")
-                dl._save_poll_state("乙", "20260919220000000000")
-                st = dl._load_poll_states()
-                self.assertEqual(st["甲"], "20260919210000000000")
-                self.assertEqual(st["乙"], "20260919220000000000")
-        finally:
-            dl.POLL_STATE_FILE = old
-
-    def test_mode_validation(self):
-        with tempfile.TemporaryDirectory() as td:
-            repo = Path(td) / "r"
-            (repo / ".git").mkdir(parents=True)
-            import importlib
-            with self.assertRaises(SystemExit):
-                dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo, None, "bad-mode")
-
-    def test_poll_params_validation(self):
-        """轮询参数：缺省用默认值，非法值报配置错（退出码 2 路径）。"""
-        with tempfile.TemporaryDirectory() as td:
-            repo = Path(td) / "r"
-            (repo / ".git").mkdir(parents=True)
-            li = dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo)
-            self.assertEqual(li.poll_lookback_min, dl.POLL_LOOKBACK_MIN)
-            self.assertEqual(li.poll_max_catchup_min, dl.POLL_MAX_CATCHUP_MIN)
-            self.assertEqual(li.poll_interval, dl.POLL_INTERVAL)
-            with self.assertRaises(SystemExit):
-                dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo,
-                            None, "auto", None, "abc", None)
-            with self.assertRaises(SystemExit):
-                dl.Listener([("李四", "oid", "user")], dl.PiAdapter("m"), repo,
-                            None, "auto", None, "0", None)
-
-
-class TestAutostart(unittest.TestCase):
-    """开机自启模块：纯函数与开关逻辑（不碰真实系统计划任务/crontab）。"""
-
-    def test_entry_defaults(self):
-        e = dl._autostart_entry()
-        self.assertEqual(e["args"], ["start", "--foreground"])
-        self.assertTrue(e["script"].endswith("dingtalk_listen.py"))
-        self.assertEqual(e["workspace"], str(dl.BASE_DIR))
-        self.assertTrue(Path(e["python"]).name.startswith("python"))
-
-    def test_ps_quote(self):
-        self.assertEqual(dl._ps_quote("C:\\a b.py"), "'C:\\a b.py'")
-        self.assertEqual(dl._ps_quote("it's"), "'it''s'")
-
-    def test_win_ps_command(self):
-        e = {"python": "C:\\py\\pythonw.exe", "script": "C:\\s p\\dingtalk_listen.py",
-             "args": ["start", "--foreground"], "workspace": "C:\\ws dir"}
-        ps = dl._win_ps_command(e)
-        self.assertIn("-AtLogOn -User $u", ps)             # 当前用户登录触发
-        self.assertIn("-AtStartup", ps)                    # 开机触发
-        self.assertIn("-LogonType Interactive", ps)         # 保留用户网络凭据
-        self.assertNotIn("-LogonType S4U", ps)
-        self.assertIn("-Principal $p", ps)
-        self.assertIn("-StartWhenAvailable", ps)
-        self.assertIn("-RestartCount 3", ps)
-        self.assertIn("-RestartInterval (New-TimeSpan -Minutes 1)", ps)
-        self.assertIn("-MultipleInstances IgnoreNew", ps)
-        self.assertIn("-ExecutionTimeLimit ([TimeSpan]::Zero)", ps)  # 无 72h 时限
-        self.assertIn("-WorkingDirectory 'C:\\ws dir'", ps)
-        self.assertIn("-Argument '\"C:\\s p\\dingtalk_listen.py\" start --foreground'", ps)
-        self.assertIn("-TaskName '%s'" % dl.AUTOSTART_NAME, ps)
-        self.assertIn("-Force", ps)                         # 幂等覆盖
-
-    def test_mac_plist_xml(self):
-        e = {"python": "/usr/bin/python3", "script": "/opt/space dir/dl.py",
-             "args": ["start", "--foreground"], "workspace": "/Users/x/ws & ops"}
-        xml = dl._mac_plist_xml(e)
-        self.assertIn("<string>%s</string>" % dl.AUTOSTART_LABEL, xml)
-        self.assertIn("<string>/usr/bin/python3</string>", xml)
-        self.assertIn("<string>/opt/space dir/dl.py</string>", xml)
-        self.assertIn("<string>start</string>", xml)
-        self.assertIn("<key>RunAtLoad</key>\n    <true/>", xml)
-        self.assertIn("<key>KeepAlive</key>\n    <false/>", xml)
-        self.assertIn("<string>/Users/x/ws &amp; ops</string>", xml)  # XML 转义
-
-    def test_linux_unit_content(self):
-        e = {"python": "/usr/bin/python3", "script": "/opt/space dir/dl.py",
-             "args": ["start", "--foreground"], "workspace": "/home/x/ws dir"}
-        u = dl._linux_unit_content(e)
-        self.assertIn("WorkingDirectory=/home/x/ws dir", u)
-        self.assertIn("ExecStart=/usr/bin/python3 '/opt/space dir/dl.py'"
-                      " start --foreground", u)
-        self.assertIn("Restart=on-failure", u)
-        self.assertIn("WantedBy=default.target", u)
-
-    def test_linux_cron_entry(self):
-        e = {"python": "/usr/bin/python3", "script": "/opt/space dir/dl.py",
-             "args": ["start", "--foreground"], "workspace": "/home/x/ws dir"}
-        line = dl._linux_cron_entry(e)
-        self.assertTrue(line.startswith("@reboot cd '/home/x/ws dir' &&"))
-        self.assertIn("'/opt/space dir/dl.py' start --foreground", line)
-        self.assertIn("cron.out", line)
-
-    def test_cron_strip_managed(self):
-        foreign = ["0 9 * * * /usr/bin/backup", "# user comment"]
-        lines = foreign + ["", dl.CRON_BEGIN, "@reboot old-entry", dl.CRON_END, "", "kept"]
-        # 块内条目移除，块外的空行保留（仅收尾空行会被清理）
-        self.assertEqual(dl._cron_strip_managed(lines),
-                         foreign + ["", "", "kept"])
-        self.assertEqual(dl._cron_strip_managed(foreign), foreign)   # 无托管块不动
-        self.assertEqual(dl._cron_strip_managed([]), [])
-        self.assertEqual(dl._cron_strip_managed([dl.CRON_BEGIN, "x", dl.CRON_END]), [])
-        # 块在末尾且后有尾随空行 → 清理尾随空行
-        self.assertEqual(dl._cron_strip_managed(foreign + ["", dl.CRON_BEGIN, "x", dl.CRON_END, "", ""]),
-                         foreign)
-
-    def test_ensure_autostart_switches(self):
-        import argparse
-        args = argparse.Namespace(no_autostart=False)
-        called = []
-        orig = dl.autostart_install
-        dl.autostart_install = lambda: called.append(1) or {"installed": True}
-        try:
-            dl._ensure_autostart(args, {"LISTEN_AUTOSTART": "off"})
-            self.assertEqual(called, [])                    # off → 不创建
-            args.no_autostart = True
-            dl._ensure_autostart(args, {})
-            self.assertEqual(called, [])                    # --no-autostart → 不创建
-            args.no_autostart = False
-            dl._ensure_autostart(args, {})                  # 默认 → 创建
-            self.assertEqual(called, [1])
-            dl._ensure_autostart(args, {"LISTEN_AUTOSTART": "ON"})
-            self.assertEqual(called, [1, 1])                # 大小写不敏感
-        finally:
-            dl.autostart_install = orig
-
-    def test_ensure_autostart_install_failure_not_fatal(self):
-        import argparse
-        args = argparse.Namespace(no_autostart=False)
-
-        def boom():
-            raise RuntimeError("no permission")
-        orig = dl.autostart_install
-        dl.autostart_install = boom
-        try:
-            dl._ensure_autostart(args, {})                  # 创建失败不抛出（不影响监听）
-        finally:
-            dl.autostart_install = orig
+        dl.run_auto_fix = lambda adapter, bug_id, repo, base=None, reuse=False: (
+            calls.append(bug_id) or {"bug_id": bug_id, "ok": True, "status": "done"})
+        self.assertEqual(dl.cmd_fix_from_message(self.Args(text=["修一下 bug 308"])), 0)
+        self.assertEqual(calls, ["308"])
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()
