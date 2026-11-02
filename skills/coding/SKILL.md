@@ -4,7 +4,7 @@ description: WHEN:用户要求在 BPS 类 Java 多模块仓库(Spring Boot + MyB
 compatibility: 无脚本依赖；需 git 与 Maven/JDK17 环境（仓库标准工具链）；面向 BPS 基础平台服务仓库（CODING_STANDARDS.md 为权威规范，.share/skills/ 下 bps-* 系列为专项细则来源）。
 metadata:
   author: AI-Redfish
-  version: "1.6.0"
+  version: "1.7.0"
 ---
 
 # coding — 带约束的 AI 结对编码守门人

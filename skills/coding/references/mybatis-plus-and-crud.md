@@ -106,4 +106,39 @@ git grep -n <newFieldName>    -- '*.java' '*.xml'   # 命中文件数与 5.1 清
 git grep -n <new_column_name> -- '*.xml' '*.sql'   # XML 与双端 Flyway SQL 均覆盖
 ```
 
-复查不一致时回到 5.2 清单找漏项；确认每个未命中文件是"判断为不需要"而非遗漏。
+复查不一致时回到 5.2 清单找漏项；确认每个未命中文件是“判断为不需要”而非遗漏。
+
+## 6. 增量修改细则：翻译 / 关联 / 唯一性 / 编码字段（吸收 bps-incremental-codegen 泛化规则）
+
+> 适用于 BPS 类平台（orange-forms 系框架）仓库；目标仓库内有专项细则 skill（如项目内 bps-incremental-codegen）或 CODING_STANDARDS.md 时，以仓库细则为准，本节为跨仓库通用兑底。
+
+### 6.1 翻译完整性（禁止 raw ID 直出）
+
+- `list/view/export` 结果中，凡 ID / code / 状态值 / 外键 / 字典值 / 枚举值字段且需前端展示，必须补可读展示字段（`xxxName` / `xxxDictMap` / `xxxList`），不能只返回原始值
+- 注解选型：字典 `@RelationDict`；全局字典 `@RelationGlobalDict`；常量字典 `@RelationConstDict`；关联对象 `@RelationOneToOne`/`@RelationOneToMany`，仅业务确需中间集合才 `@RelationManyToMany`
+- 所有翻译/关联展示字段必须 `@TableField(exist = false)`，与持久化字段、派生字段、查询辅助字段分离
+- Entity 与 VO 的展示字段**同步补齐**：VO 走 `MyModelUtil.copyTo/copyCollectionTo` 输出时，字段名、类型、注解必须能直接拷贝，防止翻译信息在 Entity→VO 静默丢失
+- `list` 优先 `getXxxListWithRelation(...)`；`view` 必须 `getByIdWithRelation(..., MyRelationParam.full())`；基类默认方法不加载关系时必须覆盖
+- **导出必须导翻译后的中文含义**，不导 raw ID/code；导出不另写查询逻辑，复用列表的筛选、排序与关系装配
+
+### 6.2 关联数据保存
+
+- 关联新增/更新用仓库既有 `saveNewWithRelation` / `updateWithRelation` 模式：主表先保存/更新，再统一处理关联数据
+- `relationData` 由 Controller 组装，但必须**先转成 Service 层实体**再传入，禁止把 DTO 直接塞给 Service
+- 关联保存/更新逻辑收口 ServiceImpl；不确定的关联关系标 `需要确认`，不脑补
+
+### 6.3 唯一性与编码字段
+
+- 字段唯一性优先在实体字段上用 `@UniqueVerifyField`，复用基类 `verifyUniqueFieldValue` 通用校验链路；不在 Controller/Mapper 手写重复的唯一性判断
+- 新增/更新前必须调 `service.verifyUniqueFieldValue(data, originalData)`：新增传 `null`，更新传库中原始对象
+- 扩展业务唯一性校验时，ServiceImpl 重写 `verifyUniqueFieldValue(data, originalData)` 必须**先调 super 再补业务校验**（参考仓库现有实现）
+- 编码字段保留 `@UniqueVerifyField + @AutoCodeField` 注解链路，在 `buildDefaultValue` 中生成；**更新时必须保留原始编码，禁止重生成/覆盖/清空**
+- 实体注解显式化：表名 `@TableName`、主键 `@TableId`、列名与驼峰不一致时 `@TableField(value = "...")`；`tenantId` 加 `@TenantFilterColumn`、`deletedFlag` 加 `@TableLogic`，非持久化字段必须 `@TableField(exist = false)`
+
+### 6.4 入参与查询补齐
+
+- 前端只传 `yyyy-MM-dd` 的起止日期，必须在 Controller/Service 入参预处理阶段补齐为当天起止时间
+- 批量新增禁止逐条 insert 循环：先 `buildDefaultValue` 再批量插入（仓库基类批量链路）
+- 字符串空判断统一 `CharSequenceUtil.isEmpty/isNotEmpty/isBlank`，不用 `== null`
+- 默认排序判空针对**排序参数对象**判（如 `if (orderParam == null || orderParam.isEmpty())`），不要误写成对排序字段字符串判空
+- DTO/VO/入参补 `@Schema(description = "中文说明")`；校验注解按类型选 `@NotBlank/@NotNull/@NotEmpty/@Size/@Pattern`，message 必须中文并直接表达业务含义；Controller 接收对象按现有写法加 `@Valid`/`@Validated`
