@@ -1,10 +1,10 @@
 ---
 name: coding
-description: WHEN：用户要求在 BPS 类 Java 多模块仓库（Spring Boot + MyBatis-Plus + MySQL/KingBase + Flyway）中实现需求、修改接口/Service/Mapper/XML/Flyway、开发批量或定时任务、修复缺陷，或要求"修改完成后提交/合并成一个 commit"、"整理前端修改文档"时使用。WHAT：按最小侵入原则落代码——开工前过准入门禁，复述需求并列关键假设，安全与性能前置自检，给共享接口加能力时只用可选通用参数，Mapper 优先 MyBatis-Plus 内置查询且不新增自定义查询，字段级改动按全链路清单逐层核对（Entity/DTO/VO/Mapper XML 自定义查询逐 statement 判断，不遗漏），批量任务内置性能防护（分批短事务/批间休眠/单轮上限/游标翻页/内存有界），真实构建+测试+架构检查验证（警惕过期测试报告与并发构建），数据库变更走 Flyway 双端幂等，按用户要求提交并合并为单个 commit，同步更新文档并输出含影响面与未覆盖项的总结。WHEN NOT：仅生成标准 CRUD 用 bps-crud-code-generator（本 skill references 有速查）；worktree/分支操作用 git-flow；禅道 bug 修复用 zentao-bugfix；纯前端实现（输出交接文档交前端处理）。
+description: WHEN:用户要求在 BPS 类 Java 多模块仓库(Spring Boot + MyBatis-Plus + MySQL/KingBase + Flyway)中实现需求、修改接口/Service/Mapper/XML/Flyway、开发批量或定时任务、修复缺陷、要求大型/多链路需求先拆分子任务再逐个实现,或要求"修改完成后提交/合并成一个 commit"、"整理前端修改文档"、“生成本次需求的页面分组接口文档”时使用。WHAT：按最小侵入原则落代码--开工前过准入门禁,复述需求并列关键假设,安全与性能前置自检,给共享接口加能力时只用可选通用参数,Mapper 优先 MyBatis-Plus 内置查询且不新增自定义查询,字段级改动按全链路清单逐层核对(Entity/DTO/VO/Mapper XML 自定义查询逐 statement 判断,不遗漏),批量任务内置性能防护(分批短事务/批间休眠/单轮上限/游标翻页/内存有界),真实构建+测试+架构检查验证(警惕过期测试报告与并发构建),数据库变更走 Flyway 双端幂等,按用户要求提交并合并为单个 commit,同步更新文档并输出含影响面与未覆盖项的总结。WHEN NOT:仅生成标准 CRUD 用 bps-crud-code-generator(本 skill references 有速查);worktree/分支操作用 git-flow;禅道 bug 修复用 zentao-bugfix;纯前端实现(输出交接文档交前端处理)。
 compatibility: 无脚本依赖；需 git 与 Maven/JDK17 环境（仓库标准工具链）；面向 BPS 基础平台服务仓库（CODING_STANDARDS.md 为权威规范，.share/skills/ 下 bps-* 系列为专项细则来源）。
 metadata:
   author: AI-Redfish
-  version: "1.4.1"
+  version: "1.6.0"
 ---
 
 # coding — 带约束的 AI 结对编码守门人
@@ -16,6 +16,7 @@ metadata:
 | 分册 | 加载时机 |
 |---|---|
 | [requirement-intake.md](references/requirement-intake.md) | 开工前准入门禁（阻断项 + Think First 四问） |
+| [task-decomposition.md](references/task-decomposition.md) | 大型/多链路需求先拆子任务再逐个实现（拆分条件、需求提取、任务单格式、覆盖映射） |
 | [security-coding-constraints.md](references/security-coding-constraints.md) | 涉及接口/数据读写/权限/文件/外部调用/异步/敏感数据 |
 | [performance-and-batch-tasks.md](references/performance-and-batch-tasks.md) | 列表接口、批量写入、定时任务 |
 | [mybatis-plus-and-crud.md](references/mybatis-plus-and-crud.md) | 写 Mapper/Service、替代自定义 SQL、生成 CRUD |
@@ -24,6 +25,7 @@ metadata:
 | [architecture-and-dependency.md](references/architecture-and-dependency.md) | 新增模块、改 POM 依赖、循环依赖治理 |
 | [gitflow-and-commit.md](references/gitflow-and-commit.md) | 分支/提交/合并单 commit/push |
 | [testing-and-verification.md](references/testing-and-verification.md) | 写测试、跑验证、联调与 E2E 要点 |
+| [interface-handover-doc.md](references/interface-handover-doc.md) | 交付阶段生成页面分组接口文档（接口依赖与字段取值映射、字典关联、自动化凭证） |
 
 ---
 
@@ -62,7 +64,7 @@ metadata:
 8. **验证为实**：改动后必须真实构建并运行匹配的测试；验证不通过逐个修复，禁止跳过或放宽断言；额外执行 `git diff --check` 与 `scripts/ci/check-architecture.sh --diff`；未做的验证（如实库联调、跨库执行）必须在总结中如实标注。
 9. **测试配套完备**：新增/改名测试文件必须确认纳入版本控制（`.gitignore` 白名单 + `git ls-files`/`git check-ignore` 验证，改名后复查）；跨域实体 `LambdaQueryWrapper` 的纯单测需 `TableInfoHelper.initTableInfo` 初始化缓存；还原/删除方法后同步删除前提过时的用例与失效 stub；Mapper XML/接口变更同步 SQL 解析级测试。
 10. **提交纪律**：用户要求"提交/合并成一个 commit"时，`git add -A` 后按需 `git reset --soft <基点>` 或 `--amend`，保证基点之上仅一个约定格式提交（`type(scope): 标题` + 分点正文）；绝不擅自 push，不碰受保护分支；提交前 `git diff --check` 必须干净。
-11. **文档与交付同步**：接口行为、任务配置、部署注意项变化必须同步更新仓库文档；涉及前端配合时，整理**可直接交给 AI 执行**的交接文档放入 `.agents/`（含修改前后请求对照、参数表、严禁事项、自测验收清单），并确认其被 gitignore 不污染提交。
+11. **文档与交付同步**:接口行为、任务配置、部署注意项变化必须同步更新仓库文档;涉及前端配合时,整理**可直接交给 AI 执行**的交接文档放入 `.agents/`（含修改前后请求对照、参数表、严禁事项、自测验收清单），并确认其被 gitignore 不污染提交；接口变更多、前端对接复杂时，升级为 [interface-handover-doc.md](references/interface-handover-doc.md) 的页面分组完整接口文档。
 12. **如实汇报**：最终总结必须包含——修改内容 / 影响面（接口兼容性、数据行为、性能、部署注意）/ 验证状态（真实跑过什么、结果如何）/ 未覆盖项（如实库联调未做）；不夸大、不隐瞒、不虚构"已验证"。
 13. **安全前置阻断**：涉及权限、租户/数据范围、敏感数据、文件、外部调用、异步链路的改动，先过 [security-coding-constraints.md](references/security-coding-constraints.md) 的阻断条件；缺设计依据时标注为阻断并反馈，不得靠猜测落代码。
 14. **数据库变更走 Flyway**：表结构/索引/初始化数据变更必须以版本化 SQL 落盘，MySQL 与 KingBase 双端同步且幂等；禁止绕过 Flyway 手改库、禁止 `DROP TABLE`/`DROP COLUMN`。
@@ -75,9 +77,10 @@ metadata:
 
 1. **读规范与现状**：读 `CODING_STANDARDS.md` 相关章节；`git status`/`git log --oneline -3` 确认当前分支、基点与未提交改动；通读将改动的类与 XML。
 2. **准入门禁 + Think First**：加载 [requirement-intake.md](references/requirement-intake.md) 过阻断项；用 1-2 句话说清交付的行为变化、列出改与不改的边界；一句话复述需求 + 列关键假设；不确定项按第一闭环提问（一次一个）。**在关键业务口径澄清前，只实现已确认的部分并暂停提问，不抢跑。**
-3. **最小实现**：按需加载分册（安全/性能/MP/Flyway），逐条自检地写代码；每完成一个文件自查 diff——无关文件、无关格式化、调试代码、placeholder 均为零。
-4. **真实验证**：加载 [testing-and-verification.md](references/testing-and-verification.md)，跑匹配的测试与模块构建；测试失败读 surefire 报告逐个修复；全绿后跑 `git diff --check`、架构检查与安全 diff 搜索；加载 [quality-gates-and-review.md](references/quality-gates-and-review.md) 做提交前审查。
-5. **提交与交付**：加载 [gitflow-and-commit.md](references/gitflow-and-commit.md) 按用户要求提交（含合并单 commit）；同步文档与交接文档；按"输出规范"模板汇报。
+3. **任务拆分（大型需求，条件触发）**：命中 [task-decomposition.md](references/task-decomposition.md) 拆分条件（新表/建表 SQL、全链路字段改动叠加多业务能力、复杂业务流转、需求面过大）时，先扫现有代码模式、按需求提取清单整理事实，拆出子任务单（含覆盖映射表），**先交用户确认再动手**；随后逐子任务执行第 4-5 步，每个子任务独立完成“最小实现→真实验证”，全部完成后进入第 6 步。小型需求不拆分，直接进入第 4 步。拆分中发现口径不明，按第 2 步准入门禁提问，不编造。
+4. **最小实现**：按需加载分册（安全/性能/MP/Flyway），逐条自检地写代码；每完成一个文件自查 diff——无关文件、无关格式化、调试代码、placeholder 均为零。多子任务时以任务单“范围/验收点”为本次实现的边界，不越界实现后续子任务。
+5. **真实验证**：加载 [testing-and-verification.md](references/testing-and-verification.md)，跑匹配的测试与模块构建；测试失败读 surefire 报告逐个修复；全绿后跑 `git diff --check`、架构检查与安全 diff 搜索；加载 [quality-gates-and-review.md](references/quality-gates-and-review.md) 做提交前审查。
+6. **提交与交付**:加载 [gitflow-and-commit.md](references/gitflow-and-commit.md) 按用户要求提交(含合并单 commit);同步文档与交接文档；涉及前端对接的接口变更按 [interface-handover-doc.md](references/interface-handover-doc.md) 生成/更新完整接口文档；按"输出规范"模板汇报。多子任务需求在总结中按子任务逐项汇报完成与验证情况。
 
 ## 错误处理（本仓库实测坑，按现象查表）
 
@@ -150,6 +153,8 @@ metadata:
 - 输入：「还原 saveOrReuseForAsset 方法」→ 恢复原始实现与职责边界，清理夹带逻辑与过时用例。
 - 输入：「修改完成后提交，然后合并成一个 commit」→ soft reset 到基点或 amend，单条约定格式提交，不 push。
 - 输入：「新增一张业务表」→ Flyway 双端幂等脚本 + 实体/Mapper/Service/Controller 按模板生成，同步测试。
+- 输入：「这次需求比较大，先拆成子任务再逐个做」→ 命中拆分条件：扫同域代码模式 → 需求提取清单 → 子任务单+覆盖映射表交用户确认 → 逐任务实现验证，全部完成后按子任务逐项汇报。
+- 输入：「生成本次需求的接口文档」→ 基于 git diff 增量 + PRD 页面分组，输出页面→模块→按钮→接口四级文档（含依赖取值映射与字典），写入 `.agents/`。
 - 输入：「给资产表加个备注字段」→ Flyway 双端加列 + Entity/DTO/VO + XML 自定义查询逐 statement 核对（resultMap/列片段/insert/update/where）+ Service 转换与过滤 + SQL 解析测试，`git grep` 复查零遗漏。
 
 ## 不适用场景

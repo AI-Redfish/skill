@@ -4,7 +4,7 @@ description: 变更驱动的全链路测试引擎 + 项目测试工作空间管�
 compatibility: skill 内置脚本为 Python 3.9+ 纯标准库（python 或 uv run 均可）；需 git。**测试脚本优先 Python（uv run，PEP 723 内联依赖）**；测试脚本仅允许 Python（uv）与 Node.js，Python 不适合时使用 Node.js（见"探针脚本契约"）；模板自带 Python 与 Node 两套公共库；依赖一律安装在工作空间侧，不进 skill 包。
 metadata:
   author: AI-Redfish
-  version: "1.17.0"
+  version: "1.18.0"
 ---
 
 # fulllink-test — 变更驱动的全链路测试引擎
@@ -211,6 +211,9 @@ python3 <skill_dir>/scripts/resolve_workspace.py --project <项目名> [--root <
 3. 计划含运行方式与所需服务清单（含依赖服务）；local 列编译、启动、start/reuse、
    就绪检查与收尾安排，existing 列实际入口与服务来源；详见 [runtime.md](runtime.md)。
    计划先给用户过目再执行（一句话复述范围 + 关键假设）。
+4. 测试点标注 **P0/P1/P2** 优先级：P0＝主链路与核心 CRUD/执行/记录闭环；P1＝必填、
+   唯一、分页、删除拦截、批量操作、筛选组合；P2＝依赖真实外部条件（IoT/视频流/
+   报警现场等）的条件化用例——默认按降级观察项处理，受阻如实记录，不硬造环境数据。
 
 ### ④ 执行与对账
 
@@ -355,7 +358,8 @@ Git/环境查询等工具命令可直接执行，不作为测试脚本。两种�
 2. 输出：断言明细到 stdout（JSON 优先，含 name/ok/evidence），日志到 stderr
 3. 凭据只从 `assets/common/env.secret.json` 读取（经公共库合并 env.json），不硬编码
 4. **测试输入样本与预期值都在执行时从目标环境 DB 现查**（挖掘 SQL 见 05-test-data.md），
-   禁止把 ID/SN 写死在脚本里；长整型 ID 一律按字符串处理
+   禁止把 ID/SN 写死在脚本里；长整型 ID 一律按字符串处理；不适合 SQL 直取的数据
+   （需走业务流程/状态）可改为调用目标环境查询接口或最小造数接口获取，同样禁止写死
 5. 依赖装在工作空间侧：Python → 探针头部 PEP 723 内联依赖（`# /// script` 块），
    `uv run <脚本>` 执行；playwright 探针首次运行前 `uv run playwright install
    chromium`（浏览器装在用户侧）；Node → 空间根 `package.json` + `npm install`；
@@ -366,9 +370,17 @@ Git/环境查询等工具命令可直接执行，不作为测试脚本。两种�
    **依赖锁定版本范围**（如 `pymysql>=1.1,<2`），防上游 breaking change
 8. **目标测试环境的写操作类验证（造数/发测试消息）须自带清理逻辑**，或在 report 的
    "清理清单"节登记待清理项；测试数据带可识别标记（messageId 前缀 / 备注字段），
-   避免污染下一轮样本挖掘
+   避免污染下一轮样本挖掘；清理按**子对象 → 关联关系 → 主对象**顺序执行，
+   且仅清理本轮自建的带标记数据，不碰既有业务数据
 9. UI 自动化按 ui-recording.md 全程录屏、设置可读操作节奏，finally 完成录制收尾；
    视频在 runs/ 下保留且报告登记人工核对，不能以截图/trace 代替录像
+10. HTTP 类探针失败或 SKIP 时，输出**可复现完整 cURL**（method、URL、headers、body）
+    随 evidence 落盘，供人工复核、缺陷单附件与跨环境复现；前置数据缺失导致的 SKIP
+    必须结构化记录五要素：依赖接口名称、所需提取字段、缺失原因、HTTP 状态、
+    该依赖接口完整 cURL——禁止只写“xxx 未取到/未配置”
+11. 请求发起前对合并后的 payload/query **递归剔除值为空字符串的字段**（实测坑：
+    `"systemCode": ""` 等空串参数触发校验失败或异常语义）；接口探针的请求字段
+    以当前 Controller/DTO/VO 实际代码为准，不沿用旧脚本/旧文档字段（接口可能已变更）
 
 ## 硬性质量规则（违反任何一条即评审不通过）
 

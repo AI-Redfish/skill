@@ -1,10 +1,10 @@
 ---
 name: zentao-bugfix
-description: 禅道 Bug 自动修复助手。给定 bugId 或 bug 链接，读取详情、评论与截图，按项目 routes.json 中的 Bug ID 或标题关键字选择修复位置。分析时同时只读分析前端工作区（config 的 FRONTEND_WORKSPACES），并在分析报告中说明前端、后端或待确认归属；无法确定时同时排查操作、配置、数据与环境原因，暂停代码修改，输出排查步骤和所需资料，等待用户补充。匹配时在指定开发工作区与分支顺序修复，每个 Bug 验证后独立提交；未匹配或规则冲突时创建独立 bugfix worktree，默认不提交。先落盘分析与方案，再修复和生成报告；分析、方案、修复报告均交付内容一致的 Markdown 与离线 HTML。匹配的工作区异常时在当前工作区生成 HTML 报告并自动打开浏览器。定时轮询与钉钉监听触发由 AgentR「工作流」承担（本 skill 只提供单次执行入口，不含常驻监听或系统级定时）。当用户要求修复、定位或分析禅道 Bug，或配置其自动触发时使用。
+description: 禅道 Bug 自动修复助手。给定 bugId 或 bug 链接，读取详情、评论与截图，按项目 routes.json 中的 Bug ID 或标题关键字选择修复位置。分析时同时只读分析前端工作区（config 的 FRONTEND_WORKSPACES），并在分析报告中说明前端、后端或待确认归属；无法确定时同时排查操作、配置、数据与环境原因，暂停代码修改，输出排查步骤和所需资料，等待用户补充。匹配时在指定开发工作区与分支顺序修复，每个 Bug 验证后独立提交；未匹配或规则冲突时创建独立 bugfix worktree，默认不提交。先落盘分析与方案，再修复和生成报告；分析、方案、修复报告均交付内容一致的 Markdown 与离线 HTML。匹配的工作区异常时在当前工作区生成 HTML 报告并自动打开浏览器。是否修复后自动推送并发起 PR（Pull Request）由 routes.json 逐规则配置（规则内 auto_pr 布尔值，优先于 config 全局 AUTO_PR）。定时轮询与钉钉监听触发由 AgentR「工作流」承担（本 skill 只提供单次执行入口，不含常驻监听或系统级定时）。当用户要求修复、定位或分析禅道 Bug，或配置其自动触发时使用。
 compatibility: Python 3.10+（可用 uv 隔离运行）、git；AI 需 Bash/Read/Edit/Write；结果通知需 dws，自动修复需已登录的 Agent CLI。
 metadata:
   author: AI-Redfish
-  version: "2.7.0"
+  version: "2.8.1"
 ---
 
 # zentao-bugfix
@@ -36,7 +36,7 @@ metadata:
 
 1. **分析先行**：修改代码之前补全 `analysis.md` 与 `solution.md`，清除全部 `（待填写）` 标记，并生成对应 HTML。绑定工作区执行 `ready`，脚本核对代码未变、生成 HTML 并封存两份文档；worktree 模式执行 `render-html --analysis-only`。失败不得继续。仅在代码根因与修复范围已有充分证据时直接修复，不额外等待确认；根因待确认时按第 15 条暂停。
 2. **限定修复位置**：只修改 prepare 输出的 `WORKTREE`（含绑定的已有工作区）。未匹配才新建 worktree；匹配成功但工作区异常时停止，不回退创建 worktree。
-3. **按模式提交**：`MODE=inplace` 每个 Bug 验证并独立提交后才开始下一 Bug，通过 `finish` 提交；`MODE=worktree` 默认不提交，保留改动待 review。两种模式默认都不 push、不改禅道状态。用户明确授权的额外操作按其指示执行。
+3. **按模式提交**：`MODE=inplace` 每个 Bug 验证并独立提交后才开始下一 Bug，通过 `finish` 提交；`MODE=worktree` 默认不提交，保留改动待 review。两种模式默认都不 push、不改禅道状态；仅当命中规则的 `auto_pr` 或 config `AUTO_PR` 显式开启（即用户预先授权）时，才由 `create-pr` 推送分支并发起 PR，仍不改禅道状态。用户明确授权的其他额外操作按其指示执行。
 4. **顺序修复**：绑定分支和工作区的持久锁从 prepare 保留到 finish 成功；前一 Bug 失败或未完成时不处理后续 Bug。禁止绕过、删除锁或另开会话并行修复同一工作区。自动入口会将等待任务持久化。
 5. **保留已有改动**：读取运行记录的 `snapshot.dirty`，不修改这些文件，不全量暂存或提交，不自动切分支、pull、merge、stash、reset。与已有改动混合、检测到外部修改或验证/提交失败时保留现场并暂停该分支队列。
 6. **先证据后结论**：列检索过程和 `文件:行号` 证据，再形成根因。区分确认、推断、排除、存疑；推断注明高/中/低置信度。无法确定时直说，不编造。现场有耗时、请求或数据库证据时，按实际耗时排序定位；代码结构只能支持风险推断，不能替代现场瓶颈证据。
@@ -59,7 +59,7 @@ metadata:
 
 - `config` 对象保存原 `.env` 的配置，所有值为字符串：`ZENTAO_BASE_URL`、`ZENTAO_ACCOUNT`、`ZENTAO_PASSWORD`、`BUGFIX_BASE_BRANCH`、`FRONTEND_WORKSPACES`，以及目标项目、Agent/模型选项。显式命令参数优先，再读取 config，最后使用已有默认值。
 - `FRONTEND_WORKSPACES` 为可选的前端只读分析工作区，多个用英文逗号分隔（如 `D:/develop/project/wukong`）。它只用于在 `analysis.md` 中判定问题归属，不影响分流与修复目标。留空时前端归属无法用本地代码验证，报告必须写明这一点。
-- `rules` 数组仅支持 **Bug ID 精确匹配**、**禅道实际标题包含关键字**两种条件，可为空。仅有旧 rules 的文件仍可匹配，但须补齐 config 才能访问禅道或启动监听。
+- `rules` 数组仅支持 **Bug ID 精确匹配**、**禅道实际标题包含关键字**两种条件，可为空。规则可用可选布尔字段 `"auto_pr": true/false` 逐规则配置该 workspace 修复后是否自动推送并发起 PR；未写该字段时回退 config `AUTO_PR`（on/off，默认 off）。同一目标多条规则的 `auto_pr` 不一致时以第一条命中为准（Bug ID 优先于标题）。仅有旧 rules 的文件仍可匹配，但须补齐 config 才能访问禅道或启动监听。
 - 不再读取旧 `.env`，也不从 skill 安装目录兜底读取配置。将旧 KEY=VALUE 填入 config，或用原 `save-config KEY=VALUE...` 命令保存（现写入 routes.json 的 config，保留 rules）。含密码的生效文件不要提交。
 
 格式与迁移说明见 [references/routing.md](references/routing.md)，可复制 `assets/routes.example.json` 后修改。
@@ -190,15 +190,43 @@ python bugfix.py finish <bugId> --project <原项目目录> \
 
 替换为项目实际验证命令和本次全部相对路径。命令按参数拆分后直接执行，不能用 `&&` 串联；多个检查可调用项目的验证脚本。脚本再次执行验证，保存 validation.log，并检查 HEAD、分析封存、已有改动和本次文件清单。每次提交只包含这个 Bug，通过独立暂存区避免夹带开发者暂存内容，保留真实暂存区里的其他文件。正常执行 Git hook，不使用 `--no-verify`。
 
-提交信息：`fix(zentao): 修复 Bug #<bugId> <标题>`。成功后记录 commit ID、追加 MD 报告、同步更新含提交结果的 HTML 并释放锁，才可开始后续 Bug。不自动 push。
+提交信息：`fix(zentao): 修复 Bug #<bugId> <标题>`。成功后记录 commit ID、追加 MD 报告、同步更新含提交结果的 HTML 并释放锁，才可开始后续 Bug。不自动 push；命中规则 `auto_pr` 或 config `AUTO_PR` 开启时，随后运行 `create-pr` 推送并发起 PR（见下节）。
 
 确认无需代码修改时，完整报告后用 `finish ... --no-change --check-command "<实际验证命令>"`；确认无本次变更后不产生空提交并释放锁。验证、hook、提交或检查失败保留现场和锁；先修复原因，再 `--reuse` 恢复该 Bug。若 commit 已产生但后置检查失败，不重复提交，应人工检查并恢复现场。
 
 新建 worktree 模式跳过 ready/finish，代码保留未提交，三份 MD 补全并执行 render-html 后完成。普通报告默认只生成 HTML，不自动打开浏览器；工作区异常报告仍按既有规则自动打开。
 
+### create-pr：修复完成后自动发起 Pull Request（按规则开启）
+
+是否自动发起 PR 写在 routes.json：规则内布尔字段 `"auto_pr": true/false` 按 workspace 逐规则配置；
+规则未写该字段时回退 config `AUTO_PR`（on/off，默认 off）。未命中规则（独立 worktree）只看
+config `AUTO_PR`。默认关闭；开启即视为用户已授权 push 与创建 PR，禅道状态仍不修改。
+
+修复完成后（绑定模式 finish 成功提交、worktree 模式三份报告已补全）运行：
+
+```bash
+python bugfix.py create-pr <bugId> --project <原项目目录>
+```
+
+- 绑定模式：要求该 Bug 已 finish 提交；推送绑定分支到远端，再从绑定分支向目标分支发起 PR。
+- worktree 模式：先把 worktree 内全部代码变更（排除 `.agents/` 运行产物与根 `AGENTS.md`）以
+  `fix(zentao): 修复 Bug #<bugId> <标题>` 提交，再推送 `bugfix/<bugId>_<日期>` 分支并发起 PR。
+- PR 目标分支：`--base` 参数 > config `AUTO_PR_BASE_BRANCH` > 平台默认分支。标题默认同提交信息
+  （`--title` 可覆盖），正文取自 fix-report.md 节选与 Bug 链接；config `AUTO_PR_DRAFT=on` 创建草稿 PR。
+- 创建方式自动选择：远程为 GitHub 用 `gh`，GitLab 用 `glab`（需已安装并登录对应 CLI）；其他平台或
+  需要自定义时配置 config `AUTO_PR_CMD` 命令模板，占位符 `{head}` `{base}` `{title}` `{body}`
+  `{body_file}` `{remote}` `{draft}`。`AUTO_PR_REMOTE` 可指定推送远程名（默认 origin）。
+- 门槛与幂等：三份报告必须完整（无 `（待填写`，与 finish 同一门槛）；运行记录已存 PR 时重复执行只
+  回显已有 PR；平台返回 PR 已存在时同样回显不重复创建。`--dry-run` 只打印将执行的提交/推送/PR 命令，
+  不产生任何变更；`--force` 在 auto_pr 未开启或报告未完整时人工确认后强制发起。
+- 失败处理：推送被拒绝（远端有新提交）时绝不 force push，人工同步分支后重试；PR 创建失败输出
+  `PR_STATUS=failed` 与原因，已产生的修复提交不受影响，不回滚、不重试提交。成功后运行记录、
+  meta.json、fix-report.md 追加「## Pull Request」章节并同步更新 HTML。
+- 汇报必须包含 PR 链接与 `PR_STATUS`；auto_pr 未开启时不主动运行 create-pr，可提示用户如何开启。
+
 ### 6. 汇报
 
-说明 Bug ID、根因及证据、**问题归属（前端问题 / 后端问题 / 前后端 / 待确认）及其依据**、**改动范围（仅当前工作空间 / 需要其他工作空间）**、修复内容、实际工作区/分支和三组 MD/HTML 报告路径。绑定模式提供 commit ID 或无需修改的结论；独立 worktree 明确未提交待 review。说明实际验证与未覆盖项、关键假设及遗留问题。根因待确认时，必须说明当前暂停且未修复，给出优先排查步骤、用户需补充的数据与环境信息、恢复条件及已有报告路径；确认非代码原因时说明操作/配置/数据/环境依据与处理指引，不强行归为前端或后端代码缺陷。worktree 模式同时说明环境初始化结果（INIT_STATUS），降级时说明缺失内容与影响。工作区异常时提供 HTML 路径和浏览器打开结果，不声称已修复。
+说明 Bug ID、根因及证据、**问题归属（前端问题 / 后端问题 / 前后端 / 待确认）及其依据**、**改动范围（仅当前工作空间 / 需要其他工作空间）**、修复内容、实际工作区/分支和三组 MD/HTML 报告路径。绑定模式提供 commit ID 或无需修改的结论；独立 worktree 明确未提交待 review。auto_pr 开启并已执行 create-pr 时，同时报告 PR 链接、目标分支与 `PR_STATUS`；失败时说明原因且不声称已发起。说明实际验证与未覆盖项、关键假设及遗留问题。根因待确认时，必须说明当前暂停且未修复，给出优先排查步骤、用户需补充的数据与环境信息、恢复条件及已有报告路径；确认非代码原因时说明操作/配置/数据/环境依据与处理指引，不强行归为前端或后端代码缺陷。worktree 模式同时说明环境初始化结果（INIT_STATUS），降级时说明缺失内容与影响。工作区异常时提供 HTML 路径和浏览器打开结果，不声称已修复。
 
 ## 触发方式（由 AgentR 工作流承担）
 
@@ -239,9 +267,9 @@ python <skill_dir>/scripts/dingtalk_listen.py retry <bugId>
 
 **resolution 门槛（默认行为）**：自动入口只处理 `resolution` 为空（`""` 或 `null`）的 Bug；有值的直接跳过，不创建 worktree 或修复报告。字段缺失、类型异常或查询失败时停止并通知。人工强制处理用 `bugfix.py prepare --allow-resolved`。不自动修改禅道状态。
 
-**结果通知**：单次入口通过 dws 向当前登录用户本人发送跳过、成功、失败和首次等待结果。修复完成必须通知；消息包含 Bug ID、结果、可用报告路径及提交信息。通知不包含 Bug 原文或未经脱敏的错误输出。发送失败写入 `.agents/logs/result-notifications.json`，下次运行入口时补发。消息使用稳定幂等键。
+**结果通知**：单次入口通过 dws 向当前登录用户本人发送跳过、成功、失败和首次等待结果。修复完成必须通知；消息包含 Bug ID、结果、修复 bugfix 的工作目录、可用报告路径、提交信息与 PR 链接；失败或等待时必须包含失败/等待原因（折叠空白、凭据打码并截断后的单行摘要），不写“只失败无原因”的通知。通知不包含 Bug 原文或未经脱敏的完整错误输出，完整日志仍在启动工作区 `.agents/logs/`。发送失败写入 `.agents/logs/result-notifications.json`，下次运行入口时补发。消息使用稳定幂等键。
 
-**修复链路（自动入口与手动一致）**：先确定性运行 prepare，再向 Agent 传入结果，Agent 不重复 prepare。Agent 正常退出后再次渲染三份 HTML，并校验本次 run_id、完整 MD、与当前正文一致的 HTML，以及绑定模式提交；HTML 缺失或过期均不能算成功。工作区异常不启动修复会话。等待分支的 Bug 存 `.agents/logs/pending-bugs.json`，可用 `retry` 恢复。启动目录不同于 `TARGET_PROJECT_PATH` 时，routes.json 从目标项目读取，异常 HTML 仍写启动目录。
+**修复链路（自动入口与手动一致）**：先确定性运行 prepare，再向 Agent 传入结果，Agent 不重复 prepare。Agent 正常退出后再次渲染三份 HTML，并校验本次 run_id、完整 MD、与当前正文一致的 HTML，以及绑定模式提交；HTML 缺失或过期均不能算成功。工作区异常不启动修复会话。auto_pr 开启的工作区（规则内 auto_pr=true 或 config AUTO_PR=on），绑定模式 finish 成功后运行 create-pr 自动发起 PR；PR 失败不影响提交结果，通知与汇报包含 PR 链接与 PR_STATUS。等待分支的 Bug 存 `.agents/logs/pending-bugs.json`，可用 `retry` 恢复。启动目录不同于 `TARGET_PROJECT_PATH` 时，routes.json 从目标项目读取，异常 HTML 仍写启动目录。
 
 ## 现场证据优先级
 
@@ -263,6 +291,7 @@ python <skill_dir>/scripts/dingtalk_listen.py retry <bugId>
 - 新 worktree 指针和 Git 验证是否通过，跨平台未验证是否注明？
 - 新建 worktree 的环境初始化是否执行；`INIT_STATUS=degraded` 时报告是否说明缺失内容与影响？
 - 绑定模式是否验证并独立提交成功；失败时后续 Bug 是否保持等待？
+- auto_pr 开启时是否执行 create-pr 并汇报 PR 链接与 PR_STATUS？是否未使用 force push，PR 失败是否未回滚已提交修复？auto_pr 未开启时是否未擅自推送或建 PR？
 - 是否未 push、未改禅道状态，未夹带凭据或运行产物？
 - 三组 MD/HTML 是否同目录、正文一致且最新；最终 HTML 是否包含 finish 追加的 commit ID 或无需修改结论？
 - 报告是否完整、脱敏，并说明两种格式的路径、提交状态、实际验证和遗留问题？

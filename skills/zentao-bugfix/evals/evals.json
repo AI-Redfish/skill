@@ -57,6 +57,18 @@
     {"id": 11, "prompt": "修复禅道 Bug 105，未命中 routes.json 的规则。分析、解决方案和修复报告都需要 MD 和 HTML。",
      "expected_output": "独立 worktree 保留未提交修复，修复前补全分析/方案并 render-html --analysis-only，修复后 report/补全，再 render-html，交付三组同名配对报告",
      "files": [],
-     "expectations": ["analysis.md/html、solution.md/html、fix-report.md/html 位于实际工作区同一报告目录", "HTML 从同一 MD 生成、正文完整、离线可读且外部文字转义", "补全 MD 后更新 HTML，不把准备阶段骨架或旧 HTML 当最终产物", "普通报告只生成不自动打开，工作区异常的自动打开规则仍保留", "最终汇报 MD 和 HTML 路径，不自动提交或 push"]}
+     "expectations": ["analysis.md/html、solution.md/html、fix-report.md/html 位于实际工作区同一报告目录", "HTML 从同一 MD 生成、正文完整、离线可读且外部文字转义", "补全 MD 后更新 HTML，不把准备阶段骨架或旧 HTML 当最终产物", "普通报告只生成不自动打开，工作区异常的自动打开规则仍保留", "最终汇报 MD 和 HTML 路径，不自动提交或 push"]},
+    {"id": 12, "prompt": "routes.json 里 bug_id 110 规则绑定了 workspace，auto_pr 为 true，config AUTO_PR=off。修复 Bug 110 并自动发起 PR。",
+     "expected_output": "绑定模式 finish 提交成功后运行 create-pr：推送绑定分支并按 AUTO_PR_CMD/gh/glab 发起 PR，汇报 PR 链接与 PR_STATUS",
+     "files": [],
+     "expectations": ["不新建 worktree，finish 验证并提交成功后才运行 create-pr", "推送不使用 force push，不修改禅道状态", "三份报告完整（无（待填写））才发起 PR；PR 失败时报 PR_STATUS=failed 且不回滚已提交修复", "fix-report.md 追加 Pull Request 章节并同步更新 HTML，汇报包含 PR 链接"]},
+    {"id": 13, "prompt": "routes.json 同一 workspace 有两条规则：bug_id 111 的规则 auto_pr=false，标题关键字规则 auto_pr=true。修复 Bug 111（标题命中关键字），不要自动建 PR。",
+     "expected_output": "Bug ID 精确命中第一条规则，auto_pr=false 优先生效：finish 提交后不运行 create-pr，不 push",
+     "files": [],
+     "expectations": ["Bug ID 匹配优先于标题关键字，取第一条规则的 auto_pr=false", "不推送分支、不创建 PR，汇报说明未开启 auto_pr", "如用户要求补发 PR，说明可用 create-pr --force 人工确认后发起"]},
+    {"id": 14, "prompt": "未命中任何规则的禅道 Bug 修复完后帮我直接 push 并建 PR。",
+     "expected_output": "负向：config AUTO_PR 默认 off，不自动 push；说明可在规则或 config 开启 auto_pr 后用 create-pr，或人工确认后 --force",
+     "files": [],
+     "expectations": ["未开启时不擅自 push 或创建 PR", "向用户说明开启方式（规则 auto_pr 或 config AUTO_PR）与 create-pr 用法"]}
   ]
 }

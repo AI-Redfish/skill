@@ -686,6 +686,52 @@ class TestResultNotifications(unittest.TestCase):
                 self.assertNotIn("处理成功", text)
                 self.assertNotIn("SECRET", text)
 
+    def test_failure_notification_includes_reason_and_workspace(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            notifier = dl.ResultNotifier(Path(td) / "outbox.json")
+            notifier.recipient = {"user_id": "me", "corp_id": "corp"}
+            result = {"bug_id": "9", "ok": False, "status": "blocked",
+                      "error": "验证失败，分支队列暂停 password=abc123 token=xyz",
+                      "worktree": "D:/work/bugfix_9_20240101",
+                      "report_dir": "D:/work/bugfix_9_20240101/.agents/zentao-bugfix/9"}
+            with patch.object(dl, "run_dws", return_value='{"success":true}') as send:
+                self.assertTrue(notifier.publish(result, "message:fail")['sent'])
+                args = send.call_args.args[0]
+                text = args[args.index("--text") + 1]
+            self.assertIn("处理失败", text)
+            self.assertIn("失败原因：验证失败，分支队列暂停", text)
+            self.assertIn("password=***", text)
+            self.assertNotIn("abc123", text)
+            self.assertNotIn("xyz", text)
+            self.assertIn("修复工作区：D:/work/bugfix_9_20240101", text)
+            self.assertIn("报告目录：", text)
+
+    def test_workspace_fallback_dedup_and_waiting_label(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            notifier = dl.ResultNotifier(Path(td) / "outbox.json")
+            notifier.recipient = {"user_id": "me", "corp_id": "corp"}
+            # worktree 与 workspace 是同一目录的两种记录键，只展示一行
+            result = {"bug_id": "8", "ok": False, "status": "waiting",
+                      "error": "分支或工作区被占用，等待前一 Bug 完成",
+                      "worktree": "D:/work/ws", "workspace": "D:/work/ws"}
+            with patch.object(dl, "run_dws", return_value='{"success":true}') as send:
+                self.assertTrue(notifier.publish(result, "message:wait")["sent"])
+                args = send.call_args.args[0]
+                text = args[args.index("--text") + 1]
+            self.assertEqual(text.count("修复工作区："), 1)
+            self.assertIn("等待原因：分支或工作区被占用", text)
+            # 无 error 时回退到日志指引；仅 workspace 键也能展示工作目录
+            result2 = {"bug_id": "7", "ok": False, "status": "blocked",
+                       "workspace": "D:/work/ws7"}
+            with patch.object(dl, "run_dws", return_value='{"success":true}') as send:
+                self.assertTrue(notifier.publish(result2, "message:plain")["sent"])
+                args = send.call_args.args[0]
+                text = args[args.index("--text") + 1]
+            self.assertIn("失败原因：详见启动工作区 .agents/logs/ 下对应 fix 日志", text)
+            self.assertIn("修复工作区：D:/work/ws7", text)
+
     def test_current_user_required(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as td:
@@ -707,8 +753,10 @@ class TestResultNotifications(unittest.TestCase):
                     {"status": "duplicate", "ok": False},
                     {"status": "committed", "ok": True, "commit": "abc"},
                     {"status": "prepared", "mode": "worktree", "ok": True},
-                    {"status": "blocked", "ok": False, "error": "SECRET raw Bug text"},
-                    {"status": "waiting", "ok": False})):
+                    {"status": "blocked", "ok": False,
+                     "error": "验证失败，分支队列暂停 password=supersecret token=tok123"},
+                    {"status": "waiting", "ok": False,
+                     "error": "分支或工作区被占用", "workspace": "D:/work/ws"})):
                     result["bug_id"] = "1"
                     self.assertTrue(n.publish(result, "message:" + str(i))["sent"])
                     self.assertTrue(n.publish(result, "message:" + str(i))["sent"])
@@ -720,7 +768,15 @@ class TestResultNotifications(unittest.TestCase):
                     self.assertIn("--idempotency-key", args)
                     self.assertIn("--format", args)
                     self.assertIn("--yes", args)
-                    self.assertNotIn("SECRET", args[args.index("--text") + 1])
+                    text = args[args.index("--text") + 1]
+                    # 失败/等待原因会随通知发送，但凭据必须打码，原始秘钥不外发。
+                    self.assertNotIn("supersecret", text)
+                    self.assertNotIn("tok123", text)
+                blocked_text = send.call_args_list[4].args[0][send.call_args_list[4].args[0].index("--text") + 1]
+                self.assertIn("失败原因：验证失败，分支队列暂停 password=*** token=***", blocked_text)
+                waiting_text = send.call_args_list[5].args[0][send.call_args_list[5].args[0].index("--text") + 1]
+                self.assertIn("等待原因：分支或工作区被占用", waiting_text)
+                self.assertIn("修复工作区：D:/work/ws", waiting_text)
             self.assertEqual(n.pending_count(), 0)
 
     def test_failure_persist_restart_retry_same_recipient_and_key(self):

@@ -35,8 +35,9 @@
 2. 先确定性运行 prepare，再向 Agent 传入结果，Agent 不重复 prepare。
 3. Agent 正常退出后再次渲染三份 HTML，校验本次 run_id、完整 MD、与当前正文一致的 HTML，以及绑定模式提交；HTML 缺失或过期不算成功。
 4. 工作区异常不启动修复会话。等待分支的 Bug 存 `.agents/logs/pending-bugs.json`，用 `retry` 恢复。
-5. 结果经 dws 单聊通知当前登录用户本人（跳过/成功/失败/首次等待）；消息含 Bug ID、结果、报告路径、提交信息；不含 Bug 原文或未脱敏错误输出。发送失败写 `.agents/logs/result-notifications.json`，下次运行入口时补发；消息使用稳定幂等键。
-6. 启动目录不同于 `TARGET_PROJECT_PATH` 时，routes.json 从目标项目读取，异常 HTML 仍写启动目录。
+5. 修复完成后推送分支并发起 PR 由 routes.json 决定（规则内 `auto_pr` 布尔值按 workspace 逐规则配置，缺省回退 config `AUTO_PR`，默认 off）：开启时 finish 成功后运行 `bugfix.py create-pr <bugId>` 自动推送并创建 PR，PR 失败不影响已提交修复，通知与汇报包含 PR 链接与 PR_STATUS；未开启时不 push。详见 [routing.md](routing.md)「自动发起 Pull Request」。
+6. 结果经 dws 单聊通知当前登录用户本人（跳过/成功/失败/首次等待）；消息含 Bug ID、结果、修复 bugfix 的工作目录、报告路径、提交信息，以及失败/等待原因（折叠空白、凭据打码并截断后的单行摘要，无原因时指引查看 `.agents/logs/` 日志）；不含 Bug 原文或未经脱敏的完整错误输出。发送失败写 `.agents/logs/result-notifications.json`，下次运行入口时补发；消息使用稳定幂等键。
+7. 启动目录不同于 `TARGET_PROJECT_PATH` 时，routes.json 从目标项目读取，异常 HTML 仍写启动目录。
 
 ## 配置（启动工作空间 `.agents/zentao-bugfix/routes.json`）
 

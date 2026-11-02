@@ -102,6 +102,13 @@ KEY_HELP = {
     "FRONTEND_WORKSPACES": "前端只读分析工作区（可选，多个用英文逗号分隔）；"
                            "用于在 analysis.md 中判定「前端问题还是后端问题」；"
                            "只读，不是修复目标，不写入/不提交；从目标项目 routes.json 读取",
+    "AUTO_PR": "修复后自动发起 PR 的全局默认（on/off，默认 off）；"
+               "规则内 auto_pr 布尔值优先，可按 workspace 逐规则配置",
+    "AUTO_PR_BASE_BRANCH": "PR 目标分支（可选；默认 --base 参数 > 此键 > 平台默认分支）",
+    "AUTO_PR_REMOTE": "推送远程名（可选；默认 origin，无 origin 取第一个远程）",
+    "AUTO_PR_CMD": "自定义 PR 创建命令模板（可选；占位符 {head} {base} {title} {body} {body_file} {remote} {draft}）；"
+                   "未配置时 GitHub 远程用 gh、GitLab 远程用 glab",
+    "AUTO_PR_DRAFT": "是否创建草稿 PR（on/off，默认 off）",
 }
 
 
@@ -488,9 +495,13 @@ def build_fix_prompt(bug_id, base_branch=None, prepared=None):
                 "若 mode=inplace，必须运行 python %s finish %s --project %s "
                 "--check-command '<本项目实际验证命令>' --files <本次全部相对代码路径>。"
                 "确认无需代码改动时改用 --no-change，仍须提供验证命令。验证失败不得绕过。"
-                "finish 成功提交后才算完成；否则保留现场、停止。mode=worktree 时不提交。\n" %
+                "finish 成功提交后才算完成；否则保留现场、停止。mode=worktree 时不提交。"
+                "finish 成功且该 Bug 命中规则的 auto_pr=true 或 config AUTO_PR=on 时，再运行 "
+                "python %s create-pr %s --project %s 推送分支并发起 PR；PR 失败不回滚提交，"
+                "如实汇报 PR_STATUS 与原因；未开启时不得擅自 push 或建 PR。\n" %
                 (SKILL_DIR, bug_id, json.dumps(prepared, ensure_ascii=False),
-                 script, bug_id, project, script, bug_id, project, script, bug_id, project, script, bug_id, project))
+                 script, bug_id, project, script, bug_id, project, script, bug_id, project,
+                 script, bug_id, project, script, bug_id, project))
     return UNCERTAIN_CAUSE_PROMPT + ("请使用 zentao-bugfix skill 修复禅道 bug %s。\n"
             "skill 目录：%s（先读其中 SKILL.md 了解完整流程）。\n"
             "%s\n"
@@ -503,6 +514,8 @@ def build_fix_prompt(bug_id, base_branch=None, prepared=None):
             "3) 依据 solution.md 中的方案实施修复（禁止 commit/push）；"
             "4) 运行 report 子命令生成修复报告并补全（待填写）章节；"
             "5) 运行 render-html <bugId> --project . 更新三份对应 HTML，正文必须一致；绑定模式 finish 自动更新含提交结果的 HTML。"
+            "6) 该 Bug 命中规则的 auto_pr=true 或 config AUTO_PR=on 时，运行 create-pr <bugId> --project . 推送分支并创建 PR；"
+            "PR 失败如实说明且不回滚修复提交；未开启时不得自行 push 或建 PR。"
             "全程遵守 SKILL.md 的边界约束，完成后输出根因一句话与报告路径。\n"
             % (bug_id, SKILL_DIR, branch_note,
                SKILL_DIR / "scripts" / "bugfix.py", bug_id, barg))
@@ -655,7 +668,9 @@ def _run_auto_fix(adapter, bug_id, repo, base_branch=None, reuse=False):
         if proc.returncode == 4:
             return {"bug_id": bug_id, "ok": False, "status": "duplicate", "error": "Bug 已处理或仍在处理中"}
         if proc.returncode == 6:
-            return {"bug_id": bug_id, "ok": False, "status": "waiting", "error": proc.stdout.strip() or proc.stderr.strip()}
+            return {"bug_id": bug_id, "ok": False, "status": "waiting",
+                    "error": proc.stdout.strip() or proc.stderr.strip(),
+                    "workspace": rec.get("workspace"), "report_dir": rec.get("report_dir")}
         return dict(rec, bug_id=bug_id, ok=False, error=rec.get("error") or proc.stderr[-1000:], prepare_exit=proc.returncode)
     prepared = _routes.load_record(repo, bug_id)
     if not prepared:
@@ -670,23 +685,43 @@ def _run_auto_fix(adapter, bug_id, repo, base_branch=None, reuse=False):
             # Final refresh is deterministic even if the Agent forgot render-html.
             _routes._reports.render_reports(prepared["report_dir"], require_complete=True)
     except _routes.Busy as exc:
-        return {"bug_id": bug_id, "ok": False, "status": "waiting", "error": str(exc)}
+        return {"bug_id": bug_id, "ok": False, "status": "waiting", "error": str(exc),
+                "workspace": prepared["workspace"], "report_dir": prepared["report_dir"]}
     except (subprocess.TimeoutExpired, RuntimeError) as exc:
         write_log("fix-%s.log" % bug_id, "[ERROR] %s" % exc)
         return {"bug_id": bug_id, "ok": False, "status": "blocked", "error": str(exc), "worktree": prepared["workspace"]}
     v = verify_run(bug_id, repo, prepared["run_id"])
     write_log("fix-%s.log" % bug_id, "[耗时] %.0fs\n[输出末尾]\n%s\n[VERIFY] %s" %
               (time.time() - t0, "\n".join(out.strip().splitlines()[-40:]), json.dumps(v, ensure_ascii=False)))
+    # auto_pr 开启时 create-pr 的结果随结果返回，供通知与汇总展示；
+    # 本次运行曾记录具体失败原因（如验证/提交失败）时优先用他替换泛化描述。
+    rec = _routes.load_record(repo, bug_id) or {}
+    if rec.get("pr"):
+        v["pr_url"] = rec["pr"].get("url") or ""
+        v["pr_status"] = rec["pr"].get("status") or ""
+    if not v["ok"] and not v["awaiting_evidence"] and rec.get("error") and rec.get("run_id") == prepared["run_id"]:
+        v["error"] = str(rec["error"])
     return dict(v, bug_id=bug_id, mode=prepared["mode"], elapsed=int(time.time() - t0),
                 error=(None if v["ok"] else
                        "根因待确认，等待用户补充数据与环境信息；查看分析/方案报告，保留现场与分支锁"
                        if v["awaiting_evidence"] else
-                       "本次 MD/HTML 报告或提交未完成；保留现场与分支锁"))
+                       v.get("error") or "本次 MD/HTML 报告或提交未完成；保留现场与分支锁"))
 
 
 # ---------------------------------------------------------------- 目标解析
 
 NOTICE_PREFIX = "[禅道自动处理结果]"
+
+# 通知用失败原因的凭据打码：password/token/secret/cookie 等键值不外发。
+_NOTICE_REDACT = re.compile(
+    r"(?i)(password|passwd|token|secret|authorization|cookie|api[_-]?key)(\s*[=:：]\s*)(\S+)")
+
+
+def _notice_reason(text, limit=300):
+    """通知用的失败原因：折叠空白、凭据打码并截断；完整日志仍在 .agents/logs/。"""
+    compact = " ".join(str(text or "").split())
+    compact = _NOTICE_REDACT.sub(lambda m: m.group(1) + m.group(2) + "***", compact)
+    return compact[:limit] + ("…" if len(compact) > limit else "")
 
 
 class ResultNotifier:
@@ -770,13 +805,19 @@ class ResultNotifier:
             lines.append("根因尚未确认，已暂停修改，未修复。请查看分析/方案报告中的排查步骤与最小资料清单，"
                          "补充脱敏数据及环境信息后再恢复。")
         elif not result.get("ok"):
-            lines.append("详情请查看启动工作区 .agents/logs/ 下对应 fix 日志。")
+            label = "等待原因" if outcome == "waiting" else "失败原因"
+            reason = _notice_reason(result.get("error"))
+            lines.append(label + "：" + (reason or "详见启动工作区 .agents/logs/ 下对应 fix 日志"))
         elif result.get("mode") == "worktree":
             lines.append("独立 worktree 已完成报告校验，代码未提交，待 review。")
-        for field, title in (("bug_url", "禅道"), ("worktree", "工作区"), ("report_dir", "报告目录"),
-                             ("report_html", "修复 HTML"), ("html_report", "异常 HTML"), ("commit", "提交")):
-            if result.get(field):
-                lines.append(title + "：" + str(result[field]))
+        for field, title in (("bug_url", "禅道"), ("worktree", "修复工作区"), ("workspace", "修复工作区"),
+                             ("report_dir", "报告目录"),
+                             ("report_html", "修复 HTML"), ("html_report", "异常 HTML"), ("commit", "提交"),
+                             ("pr_url", "PR")):
+            value = result.get(field)
+            # worktree 与 workspace 是同一目录的两种记录键，去重后只展示一行。
+            if value and not any(line.startswith(title + "：") for line in lines):
+                lines.append(title + "：" + str(value))
         self.entries[key] = {"recipient": dict(self.recipient), "text": "\n".join(lines), "sent": False}
         self._save()  # Persist before sending, so interruption can be recovered.
         return self._send(key)
