@@ -21,8 +21,9 @@
 5. **预过滤链**：Windows 危险子路径（system32\config、winsxs、boot 等 25+）与
    危险扩展名（.sys/.cat/.drv）扫描期即跳过；desktop.ini/thumbs.db 等标记文件、
    .lnk 快捷方式、被占用的临时文件（预开检测）不列出
-6. **删除前备份**（registry / contextmenu）：注册表自采快照 JSON（含值类型，
-   备份失败整体中止）；右键菜单 reg export .reg；均可一键恢复
+6. **删除/变更前备份**（registry / contextmenu / tweaks）：注册表自采快照 JSON（含值类型，
+   备份失败整体中止）；右键菜单 reg export .reg；tweaks 每项应用前备份旧值/服务/任务/
+   电源状态到独立回滚文件；均可一键恢复
 7. **审计日志**：全部删除/变更写 `%LOCALAPPDATA%\pc-manager\audit.jsonl`
    （时间戳/动作/路径列表），事后可追溯
 
@@ -34,6 +35,7 @@
 | caution | 可能有用的数据（接收文件/视频/回收站） | 默认不勾 | 逐项确认 |
 | danger | 不可逆（Windows.old/更新缓存/转储/驱动/还原点） | 默认不勾+不默认执行 | 用户显式同意 + `-Force` |
 | locked | 聊天记录数据库 | 仅展示体积 | **不可删**（机制锁死） |
+| caution（tweaks 调优项） | 对应 optimizerDuck Moderate 级，改变系统行为但有回滚 | 需用户逐项确认后 apply | revert -Ids 可还原 |
 
 社交缓存锁定扩展名：`.db .db-wal .db-shm .sqlite .sqlite3`（在展开与执行两层
 双保险剔除）。注意 `.dat` 不在锁内——微信/QQ 的加密图片缓存属"图片缓存"可清。
@@ -50,6 +52,11 @@
    （过期会话里的路径可能已变化）
 6. **高危操作二次口播**：执行 danger 级、`-Purge`、驱动删除、还原点删除前，
    最后向用户复述一遍操作对象与后果再执行
+7. **调优白名单**：tweaks.ps1 只接受内置目录 id（不接受任意注册表路径/服务名/任务名），
+   与「会话 id 反查」同一防注入思想；不要尝试绕过目录构造自定义调优
+8. **调优副作用口播**：caution 级调优项（如 priv-telemetry、priv-autologger、
+   ux-updatepause、power-ultimateplan）在展示清单时必须连同 desc 里的副作用
+   （缺诊断日志/暂停安全更新/笔记本续航下降）一起说清楚
 
 ## 4. 各脚本的权限需求
 
@@ -58,7 +65,8 @@
   schedule(创建当前用户任务)/migrate/contextmenu(HKCU 部分)/optimize(status)
 - 需管理员：slim 的系统目录项与 windows_old、registry 删 HKLM 项、drivers 删除、
   pagefile apply、restore 全部变更、optimize 的 trim/defrag/compactos、
-  SMART 可靠性计数器、startup 禁用 HKLM 项
+  SMART 可靠性计数器、startup 禁用 HKLM 项、tweaks 的 HKLM/服务/任务/电源项
+  （脚本逐项标注 need_admin，无权限时如实归入 skipped，其余项照常执行）
 - 脚本不会自动提权（不弹 UAC）：报错引导用户以管理员身份重开终端重试
 
 ## 5. 与 GrClean 的差异点（如实标注）
@@ -70,3 +78,12 @@
 | 并发哈希 | worker_threads 线程池 | 顺序哈希 | PS 5.1 无轻量并发原语；正确性优先，性能以 MinMb 门槛补偿 |
 | 定时清理 | 调自身 exe 静默模式 | schtasks 调 junk.ps1 -Recommended | 等价实现（同为仅 safe 级+回收站） |
 | 注册表读取 | .NET Registry API（80x 快） | provider Cmdlet | 篡改收益在枚举数百键时才显著；扫描结果量级相同 |
+
+## 6. 调优部分与 optimizerDuck 的差异点（如实标注）
+
+| 项 | optimizerDuck | pc-manager tweaks.ps1 | 理由 |
+|---|---|---|---|
+| 服务重整 | 200+ 服务启动类型一次性重整（Risky） | 未移植；安全子集在 optimize.ps1 service-delay | CLI+AI 编排无法逐项复核 200 个服务，误伤面大 |
+| 电源计划 | 内嵌自定义 .pow 资源导入 | powercfg 复制内置「终极性能」计划 | 免二进制资源依赖，等价实现 |
+| 回滚数据 | Revert/{id}.json + 步骤自校验 | tweaks/{id}.json + reg 读回校验 | 同设计；PS 5.1 无 DI/线程锁需求 |
+| 条件判定 | Condition 系统（GPU/Recall 已装等） | os/vendor 字段 + 运行时动态判定 | 目录数据化后判定内联，能力等价 |

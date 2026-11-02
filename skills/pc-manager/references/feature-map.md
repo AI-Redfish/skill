@@ -159,3 +159,19 @@ diff 输出：volumes（各盘 delta）+ dirs（膨胀目录按 delta 降序，i
 ## restore.ps1 还原点 ●
 动作：`list` / `delete-oldest -Count N -Force`（保底留 1 个，逐条删最老）/
 `create -Description '<描述>'`（24h 限 1 个）。
+
+## tweaks.ps1 系统调优 ◐（41 项，每项可回滚；移植自 optimizerDuck）
+| 动作 | 参数 | 输出要点 |
+|---|---|---|
+| list | — | admin/os_build/gpus + tweaks（id,category,name,risk,desc,applicable,need_admin,applied） |
+| apply | `-Ids id1,id2 [-Force]` | applied（id,steps_ok/skipped/failed,state_file）/ skipped（含原因）/ errors |
+| revert | `-Ids id1,id2` | restored（id,steps_restored）/ errors |
+| status | — | 已应用清单（id,name,applied_at,file） |
+
+- 风险：safe 可直接应用；caution 逐项确认；danger 需 -Force（当前目录无 danger 项）
+- apply 前自动备份旧状态（值/类型/服务启动类型/任务状态/休眠/USB 供电/电源计划），
+  备份失败该项中止；回滚数据在 `%LOCALAPPDATA%\pc-manager\tweaks\{id}.json`；
+  已应用（has_state）的项重复 apply 会被跳过，需先 revert
+- 只认内置目录 id，不接受自定义注册表路径/服务名/任务名；显卡项按厂商自动
+  匹配（`Win32_VideoController`），不适用项自动跳过并说明原因
+- 完整 41 项目录与每项改动值见 [optimizerduck-tweaks.md](optimizerduck-tweaks.md)

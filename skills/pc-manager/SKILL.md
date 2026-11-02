@@ -1,16 +1,17 @@
 ---
 name: pc-manager
-description: 电脑管家——Windows 清理与系统优化技能（复刻开源项目 GrClean 的功能设计与实现原理）。当用户想"清理电脑垃圾、给电脑体检、提高健康评分、清理微信/QQ 缓存、C 盘瘦身、找重复文件、找大文件、管理开机启动项、清理注册表、卸载软件及残留、管理右键菜单、查看磁盘 SMART 健康、清理旧驱动、清理回收站、定时自动清理、把大目录迁到其他盘、优化页面文件、管理系统还原点"时使用。内置 21 个安全加固的 PowerShell 脚本：扫描/删除分离、默认移入回收站、危险操作强确认、聊天记录数据库永久锁死、注册表删除前自动备份。
-compatibility: 仅 Windows 10/11；Windows PowerShell 5.1+（系统自带，无需安装）；脚本已带 UTF-8 BOM；部分操作（Windows.old、HKLM 注册表、驱动删除、页面文件、还原点）需管理员权限，脚本会如实报错提示
+description: 电脑管家——Windows 清理与系统优化技能（复刻开源项目 GrClean 的清理设计与 optimizerDuck 的调优目录）。当用户想"清理电脑垃圾、给电脑体检、提高健康评分、清理微信/QQ 缓存、C 盘瘦身、找重复文件、找大文件、管理开机启动项、清理注册表、卸载软件及残留、管理右键菜单、查看磁盘 SMART 健康、清理旧驱动、清理回收站、定时自动清理、把大目录迁到其他盘、优化页面文件、管理系统还原点、关闭遥测/隐私优化、系统性能调优、关闭 Copilot/Recall、显卡延迟优化、关闭快速启动"时使用。内置 24 个安全加固的 PowerShell 脚本：扫描/删除分离、默认移入回收站、危险操作强确认、聊天记录数据库永久锁死、注册表删除前自动备份、调优项应用前自动备份且可逐项回滚。
+compatibility: 仅 Windows 10/11；Windows PowerShell 5.1+（系统自带，无需安装）；脚本已带 UTF-8 BOM；部分操作（Windows.old、HKLM 注册表、驱动删除、页面文件、还原点、系统调优的 HKLM/服务/任务项）需管理员权限，脚本会如实报错提示
 metadata:
   author: AI-Redfish
-  version: "1.0.0"
-  replicated-from: github.com/graent/grclean（源码逆向分析）
+  version: "1.1.0"
+  replicated-from: github.com/graent/grclean（清理部分，源码逆向分析）；github.com/itsfatduck/optimizerDuck（调优目录，GPLv3，参数级移植）
 ---
 
 # pc-manager — Windows 电脑管家（清理 / 优化 / 体检，脚本优先）
 
-用 21 个 PowerShell 脚本复刻开源电脑管家 GrClean 的全部核心功能。
+用 24 个 PowerShell 脚本复刻开源电脑管家 GrClean 的全部核心功能，并移植
+optimizerDuck 的 41 项系统调优（每项应用前自动备份、可逐项回滚）。
 AI 负责：理解需求 → 选模块 → 扫描 → 向用户展示分级清单 → 按确认执行 → 汇报。
 脚本负责：全部确定性操作（扫描、判定、删除、备份、审计）。
 
@@ -38,7 +39,7 @@ AI 负责：理解需求 → 选模块 → 扫描 → 向用户展示分级清�
 3. 说明关键假设、剩余不确定性，以及为什么已达到 95% 信心；
    不确定处明确标注，不假装确定
 
-## 功能与脚本对照（23 项）
+## 功能与脚本对照（24 项）
 
 | 用户诉求 | 脚本 | 只读动作 | 变更动作 |
 |---|---|---|---|
@@ -65,7 +66,10 @@ AI 负责：理解需求 → 选模块 → 扫描 → 向用户展示分级清�
 | 大目录迁移到其他盘 | `migrate.ps1` | list | run / undo（联接回填+失败回滚） |
 | 页面文件优化 | `pagefile.ps1` | info / targets | apply（重启生效） |
 | 系统还原点 | `restore.ps1` | list | delete-oldest / create |
+| 系统调优（遥测/隐私/性能/显卡/电源/体验/AI，41 项可回滚） | `tweaks.ps1` | list / status | apply（先备份）/ revert |
 
+tweaks.ps1 的完整 41 项目录、每项改动值与 optimizerDuck 设计对应关系见
+[references/optimizerduck-tweaks.md](references/optimizerduck-tweaks.md)（按需加载）；
 完整参数表、输出字段与使用细节见
 [references/feature-map.md](references/feature-map.md)（按需加载）。
 
@@ -116,6 +120,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File <skill_dir>/scripts/sysinfo.
 | 扫描范围 | 用户数据目录（user） | 全盘/指定盘需用户点名（-Scope all / -Drive D） |
 | 日志/安装包时间过滤 | 不限（0 天） | 用户说"N 天前/太旧"才加 -MinDays |
 | 体检模式 | 完整体检 | 用户只要快速看一眼用 -Quick（跳过重复哈希） |
+| 调优项风险 | safe 可直接应用；caution 逐项确认 | 用户明确说"全部应用/不用问"才批量 caution 项 |
+| 显卡调优 | 不问用户硬件——list 自动标注 applicable，只挑适用项 | 用户点名某厂商项但机器不适用时，如实说明跳过原因 |
 | 管理员操作 | 尝试后如实报错 | 报错后引导用户提权重试，不静默放弃 |
 
 ## 安全红线（任何情况下不得违反）
@@ -127,8 +133,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File <skill_dir>/scripts/sysinfo.
    目录」——不要用 recycle.ps1 trash 或任何方式删除这些前缀下的内容
 3. **先扫描后删除**：delete 只接受 scan 会话里的 id，不手工构造路径参数
 4. **注册表/右键菜单删除前必先备份**（脚本自动做，备份失败会整体中止——这是
-   预期行为，不要试图跳过备份）
-5. 详见 [references/safety.md](references/safety.md)
+   预期行为，不要试图跳过备份）；tweaks.ps1 应用前同样先备份旧状态，
+   回滚数据存 `%LOCALAPPDATA%\pc-manager\tweaks\`，`revert` 可逐项还原
+5. **调优只认内置目录 id**：tweaks.ps1 不接受调用方传入的注册表路径/服务名/任务名，
+   不要尝试绕过目录构造自定义调优
+6. 详见 [references/safety.md](references/safety.md)
 
 ## 错误处理
 
@@ -195,6 +204,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File <skill_dir>/scripts/sysinfo.
 - 「开机太慢」→ startup.ps1 list → 展示启动项 → 用户选禁用哪些 → disable（可逆）
 - 「最近一个月是谁把 D 盘吃满了」→ snapshot.ps1（无旧快照则 take + 告知一个月后再 diff；
   有则直接 diff）
+- 「电脑后台好吵/总有推荐弹窗，关掉遥测和广告」→ tweaks.ps1 list → 挑 priv-telemetry/
+  priv-ads/priv-cdm → caution 项逐条确认后 apply（自动备份，可 revert）
+- 「这台机器是 AMD 卡，游戏延迟高」→ tweaks.ps1 list → 自动只出现 AMD 适用项 →
+  用户挑后 apply；「后悔了想恢复」→ revert -Ids
 
 ## 不适用场景
 

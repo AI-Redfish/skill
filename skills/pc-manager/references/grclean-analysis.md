@@ -4,7 +4,8 @@
 > 清理优化工具）。分析方法：源码全量精读（src/main/engine 35 个模块 + IPC 面），
 > 原计划用 rea MCP 的 JavaScript 应用图分析，但其 4.1.0 在该仓库上稳定复现内部
 > schema 错误（identity/key too_small），故以源码精读为证据来源——源码可得时本就是
-> 更可靠的一手证据。本报告即 pc-manager 23 项功能的设计与实现原理依据。
+> 更可靠的一手证据。本报告即 pc-manager 清理类 23 项功能（调优项另见
+> optimizerduck-tweaks.md）的设计与实现原理依据。
 
 ## 1. 总体架构
 

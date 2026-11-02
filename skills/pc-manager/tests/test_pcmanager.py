@@ -263,6 +263,80 @@ class TestSysinfo(unittest.TestCase):
         self.assertGreater(parsed['data']['cpu_threads'], 0)
 
 
+class TestTweaks(unittest.TestCase):
+    """tweaks.ps1：只读 list/status + 错误路径；另含一个 HKCU-only 的
+    apply→revert 往返（自动备份+精确还原，与真实回收站用例同级无害）。"""
+
+    def test_list_ok(self):
+        parsed, code, _ = run_ps('tweaks.ps1', ['-Action', 'list'])
+        self.assertEqual(code, 0, msg=str(parsed))
+        self.assertEqual(parsed['status'], 'ok')
+        data = parsed['data']
+        self.assertEqual(data['count'], 41)
+        self.assertTrue(data['os_build'] > 0)
+        tweaks = {t['id']: t for t in data['tweaks']}
+        # 目录完整性：四类代表项存在且字段齐全
+        for tid in ('perf-keyboard', 'priv-telemetry', 'gpu-nv-pstate', 'ux-menus'):
+            self.assertIn(tid, tweaks)
+            self.assertIn(tweaks[tid]['risk'], ('safe', 'caution', 'danger'))
+            self.assertIsInstance(tweaks[tid]['applicable'], bool)
+        # 显卡门控：AMD 项在无 AMD 卡的机器上 applicable=False（有 AMD 卡则跳过断言）
+        vendors = {g['vendor'] for g in data['gpus']}
+        if 'amd' not in vendors:
+            self.assertFalse(tweaks['gpu-amd-ulps']['applicable'])
+            self.assertTrue(tweaks['gpu-amd-ulps']['not_applicable_reason'])
+
+    def test_apply_requires_ids(self):
+        parsed, code, _ = run_ps('tweaks.ps1', ['-Action', 'apply'])
+        self.assertEqual(code, 1)
+        self.assertIn('-Ids', parsed['error'])
+
+    def test_apply_rejects_unknown_id(self):
+        parsed, code, _ = run_ps('tweaks.ps1',
+                                 ['-Action', 'apply', '-Ids', 'not-a-tweak'])
+        self.assertEqual(code, 1)
+        self.assertIn('未知 id', parsed['error'])
+
+    def test_revert_without_state(self):
+        parsed, code, _ = run_ps('tweaks.ps1',
+                                 ['-Action', 'revert', '-Ids', 'ux-menus'])
+        self.assertEqual(code, 0)                          # ok 信封
+        self.assertTrue(any('没有应用记录' in e for e in parsed['data']['errors']))
+
+    def test_hkcu_roundtrip(self):
+        """ux-menus（HKCU-only safe）apply→revert 完全还原原状态。
+        源状态：MenuShowDelay 改为非默认值，Serialize 键不存在；
+        断言 revert 后二者精确复位。"""
+        ps = lambda script: subprocess.run(
+            [PS, '-NoProfile', '-Command', script],
+            capture_output=True, timeout=60)
+        # 造一个非默认源状态，确保备份/还原走的是真实旧值
+        ps("Set-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name MenuShowDelay -Value '350'")
+        try:
+            parsed, code, _ = run_ps('tweaks.ps1', ['-Action', 'apply', '-Ids', 'ux-menus'])
+            self.assertEqual(code, 0, msg=str(parsed))
+            applied = parsed['data']['applied']
+            self.assertEqual(len(applied), 1)
+            self.assertEqual(applied[0]['steps_ok'], 2)
+            self.assertTrue(os.path.exists(applied[0]['state_file']))
+            # 重复 apply 应被跳过（已有应用记录）
+            parsed2, _, _ = run_ps('tweaks.ps1', ['-Action', 'apply', '-Ids', 'ux-menus'])
+            self.assertEqual(len(parsed2['data']['applied']), 0)
+            self.assertIn('已有应用记录', parsed2['data']['skipped'][0]['reason'])
+            # revert 精确还原
+            parsed3, code3, _ = run_ps('tweaks.ps1', ['-Action', 'revert', '-Ids', 'ux-menus'])
+            self.assertEqual(code3, 0, msg=str(parsed3))
+            self.assertEqual(parsed3['data']['restored'][0]['steps_restored'], 2)
+        finally:
+            ps("Set-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name MenuShowDelay -Value '350'")
+            ps("Remove-Item 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Serialize' -Recurse -Force -ErrorAction SilentlyContinue")
+        # 终态：MenuShowDelay=350，临时键已随 revert 清理
+        out = ps("(Get-ItemProperty 'HKCU:\\Control Panel\\Desktop').MenuShowDelay")
+        self.assertEqual(out.stdout.decode().strip(), '350')
+        out2 = ps("Test-Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Serialize'")
+        self.assertEqual(out2.stdout.decode().strip(), 'False')
+
+
 @unittest.skipUnless(os.environ.get('PC_MANAGER_SLOW_TESTS') == '1',
                      '完整体检较慢；设 PC_MANAGER_SLOW_TESTS=1 启用')
 class TestHealthSlow(unittest.TestCase):
