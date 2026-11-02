@@ -124,8 +124,10 @@ def select(project, bug_id, title):
     data = load_document(path)
     exact, fuzzy = [], []
     for rule in data.get("rules", []):
-        if not isinstance(rule, dict) or set(rule) - {"name", "match", "workspace", "target_branch"}:
+        if not isinstance(rule, dict) or set(rule) - {"name", "match", "workspace", "target_branch", "auto_pr"}:
             raise RouteError("无效规则或未知配置字段")
+        if "auto_pr" in rule and not isinstance(rule["auto_pr"], bool):
+            raise RouteError("规则 auto_pr 必须为布尔值 true/false")
         match = rule.get("match")
         if not isinstance(match, dict) or len(match) != 1 or next(iter(match)) not in ("bug_id", "title_contains"):
             raise RouteError("每条规则只能使用 bug_id 或 title_contains 其中一种条件")
@@ -149,6 +151,8 @@ def select(project, bug_id, title):
         return {"mode": "worktree", "reason": "同一优先级规则命中不同目标，回退独立 worktree", "rules": hits}
     return {"mode": "inplace", "workspace": str(workspace_path(hits[0]["workspace"], project)),
             "branch": hits[0]["target_branch"], "rules": hits,
+            # 同目标多条规则的 auto_pr 不一致时，以第一条命中的规则为准（bug_id 优先于标题）。
+            "auto_pr": hits[0].get("auto_pr"),
             "reason": "bug_id 精确匹配" if exact else "标题包含关键字（忽略大小写）"}
 
 
@@ -490,3 +494,233 @@ def _finish(project, bug_id, files, check_command, no_change=False):
     save(record_path(project, bug_id), rec)
     release(rec)
     return rec
+
+
+# ---------------------------------------------------------------- 自动发起 Pull Request
+
+# auto_pr 的 config 级配置键（规则内的 auto_pr 布尔字段优先于 config.AUTO_PR）。
+AUTO_PR_CONFIG_KEYS = ("AUTO_PR", "AUTO_PR_BASE_BRANCH", "AUTO_PR_REMOTE", "AUTO_PR_CMD", "AUTO_PR_DRAFT")
+
+
+def _flag(value):
+    return str(value or "").strip().lower() in ("on", "true", "1", "yes")
+
+
+def _pr_included(name):
+    """PR 提交范围：排除 .agents/ 运行产物与根 AGENTS.md（worktree 环境初始化安装的模板）。"""
+    return not operational(name) and name != "AGENTS.md"
+
+
+def _pr_pending_files(p):
+    """worktree 内待提交的代码变更清单（基于 status --porcelain -z，正确处理重命名）。"""
+    fields = git(p, "status", "--porcelain", "-z", "--untracked-files=all").decode("utf-8", "replace").split("\0")
+    names, i = [], 0
+    while i < len(fields):
+        entry = fields[i]
+        i += 1
+        if len(entry) < 4:
+            continue
+        status, name = entry[:2], entry[3:]
+        if status[0] in "RC" and i < len(fields):
+            i += 1  # 重命名条目后跟随一个表示原始路径的额外 NUL 字段
+        if _pr_included(name):
+            names.append(name)
+    return names
+
+
+def _pr_bug_meta(report):
+    """从报告目录的 bug.md 提取标题与链接（worktree 运行记录不保存标题）。"""
+    title, link = "", ""
+    bug_md = Path(report) / "bug.md"
+    if bug_md.is_file():
+        content = bug_md.read_text(encoding="utf-8", errors="replace")
+        m = re.search(r"\*\*标题\*\*: (.+)", content)
+        if m:
+            title = m.group(1).strip()
+        m = re.search(r"\*\*Bug 链接\*\*: (\S+)", content)
+        if m:
+            link = m.group(1).strip()
+    return title, link
+
+
+def _pr_body(report, bug_id, title, link):
+    lines = ["## 关联 Bug", "", "- #%s %s" % (bug_id, title or "-")]
+    if link:
+        lines.append("- 链接：%s" % link)
+    fix = (Path(report) / "fix-report.md") if report else None
+    content = re.sub(r"\n{3,}", "\n\n", fix.read_text(encoding="utf-8", errors="replace")).strip() if fix and fix.is_file() else ""
+    if content:
+        lines += ["", "## 修复报告（节选）", "", content[:3500]]
+    return "\n".join(lines) + "\n"
+
+
+def _pr_backend_command(p, cfg, remote, head, base, title, body_path, body_text, draft):
+    """确定创建 PR 的命令：AUTO_PR_CMD 模板 > GitHub 远程用 gh > GitLab 远程用 glab。"""
+    tmpl = str(cfg.get("AUTO_PR_CMD", "") or "").strip()
+    if tmpl:
+        filled = tmpl
+        for key, value in (("{head}", head), ("{base}", base or ""), ("{title}", title),
+                           ("{body_file}", body_path), ("{body}", body_text),
+                           ("{remote}", remote), ("{draft}", "--draft" if draft else "")):
+            filled = filled.replace(key, value)
+        cmd = shlex.split(filled, posix=os.name != "nt")
+        if os.name == "nt":
+            cmd = [arg[1:-1] if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in "\"'" else arg for arg in cmd]
+        if cmd:
+            return cmd, "custom"
+    try:
+        url = text(p, "remote", "get-url", remote).lower()
+    except RouteError:
+        url = ""
+    if "github" in url and shutil.which("gh"):
+        cmd = ["gh", "pr", "create", "--title", title, "--body-file", body_path, "--head", head]
+        if base:
+            cmd += ["--base", base]
+        if draft:
+            cmd.append("--draft")
+        return cmd, "gh"
+    if "gitlab" in url and shutil.which("glab"):
+        cmd = ["glab", "mr", "create", "--title", title, "--description", body_text, "--source-branch", head]
+        if base:
+            cmd += ["--target-branch", base]
+        if draft:
+            cmd.append("--draft")
+        return cmd, "glab"
+    raise RouteError("无法确定 PR 创建方式：远程不是 GitHub/GitLab 或未安装 gh/glab；"
+                     "其他平台请配置 config AUTO_PR_CMD 命令模板"
+                     "（占位符 {head} {base} {title} {body} {body_file} {remote} {draft}）")
+
+
+def create_pr(project, bug_id, force=False, base=None, dry_run=False, title_override=None):
+    """修复完成后推送分支并创建 PR（规则 auto_pr 或 config AUTO_PR 开启时）。
+
+    - inplace：要求该 Bug 已 finish 成功提交；推送绑定分支并从其向目标分支发起 PR；
+    - worktree：先把全部代码变更（不含 .agents/ 与根 AGENTS.md）以标准提交信息
+      提交到修复分支，再推送 bugfix 分支并发起 PR；
+    - 永不 force push、不改禅道状态；PR 失败不回滚已产生的修复提交。
+    """
+    rec = load_record(project, bug_id)
+    if not rec:
+        raise RouteError("先执行 prepare")
+    if rec.get("pr") and rec["pr"].get("url") and not force:
+        return dict(rec["pr"], status="exists")
+    route = rec.get("route") if isinstance(rec.get("route"), dict) else {}
+    try:
+        cfg = load_config(config_path(project))
+    except (RouteError, OSError, ValueError):
+        cfg = {}
+    # 生效优先级：命中规则的 auto_pr 布尔值 > config.AUTO_PR（默认关闭）。
+    explicit = route.get("auto_pr")
+    enabled = explicit if isinstance(explicit, bool) else _flag(cfg.get("AUTO_PR"))
+    if not force and not enabled:
+        raise RouteError("auto_pr 未开启：命中规则的 auto_pr 与 config AUTO_PR 都未启用；"
+                         "确认要发起 PR 时用 --force")
+    mode = rec.get("mode")
+    report = Path(rec["report_dir"]) if rec.get("report_dir") else None
+    if mode == "inplace":
+        if rec.get("status") != "committed" or not rec.get("commit"):
+            raise RouteError("绑定模式需先成功 finish 提交，才能发起 PR")
+        p = validate_workspace(route)
+        branch = rec.get("branch") or route.get("branch", "")
+        commit = rec["commit"]
+        pending = []
+    elif mode == "worktree":
+        p = Path(rec.get("workspace") or "")
+        if not p.is_dir() or text(p, "rev-parse", "--is-inside-work-tree") != "true":
+            raise RouteError("worktree 不可用: %s" % p)
+        branch = rec.get("branch") or text(p, "branch", "--show-current")
+        pending = _pr_pending_files(p)
+        if not dry_run and not pending:
+            raise RouteError("worktree 没有待提交的代码变更（.agents/ 与根 AGENTS.md 不参与提交）；先完成修复")
+        commit = text(p, "rev-parse", "HEAD")
+    else:
+        raise RouteError("未知运行模式，无法创建 PR")
+    # PR 正文取自修复报告；报告必须完整（与 finish 同一门槛），--force 可人工确认跳过。
+    if report and not dry_run and not force:
+        for name in ("analysis.md", "solution.md", "fix-report.md"):
+            doc = report / name
+            content = doc.read_text(encoding="utf-8", errors="replace") if doc.is_file() else ""
+            if not content.strip() or "（待填写" in content:
+                raise RouteError(name + " 尚未完整落盘；先补全报告再发起 PR（--force 可跳过检查）")
+    title, link = _pr_bug_meta(report) if report else ("", "")
+    short_title = title.replace("\n", " ").replace("\r", " ")[:150]
+    pr_title = title_override or "fix(zentao): 修复 Bug #%s %s" % (bug_id, short_title)
+    remote = str(cfg.get("AUTO_PR_REMOTE", "") or "").strip()
+    if not remote:
+        remotes = [l.strip() for l in text(p, "remote").splitlines() if l.strip()]
+        if not remotes:
+            raise RouteError("仓库未配置 git remote，无法推送分支创建 PR")
+        remote = "origin" if "origin" in remotes else remotes[0]
+    pr_base = (base or str(cfg.get("AUTO_PR_BASE_BRANCH", "") or "").strip()) or ""
+    draft = _flag(cfg.get("AUTO_PR_DRAFT"))
+    body = _pr_body(report, bug_id, title, link) if report else ""
+
+    if dry_run:
+        # 只展示将执行的命令，不提交、不推送、不创建。
+        fd, body_path = tempfile.mkstemp(suffix=".md")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(body)
+            cmd, backend = _pr_backend_command(p, cfg, remote, branch, pr_base, pr_title, body_path, body, draft)
+        finally:
+            Path(body_path).unlink(missing_ok=True)
+        return {"status": "dry_run", "backend": backend, "command": cmd, "head": branch,
+                "base": pr_base, "remote": remote, "commit": commit,
+                "pending_files": len(pending), "draft": draft}
+
+    if mode == "worktree":
+        try:
+            git(p, "add", "--", *pending)
+            git(p, "commit", "-m", "fix(zentao): 修复 Bug #%s %s" % (bug_id, short_title))
+        except RouteError as exc:
+            raise RouteError("worktree 提交失败：%s；请检查 git 用户配置与现场后重试" % str(exc)[:300])
+        commit = text(p, "rev-parse", "HEAD")
+    try:
+        git(p, "push", remote, branch)
+    except RouteError as exc:
+        raise RouteError("推送 %s %s 失败：%s；远端可能有新提交——不要 force push，"
+                         "先人工同步分支再重试 create-pr" % (remote, branch, str(exc)[:300]))
+
+    fd, body_path = tempfile.mkstemp(suffix=".md")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(body)
+        cmd, backend = _pr_backend_command(p, cfg, remote, branch, pr_base, pr_title, body_path, body, draft)
+        proc = subprocess.run(cmd, cwd=str(p), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              creationflags=0x08000000 if os.name == "nt" else 0)
+    finally:
+        Path(body_path).unlink(missing_ok=True)
+    output = proc.stdout.decode("utf-8", "replace")
+    if proc.returncode:
+        if "already exists" in output.lower():
+            return {"status": "exists", "backend": backend, "head": branch, "base": pr_base,
+                    "remote": remote, "commit": commit, "note": "该分支已有 PR，未重复创建"}
+        return {"status": "failed", "backend": backend, "error": output.strip()[-800:],
+                "head": branch, "base": pr_base, "remote": remote, "commit": commit,
+                "note": "PR 未创建；修复提交不受影响，处理后可重跑 create-pr"}
+    url = ""
+    m = re.search(r"https?://[^\s\"'<>()]+", output)
+    if m:
+        url = m.group(0)
+    tail = url.rstrip("/").rsplit("/", 1)[-1]
+    result = {"status": "created", "backend": backend, "url": url,
+              "number": tail if tail.isdigit() else "", "head": branch, "base": pr_base,
+              "remote": remote, "commit": commit, "draft": draft}
+    rec["pr"] = result
+    if report and report.is_dir():
+        try:
+            meta_file = report / "meta.json"
+            meta = read(meta_file) if meta_file.is_file() else {}
+            meta["pr"] = result
+            save(meta_file, meta)
+            with (report / "fix-report.md").open("a", encoding="utf-8") as f:
+                f.write("\n\n## Pull Request\n\n状态：已发起（%s）\n\nPR 链接：%s\n\n分支：`%s` → `%s`（远程 %s，提交 `%s`）\n"
+                        % (backend, url or "（未解析到链接，请在平台上查看）", branch,
+                           pr_base or "平台默认分支", remote, commit))
+            rec["html_reports"] = _reports.render_reports(report, require_complete=not force)
+            meta["html_reports"] = rec["html_reports"]
+            save(meta_file, meta)
+        except (OSError, ValueError) as exc:
+            result = dict(result, note="PR 已创建，但报告/meta 更新失败：%s" % str(exc)[:200])
+    save(record_path(project, bug_id), rec)
+    return result

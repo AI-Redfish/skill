@@ -1,10 +1,10 @@
 ---
 name: git-flow
-description: 基于指定远程分支创建 git worktree 并行开发工作区（同级目录、目录名=分支名中"/"换"_"）。当用户说"帮我新建一个 worktree"、"基于分支 xx 拉一个 worktree"、"从 dev/vx.x.x 拉个工作区/工作空间"、"创建分支工作区并新建分支"、"新开一个工作空间开发 xx 功能"时使用本 skill。不处理 worktree 删除/清理、当前工作区内切分支、跨分支合并与提交流程。
+description: 基于指定远程分支创建 git worktree 并行开发工作区（同级目录、目录名=分支名中"/"换"_"），并支持安全删除已确认的 worktree、工作目录与对应本地分支。当用户说"帮我新建一个 worktree"、"基于分支 xx 拉一个 worktree"、"从 dev/vx.x.x 拉个工作区/工作空间"、"创建分支工作区并新建分支"、"新开一个工作空间开发 xx 功能"、"删除/清理这些 worktree 和对应分支"时使用本 skill。不处理当前工作区内切分支、跨分支合并与提交流程。
 compatibility: Python 3.9+ 纯标准库（python/python3 直跑，零安装）；需 git ≥2.20；支持 Linux/macOS/Windows 与 WSL（自动转换 /mnt/<盘> 与盘符路径）。
 metadata:
   author: AI-Redfish
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # git-flow — 基于远程分支一键创建同级 worktree 并行开发
@@ -43,8 +43,9 @@ metadata:
    （脚本内含全部守卫与恢复逻辑）：
    `python3 <skill_dir>/scripts/worktree_create.py --repo <主仓库> --base <基分支> --branch <新分支> [--dry-run] [--fetch] [--reuse-branch]`
 5. 新建worktree必须使用真实Git管理目录将 `.git` 的 `gitdir:` 和管理目录中的 `gitdir` 回指针写为相对路径，统一 `/` 分隔符；创建脚本自动处理，不按目录名猜测管理目录。Linux/macOS单环境也使用相对路径；Windows/WSL共用时须在同一Windows盘，跨盘或仅WSL可访问的布局不得声称双环境兼容。
-6. 禁止执行任何删除类操作（`git worktree remove`、`git branch -D`、rm 目录），
-   恢复场景中涉及删除的一律先向用户确认
+6. 删除类操作（`git worktree remove`、`git branch -d`、rm 残留目录）只能通过
+   下方「worktree 删除/清理工作流」执行：先校验未提交/未合并，再经用户确认；
+   分支删除只用安全删除 `-d`，禁止 `-D`；恢复场景中涉及删除的一律先向用户确认
 7. 新需求分支必须使用 `版本/feature/姓名简称-需求描述-时间` 格式；
    具体字段与缺失处理遵循下方「分支命名约束」，不得只建议 `版本/feature/需求描述`。
 
@@ -94,6 +95,22 @@ metadata:
 Windows创建后需要WSL使用时，从WSL再运行只读检查；Windows脚本不自动启动WSL发行版。
 IDEA不显示Git时先验证IDE使用的Git，再检查Directory Mappings；不把IDE配置文件自动加入每个新工作区。
 
+## worktree 删除/清理工作流（用户明确要求删除时）
+
+1. **确认映射**：`git worktree list` 确认目录 ↔ 分支对应关系，不按目录名猜
+   （`_` 可能对应多个 `/`，以 list 输出为准）
+2. **删除前校验**（逐个 worktree，任一命中即停下向用户报告，等确认）：
+   - `git -C <worktree> status --porcelain` 非空 → 有未提交/未跟踪修改
+   - `git -C <worktree> log --oneline origin/<基分支>..HEAD` 非空 → 有未合并提交
+   - 基分支不确定时用仓库主开发分支（如 `origin/release`、`origin/dev`）核对
+3. **移除 worktree**：`git worktree remove <路径>`；报 `Directory not empty`
+   → 残留的是被忽略文件（见 troubleshooting 第 9 节），确认无未提交代码后
+   `git worktree prune` 再删除残留目录
+4. **删除本地分支**：`git branch -d <分支>`；被 git 拒绝即有未合并提交
+   → 停下报告，禁止改用 `-D`
+5. **汇报**：`git worktree list` 确认清理结果 + 逐条列出已删分支；
+   默认只删本地分支，远程 `origin/*` 分支需用户明确要求才删
+
 ## 参数决策指南
 
 | 决策点 | 默认 | 说明 |
@@ -133,6 +150,9 @@ IDEA不显示Git时先验证IDE使用的Git，再检查Directory Mappings；不�
    此时**不要**重新 `-b` 建分支，直接用 `--reuse-branch` 复用残留分支
 4. **WSL 路径双轨**：命令参数与Python宿主系统一致，不能把WSL绝对路径写入Windows IDE要读取的Git指针；命令里用 `/mnt/d/...`，对用户汇报用 `D:\...`；
    脚本 JSON 已同时输出两种格式（`worktree_path` / `worktree_path_windows`）
+5. **Directory not empty**：`git worktree remove` 可能报此错——目录含被忽略文件
+   （logs/构建产物/IDE 配置），git 只清理受控文件且登记可能已先被移除；
+   先校验无未提交代码，再 `prune` + 删残留目录，详见 troubleshooting 第 9 节
 
 ## 输出规范
 
@@ -183,12 +203,11 @@ IDEA不显示Git时先验证IDE使用的Git，再检查Directory Mappings；不�
   → 名称缺少姓名简称和时间；先问姓名简称，再确认日期及完整名称，不直接创建
 - 「新开个空间开发共享租约功能」→ 缺基分支与新分支名，理解闭环先问：
   「基于哪个分支创建？」（一次只问这一个）
-- 「帮我把这个 worktree 删掉」→ 不适用场景，说明后引导用户使用
-  `git worktree remove`（需用户自行确认）
+- 「帮我把这个 worktree 删掉」「删除这些 worktree 和对应分支」→ 走
+  「worktree 删除/清理工作流」：先校验未提交/未合并，确认后删除
 
 ## 不适用场景
 
-- worktree 删除/清理（`git worktree remove|prune`）与分支删除
 - 在当前工作区内切换/新建分支（`git checkout -b`/`git switch -c`）
 - 跨 worktree 合并、rebase、提交 MR/PR 的流程编排
 - 子模块批量更新、仓库迁移、bare 仓库管理

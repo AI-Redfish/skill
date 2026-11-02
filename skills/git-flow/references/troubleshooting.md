@@ -96,3 +96,22 @@ IDEA还需 Settings → Version Control → Git 的执行路径正确，以及 D
 | 13,437 文件仓库全量检出（WSL /mnt/d） | ≈6 分钟 | 超时 ≥900s |
 | 同仓库在原生 ext4（WSL 内） | 显著更快 | 可考虑仓库放 WSL 内置盘 |
 | sparse-checkout 需求 | — | 用户明确要求时另行处理，skill 默认全量 |
+
+## 9. 删除 worktree 报 Directory not empty
+
+**症状**：`git worktree remove <路径>` 报
+`error: failed to delete '...': Directory not empty`；且 git 登记可能已被先移除，
+再次 remove 报 `<路径> is not a working tree`。
+
+**原因**：目录含被忽略文件（logs/、zzlogs/、target/、.idea/ 等），
+git 只清理受控文件，不替用户删忽略文件。
+
+**处理**（实测路径，2026-10 批量清理 7 个 worktree 验证）：
+```bash
+git -C <worktree> status --porcelain   # 必须为空（无未提交/未跟踪）才继续
+ls -A <worktree>                       # 向用户展示残留内容确认性质
+git worktree prune                     # 清理悬空登记（若已报 is not a working tree）
+rm -rf <worktree>                      # 删除残留目录（用户确认后）
+git branch -d <分支>                   # 安全删除；被拒绝即有未合并提交，禁止 -D
+```
+校验非空或 `-d` 被拒绝时停下报告用户，不得强删。

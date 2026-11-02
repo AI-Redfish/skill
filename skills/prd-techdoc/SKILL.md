@@ -3,7 +3,7 @@ name: prd-techdoc
 description: "Use when the user wants to turn a PRD, prototype HTML, interaction draft, or product requirement into concise, implementation-ready backend technical documentation such as ER diagrams, MySQL incremental SQL, API lists, business flowcharts, data flowcharts, or incremental dictionaries, especially when the output must follow an existing backend/frontend code style. The only required input is at least one of PRD (markdown) or prototype (HTML); having both is best. This self-contained skill has no hard runtime dependencies: MCP services, host subagent tools, and mmdc are replaced by bundled local Python scripts under scripts/ (mermaid lint/render, doc structure checks, MySQL schema check via pymysql), with dependencies managed by uv for isolation, and optional environment settings stored in .agents/.env of the runtime working directory. It also supports integrating/improving existing tech docs and fact-checking a produced doc against the PRD/prototype."
 metadata:
   author: AI-Redfish
-  version: "1.3.0"
+  version: "1.3.1"
 ---
 
 # PRD 转后端开发文档
@@ -204,7 +204,7 @@ WSL/Windows 环境补充（实测有效）：
 
 段落顺序约束（按“技术内容先行、接口与字典收尾”固定，正文各 H2/H3 沿用当前技术文档的既有段落顺序，不要重新排版）：
 - 前置：`ER图` → `增量SQL`
-- `增量SQL` 内部：只放 MySQL 增量 DDL（建表/变更/迁移）；本次无 DDL 变更时写明“无 DDL 变更”，不放代码块。代码块（如有）后固定新增二级段落 `流程引擎实体与状态机实现边界`，然后才进入 `业务流程图`；该段不新增一级标题。
+- `增量SQL` 内部：只放 MySQL 增量 DDL 与必要初始化数据（建表/变更/迁移/初始化）；本次无 DDL 变更且无初始化数据时写明“无 DDL 变更”，不放代码块。代码块（如有）后固定新增二级段落 `流程引擎实体与状态机实现边界`，然后才进入 `业务流程图`；该段不新增一级标题。
 - `增量SQL` 不放业务/取数查询 SQL（尤其多表 join 的取数实现）：取数逻辑写到 `数据流转图` 与接口备注里，按 service 分步批量查询描述，每步为单表加 `IN` 条件的简单查询。
 - 中置：`业务流程图` → `数据流转图`
 - 收尾：`接口清单` → `增量字典`（在全文最后；`增量字典` 内部按其既有小节顺序排列，“口径裁决与范围声明”作为其末尾段或文末追加）
@@ -276,7 +276,7 @@ WSL/Windows 环境补充（实测有效）：
 - ER图只保留 Mermaid `erDiagram`，不要附加文字说明
 - ER图必须包含实体名称和字段，不允许只画实体关系线；只标注主键 `PK`（含复合主键）与“复用外部表”，不标注业务唯一键（唯一性由服务层保证）
 - 增量SQL只提供 MySQL 语法；不生成、不讨论、不预留其他数据库方言
-- 增量SQL章节只放 MySQL 增量 DDL；代码块（如有）后唯一允许的说明性内容是固定二级段落 `流程引擎实体与状态机实现边界`，不得把该段写入 SQL 注释、业务流程章节或新增一级标题
+- 增量SQL章节只放 MySQL 增量 DDL 与必要初始化数据；初始化 `INSERT` 按注释约定标注“存量迁移，非新库脚本”，属字典中心/权限管理等界面维护的归入文末上线前验证项；代码块（如有）后唯一允许的说明性内容是固定二级段落 `流程引擎实体与状态机实现边界`，不得把该段写入 SQL 注释、业务流程章节或新增一级标题
 - 增量SQL章节不得出现业务/取数查询 SQL（尤其是多表 join 的取数实现）：取数实现属 service 职责，在 `数据流转图` 的链路说明与接口备注中按“分步单表查询 + `IN` 条件”描述，不贴实现 SQL
 - `流程引擎实体与状态机实现边界` 必须逐实体分类为：流程引擎、业务状态机、流程引擎+业务状态机、联动投影/外部复用；至少列明实体、实现方式、流程引擎职责、状态机/联动职责、关键字段或约束
 - 只有 PRD/原型明确存在审批、会签、撤回、驳回、终止等流程生命周期的实体才接流程引擎；不能因实体存在 `status` 字段就默认创建流程实例
@@ -394,7 +394,7 @@ WSL/Windows 环境补充（实测有效）：
 - 涉及状态对象时，每个实体状态机使用独立二级标题与独立 `stateDiagram`，图后紧跟关键补充说明；实体间联动触发按链路分段成图
 - ER图章节只有图，不带额外说明文字
 - ER图中的每个实体都必须展示实体名称和核心字段
-- 增量SQL章节只给 MySQL 增量 DDL（无变更时写“无 DDL 变更”）；代码块（如有）后必须紧跟二级段落 `流程引擎实体与状态机实现边界`，除此之外不附加说明；新增/变更表只保留主键，不夹带外键、唯一键或其他索引（若调用方另行要求 DB 级唯一/幂等兜底，按调用方确认后在“口径裁决与范围声明”段记录）
+- 增量SQL章节只给 MySQL 增量 DDL 与必要初始化数据（无变更且无初始化数据时写“无 DDL 变更”）；代码块（如有）后必须紧跟二级段落 `流程引擎实体与状态机实现边界`，除此之外不附加说明；新增/变更表只保留主键，不夹带外键、唯一键或其他索引（若调用方另行要求 DB 级唯一/幂等兜底，按调用方确认后在“口径裁决与范围声明”段记录）
 - 增量SQL章节不出现业务查询 SQL；取数由 service 分步批量查询实现，多表 join 的取数写法属 P1
 - `流程引擎实体与状态机实现边界` 覆盖全部有状态实体，并明确审批开启/关闭、流程实例创建、流程回调交接、纯状态机、联动投影与外部复用边界；不得把普通业务状态对象误写为流程实例
 - 增量SQL中每张表有表级 COMMENT，每个业务字段有列级 COMMENT（主键与审计字段除外）

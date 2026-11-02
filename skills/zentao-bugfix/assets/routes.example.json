@@ -15,20 +15,27 @@
     "POLL_INTERVAL_SECONDS": "20",
     "POLL_LOOKBACK_MINUTES": "10",
     "POLL_MAX_CATCHUP_MINUTES": "60",
-    "LISTEN_AUTOSTART": "on"
+    "LISTEN_AUTOSTART": "on",
+    "AUTO_PR": "off",
+    "AUTO_PR_BASE_BRANCH": "",
+    "AUTO_PR_REMOTE": "",
+    "AUTO_PR_CMD": "",
+    "AUTO_PR_DRAFT": "off"
   },
   "rules": [
     {
       "name": "指定 Bug",
       "match": {"bug_id": "12345"},
       "workspace": "D:/projects/order-service",
-      "target_branch": "feature/order"
+      "target_branch": "feature/order",
+      "auto_pr": true
     },
     {
       "name": "订单改造测试",
       "match": {"title_contains": "订单改造"},
       "workspace": "D:/projects/order-service",
-      "target_branch": "feature/order"
+      "target_branch": "feature/order",
+      "auto_pr": false
     }
   ]
 }

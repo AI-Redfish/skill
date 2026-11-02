@@ -23,6 +23,10 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
     WT_INIT_PROMPT_REPO / WT_INIT_PROMPT_DIR
                                                   新建 worktree 的 AI 环境初始化来源
                                                   （可选，均有内置默认值，见下方说明）
+    AUTO_PR / AUTO_PR_BASE_BRANCH / AUTO_PR_REMOTE /
+    AUTO_PR_CMD / AUTO_PR_DRAFT                  修复后自动发起 PR 的全局默认值
+                                                  （可选；规则内布尔字段 auto_pr 优先，
+                                                  详见 create-pr 子命令与 references/routing.md）
 
 子命令（一次调用完成尽量多的事情）：
     config-status [--project DIR]                 检查配置，输出 JSON
@@ -53,6 +57,16 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
                                                   校验 analysis.md / solution.md 完成
                                                   度并输出 ANALYSIS_INCOMPLETE /
                                                   SOLUTION_INCOMPLETE 字段
+    create-pr <bugId> [--project DIR] [--base B]
+              [--title T] [--force] [--dry-run]   修复完成后推送分支并创建 PR；
+                                                  是否自动发起由 routes.json 决定：
+                                                  规则内 auto_pr 布尔值（按 workspace
+                                                  逐规则配置）优先，否则看 config
+                                                  AUTO_PR（on/off，默认 off）。
+                                                  inplace 要求已 finish 提交；worktree
+                                                  先提交代码变更（不含 .agents/ 与根
+                                                  AGENTS.md）再推送 bugfix 分支；
+                                                  永不 force push，PR 失败不回滚提交
     download-image <url> <dest> [--cookie SID]    内部使用：下载附件图片
 
 关键策略：
@@ -83,11 +97,12 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
       修复，输出并标注 INIT_STATUS=degraded，报告说明降级原因；--reuse 复用、
       绑定（inplace）模式不初始化。
 
-返回码：0 成功；2 配置/参数错误；3 bug 获取或 worktree 创建失败；
+返回码：0 成功；1 create-pr 失败（PR 未创建，修复提交不受影响）；
+       2 配置/参数错误；3 bug 获取或 worktree 创建失败；
        4 该 bugId 已存在 worktree/修复分支（防重复处理，需人工决策）；
        5 远端基准分支合并失败/冲突（已自动 git merge --abort，worktree 保持
        干净，人工决策后续）；6 分支/工作区占用等待；7 工作区异常 HTML；
-       8 分析封存、验证或提交失败，保留锁暂停。
+       8 分析封存、验证、提交或 create-pr 前置条件失败，保留锁/现场。
 """
 import argparse
 import html as html_mod
@@ -1370,13 +1385,14 @@ def cmd_save_config(args):
         log("ERROR: 至少提供一个 KEY=VALUE")
         return 2
     updates = {}
+    allowed = REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH", FRONTEND_KEY] + list(_routes.AUTO_PR_CONFIG_KEYS)
     for p in args.pairs:
         if "=" not in p:
             log("ERROR: 参数格式错误（应为 KEY=VALUE）: %s" % p)
             return 2
         k, v = p.split("=", 1)
-        if k not in REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH", FRONTEND_KEY]:
-            log("ERROR: 未知配置项 %s（允许: %s）" % (k, ", ".join(REQUIRED_KEYS + ["BUGFIX_BASE_BRANCH", FRONTEND_KEY])))
+        if k not in allowed:
+            log("ERROR: 未知配置项 %s（允许: %s）" % (k, ", ".join(allowed)))
             return 2
         updates[k] = v.strip()
     config_path, _ = load_config(args.project)
@@ -1748,6 +1764,37 @@ def cmd_finish(args):
         return 8
 
 
+def cmd_create_pr(args):
+    """修复完成后按配置推送分支并创建 PR（auto_pr 开启时）；输出 PR_STATUS 契约。"""
+    require_bug_id(args.bug_id)
+    try:
+        result = _routes.create_pr(args.project, args.bug_id, force=args.force,
+                                   base=args.base, dry_run=args.dry_run,
+                                   title_override=args.title)
+    except (_routes.RouteError, OSError, ValueError) as exc:
+        log("ERROR: %s" % exc)
+        return 8
+    print("PR_STATUS=%s" % result.get("status"))
+    print("PR_BACKEND=%s" % result.get("backend", ""))
+    if result.get("url"):
+        print("PR_URL=%s" % result["url"])
+    if result.get("number"):
+        print("PR_NUMBER=%s" % result["number"])
+    print("PR_HEAD=%s" % result.get("head", ""))
+    print("PR_BASE=%s" % (result.get("base") or "(平台默认分支)"))
+    print("PR_REMOTE=%s" % result.get("remote", ""))
+    print("COMMIT=%s" % result.get("commit", ""))
+    if result.get("status") == "dry_run":
+        print("PENDING_FILES=%s" % result.get("pending_files", 0))
+    if result.get("error"):
+        log("ERROR: %s" % result["error"])
+        return 1
+    if result.get("note"):
+        log("[note] %s" % result["note"])
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_download_image(args):
     opener = build_opener(with_cookie=True)
     base_url = normalize_base_url(args.url.split("/file-read-")[0] if "/file-read-" in args.url else args.url)
@@ -1831,6 +1878,15 @@ def main():
     p.add_argument("--project", default=".")
     p.add_argument("--force", action="store_true", help="覆盖已有 fix-report.md")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("create-pr", help="修复完成后推送分支并创建 PR（规则 auto_pr 或 config AUTO_PR 开启时）")
+    p.add_argument("bug_id")
+    p.add_argument("--project", default=".")
+    p.add_argument("--base", default=None, help="PR 目标分支（默认 AUTO_PR_BASE_BRANCH 或平台默认分支）")
+    p.add_argument("--title", default=None, help="覆盖 PR 标题")
+    p.add_argument("--force", action="store_true", help="跳过 auto_pr 开关与报告完整性检查，人工确认后强制发起")
+    p.add_argument("--dry-run", action="store_true", help="只输出将执行的命令，不提交、不推送、不创建")
+    p.set_defaults(func=cmd_create_pr)
 
     p = sub.add_parser("download-image", help="下载附件图片")
     p.add_argument("url")
