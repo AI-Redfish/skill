@@ -4,11 +4,13 @@ description: 基于 anthropics skill-creator 的增强版 Skill 创建器（元�
 compatibility: 脚本为 Python 3.9+ 纯标准库（python 直跑或 uv run 均可）；首次使用需网络安装依赖 skill（git clone 优先，备选 stdlib 下载 zip、npx skills add），安装到 <工作目录>/.agents/skills/skill-creator；可选环境变量 SKILL_CREATOR_PLUS_DEP_PATH 指定本地已有副本实现离线。
 metadata:
   author: AI-Redfish
-  version: "1.3.0"
+  version: "1.3.1"
   depends-on: anthropics/skills 的 skill-creator
 ---
 
 # skill-creator-plus — 带强制门禁的增强版 Skill 创建器
+
+> 来源：本地副本复制自 `D:\develop\GitNote\AI-Redfish\skill\skills\skill-creator-plus`，上游 https://github.com/AI-Redfish/skill ，2026-11-03 经 skillguard 扫描后安装。
 
 帮用户**设计、编写、评审、测试、出报告、交付**一个新 skill。本 skill 是
 anthropics skill-creator 的增强层，不是替代品：
@@ -257,6 +259,7 @@ uv run <skill_dir>/scripts/gen_test_report.py --workspace <workspace> \
 | gate.py 拒绝操作（退出码 2） | 读输出的 `allowed`/`hint`，按状态机走，不要绕过 |
 | 官方脚本被拒（缺 PyYAML 等） | 改用 `uv run --with pyyaml python -m scripts.xxx`（见 dependency.md） |
 | 用户拒绝提供环境信息 | 按 5.2 降级，报告标注未验证范围 |
+| `UnicodeDecodeError: gbk` / 子进程 stdout 为 None / 中文乱码 | Windows 编码坑，按 [references/windows-encoding.md](references/windows-encoding.md) 修复（首选 PYTHONUTF8=1） |
 | generate_review 提示 No runs found | 检查 workspace 是否有 `outputs/` 目录布局（testing-guide.md） |
 
 ## 输出规范

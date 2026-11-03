@@ -25,7 +25,7 @@ metadata:
 | [architecture-and-dependency.md](references/architecture-and-dependency.md) | 新增模块、改 POM 依赖、循环依赖治理 |
 | [gitflow-and-commit.md](references/gitflow-and-commit.md) | 分支/提交/合并单 commit/push |
 | [testing-and-verification.md](references/testing-and-verification.md) | 写测试、跑验证、联调与 E2E 要点 |
-| [interface-handover-doc.md](references/interface-handover-doc.md) | 交付阶段生成页面分组接口文档（接口依赖与字段取值映射、字典关联、自动化凭证） |
+| [interface-handover-doc.md](references/interface-handover-doc.md) | 交付阶段生成页面分组接口文档，双模式：A 开发对接向（完整参数表/状态标注/派生枚举/双端覆盖，提给前端人工对接）、B 自动化凭证向（接口依赖与字段取值映射、字典关联，供测试脚本）；含前端 api.js 实证与死代码/路径不一致标注 |
 
 ---
 
