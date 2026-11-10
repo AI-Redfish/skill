@@ -3,7 +3,7 @@ name: prd-techdoc
 description: "Use when the user wants to turn a PRD, prototype HTML, interaction draft, or product requirement into concise, implementation-ready backend technical documentation such as ER diagrams, MySQL incremental SQL, API lists, business flowcharts, data flowcharts, or incremental dictionaries, especially when the output must follow an existing backend/frontend code style. The only required input is at least one of PRD (markdown) or prototype (HTML); having both is best. This self-contained skill has no hard runtime dependencies: MCP services, host subagent tools, and mmdc are replaced by bundled local Python scripts under scripts/ (mermaid lint/render, doc structure checks, MySQL schema check via pymysql), with dependencies managed by uv for isolation, and optional environment settings stored in .agents/.env of the runtime working directory. It also supports integrating/improving existing tech docs and fact-checking a produced doc against the PRD/prototype."
 metadata:
   author: AI-Redfish
-  version: "1.3.3"
+  version: "1.4.0"
 ---
 
 # PRD 转后端开发文档
@@ -99,6 +99,15 @@ metadata:
 2. 脚本只读取 `.agents/.env`，一律不写入；所有写入由主调用方完成。
 3. `.agents/.env` 可能包含数据库口令，提醒调用方将其加入版本控制忽略清单。
 4. 键清单与示例见 `scripts/env.example`。
+
+### 前后端代码路径确认（执行前必问，P0）
+
+在做任何代码对账、风格对齐之前，必须先与用户确认真实前后端代码路径：
+
+1. 不知道路径时：直接询问用户提供前后端项目全路径，不猜测、不把风格锚点路径当真实项目。
+2. 已知候选路径时（来自历史会话、记忆或用户先前提供）：将前后端代码**全路径**明确告知用户并请求确认（例："后端代码：`<后端全路径>`；前端代码：`<前端全路径>`，是否正确？"）；用户确认无问题后按该路径执行对账；用户提供其他路径时以用户提供的为准。
+3. 路径确认结果记录在本次会话上下文与最终文档的"口径裁决与范围声明"段；会话中途用户更换路径时，需重新核对受影响的代码事实。
+4. 不同分支/工作副本可能存在功能差异（如新增功能只落在特定分支），对账结论只对已确认路径的代码有效，不得跨路径套用。
 
 ### 3. 本地脚本（替代 MCP / 通用 Agent / mmdc，Python + uv）
 
@@ -342,7 +351,7 @@ WSL/Windows 环境补充（实测有效）：
 按下面顺序工作，不要跳步：
 
 1. 先做依赖检查与降级（见 Dependency Checks）：确认 PRD/原型至少其一（Mode B 确认既有文档）、读取或提示补全 `.agents/.env`、确认本地脚本可运行；并确认输入形态选择 Mode A/B/C。
-2. 校验输入和路径，执行 Design Readiness Gate；`BLOCK` 时停止确定性设计，只列阻断项与所需输入。
+2. 校验输入和路径，执行前后端代码路径确认（见 Dependency Checks 的"前后端代码路径确认"节：已知路径先报全路径请用户确认，未知路径询问用户），再执行 Design Readiness Gate；`BLOCK` 时停止确定性设计，只列阻断项与所需输入。
 3. 读取 PRD/原型/既有文档，识别模块、页面动作、字段、权限、数据范围、约束、异常和验收点（PRD 与原型至少其一，按 Required Inputs 的缺失侧降级规则处理）。巨型 HTML 用关键词定位后按行区读取并附行号；旧口径只进入差异项。
 4. 读取真实前后端项目中的相似实现（路径来自用户指定或 `.agents/.env`），确认模块边界、复用对象、Controller/Service/Mapper 分层和跨服务依赖；未提供路径时使用内置参考并标建议稿。凡需求要求修改某页面某操作的接口，必须按 Hard Invariants 第 8 条完成前后端对账：定位该操作实际调用的 URL/Method/参数与后端实际实现（附文件与行号），并检索该接口的全部既有调用方评估兼容性（Hard Invariants 第 9 条）。涉及实体、表结构、字段或公共逻辑变更时，同步按 Hard Invariants 第 10 条完成全代码面引用点检索（定时任务、MQ 消费、其他 Service、导入导出、前端组件、公共逻辑），并按第 11 条对每个改造点给出性能影响结论。
 5. 生成字典草案：只识别实体字段实际使用的常量/全局/自定义字典及其枚举，不收录展示派生态。
