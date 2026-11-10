@@ -369,6 +369,12 @@ def main() -> int:
     print(f"mermaid_mode={renderer.mode} mermaid_blocks={renderer.index} failures={renderer.failures}")
     if renderer.failures:
         print("WARN 存在未渲染图，HTML 中已保留 Mermaid 源码并给出提示")
+        if renderer.enabled and renderer.mode == "mmdc" and renderer.index and renderer.failures == renderer.index:
+            print(
+                "WARN RENDER_ENV_BROKEN 全部渲染失败，疑似渲染环境问题而非图表语法问题："
+                "请检查 MMDC_PATH/CHROME_PATH；--work-dir 指向 .agents/.env 所在目录（默认当前目录），"
+                "指向临时目录会导致读不到 .env；可先用 check-mermaid.py 对比验证。"
+            )
     return 0
 
 

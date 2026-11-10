@@ -55,7 +55,8 @@ def lint_block(tag: str, start: int, text: str) -> list[str]:
     first = non_empty[0].strip()
     m = TYPE_RE.match(first)
     if not m:
-        return [f"FAIL {tag} line={start}: UNKNOWN_DIAGRAM_TYPE '{re.sub(r'\s+.*$', '', first)}'"]
+        first_word = re.sub(r"\s+.*$", "", first)
+        return [f"FAIL {tag} line={start}: UNKNOWN_DIAGRAM_TYPE '{first_word}'"]
     dtype = m.group(1)
     if first.startswith("stateDiagram"):
         dtype = "stateDiagram"
