@@ -4,7 +4,7 @@ description: 禅道 Bug 自动修复助手。给定 bugId 或 bug 链接，读�
 compatibility: Python 3.10+（可用 uv 隔离运行）、git；AI 需 Bash/Read/Edit/Write；结果通知需 dws，自动修复需已登录的 Agent CLI。
 metadata:
   author: AI-Redfish
-  version: "2.8.1"
+  version: "2.9.0"
 ---
 
 # zentao-bugfix
@@ -36,6 +36,7 @@ metadata:
 
 1. **分析先行**：修改代码之前补全 `analysis.md` 与 `solution.md`，清除全部 `（待填写）` 标记，并生成对应 HTML。绑定工作区执行 `ready`，脚本核对代码未变、生成 HTML 并封存两份文档；worktree 模式执行 `render-html --analysis-only`。失败不得继续。仅在代码根因与修复范围已有充分证据时直接修复，不额外等待确认；根因待确认时按第 15 条暂停。
 2. **限定修复位置**：只修改 prepare 输出的 `WORKTREE`（含绑定的已有工作区）。未匹配才新建 worktree；匹配成功但工作区异常时停止，不回退创建 worktree。
+   - **用户对话指定优先**：默认按 routes.json 分流修复（命中规则绑定工作区，未命中新建 worktree）；用户在对话中明确指定修复目标或方式（如「直接在当前工作空间修复，不修改路由规则」）时，以用户指定为准，可不经规则绑定直接在指定工作区修复。此时仍须遵守分析先行与报告要求：分析/方案/修复报告落盘 `<实际修复工作区>/.agents/zentao-bugfix/<bugId>/`，MD/HTML 双格式、问题归属与改动范围章节不变；禅道资料用 `get-bug --project <项目>` 拉取；验证与提交方式按用户指示执行，其余核心约束继续适用。
 3. **按模式提交**：`MODE=inplace` 每个 Bug 验证并独立提交后才开始下一 Bug，通过 `finish` 提交；`MODE=worktree` 默认不提交，保留改动待 review。两种模式默认都不 push、不改禅道状态；仅当命中规则的 `auto_pr` 或 config `AUTO_PR` 显式开启（即用户预先授权）时，才由 `create-pr` 推送分支并发起 PR，仍不改禅道状态。用户明确授权的其他额外操作按其指示执行。
 4. **顺序修复**：绑定分支和工作区的持久锁从 prepare 保留到 finish 成功；前一 Bug 失败或未完成时不处理后续 Bug。禁止绕过、删除锁或另开会话并行修复同一工作区。自动入口会将等待任务持久化。
 5. **保留已有改动**：读取运行记录的 `snapshot.dirty`，不修改这些文件，不全量暂存或提交，不自动切分支、pull、merge、stash、reset。与已有改动混合、检测到外部修改或验证/提交失败时保留现场并暂停该分支队列。

@@ -1,16 +1,20 @@
 ---
-name: bps-security-review
-description: 对 basic-platform-service（BPS，Java 多模块 + Redis/MySQL/RocketMQ/MinIO）执行静态安全隐患审查：Redis 滥用（KEYS 命令/永久 key/凭据硬编码）、MySQL 事务与 SQL 注入面、索引核对（对照 basic-platform-service-sql 归档）、前后端接口抽查（对照 wukong 前端仓库）、MQ 中间件（RocketMQ/RabbitMQ）及自主扩展角度（上传下载、日志泄漏、依赖停维、越权抽查），产出双格式（Markdown + HTML）审查报告到 .agents/reports/。当用户要求"检查项目安全隐患""安全审查""代码安全扫描""审查 Redis/MySQL/MQ 使用是否不当""核对索引是否缺失"时使用。不适用于：运行时渗透测试（无运行环境探测）、依赖漏洞 CVE 全量比对（需联网 OSV/NVD）、修复代码本身（审查通过后由用户另行安排修复）。
-compatibility: 依赖 scripts/check-missing-indexes.py（Python 3.9+ 纯标准库）；索引核对需本地存在 D:/develop/project/basic-platform-service-sql 归档仓库；接口抽查需前端仓库 D:/develop/project/wukong。适用于 BPS 主仓库 release 或 dev 分支基线。
+name: coding-review
+description: 通用 coding-review（代码审查）规范，持续迭代中；当前核心专项：对 basic-platform-service（BPS，Java 多模块 + Redis/MySQL/RocketMQ/MinIO）执行静态安全隐患审查：Redis 滥用（KEYS 命令/永久 key/凭据硬编码）、MySQL 事务与 SQL 注入面、索引核对（对照 basic-platform-service-sql 归档）、前后端接口抽查（对照 wukong 前端仓库）、MQ 中间件（RocketMQ/RabbitMQ）及自主扩展角度（上传下载、日志泄漏、依赖停维、越权抽查），产出双格式（Markdown + HTML）审查报告到 .agents/reports/。当用户要求"代码审查""coding review""code review""检查项目安全隐患""安全审查""代码安全扫描""审查 Redis/MySQL/MQ 使用是否不当""核对索引是否缺失"时使用。不适用于：运行时渗透测试（无运行环境探测）、依赖漏洞 CVE 全量比对（需联网 OSV/NVD）、修复代码本身（审查通过后由用户另行安排修复）。
+compatibility: BPS 安全专项依赖 scripts/check-missing-indexes.py（Python 3.9+ 纯标准库）；索引核对需本地存在 D:/develop/project/basic-platform-service-sql 归档仓库；接口抽查需前端仓库 D:/develop/project/wukong。适用于 BPS 主仓库 release 或 dev 分支基线。
 metadata:
   author: AI-Redfish
-  version: "1.1.0"
-  source: 2026-11-02 安全审查会话沉淀（基线 release@1d2cf4e513，已验证可复现）
+  version: "2.0.0"
+  source: 2026-11-02 安全审查会话沉淀（基线 release@1d2cf4e513，已验证可复现）；2026-11-09 由 bps-security-review 改名扩展为通用 coding-review 规范，安全审查降为其首个专项。
 ---
 
-# BPS 项目安全隐患静态审查
+# Coding Review 规范
 
-本文是 BPS 项目的安全审查操作流程。何时读：用户要求安全隐患审查、Redis/MySQL/MQ 使用核查或索引缺失核对时。
+本文是通用 coding-review 操作规范，按维度持续迭代；每个专项固化审查方向、命令模式、误报争议与报告格式，保证可复现。何时读：用户要求代码审查、安全隐患审查、Redis/MySQL/MQ 使用核查或索引缺失核对时。
+
+## 专项一：BPS 项目安全隐患静态审查（已落地）
+
+前置条件、审查方向与报告规范见下文；后续新专项（通用代码质量、性能、测试覆盖等维度）在此文件追加同级章节，共享报告输出规范与验证交付约定。
 
 ## 前置条件（开工前核对）
 

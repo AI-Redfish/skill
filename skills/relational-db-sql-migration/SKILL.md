@@ -4,7 +4,7 @@ description: 为 basic-platform-service SQL 归档仓库创建、同步、审查
 compatibility: 修复脚本为 Python 3.9+ 纯标准库（uv run 或 python 直跑）；预检依赖仓库内 scripts/ci/check-dict-timestamp.sh（bash）。适用于 basic-platform-service-sql 仓库（<engine>/<database>/ 归档结构，已落地 mysql/ 与 kingbase/）。
 metadata:
   author: AI-Redfish
-  version: "3.3.0"
+  version: "3.3.1"
 ---
 
 # 关系型数据库 SQL 迁移 — 多引擎 Flyway 归档编写与字典表时间字段治理
@@ -89,6 +89,7 @@ command -v mysql; command -v ksql     # 语法实测客户端（缺失不阻塞�
 
 - `uv run <skill_dir>/scripts/fix_dict_timestamp.py --help` 可运行即可用修复脚本。
 - 数据库凭据与环境信息（`MYSQL_JDBC_BASE` 等）仅用于 SQL 语法实测与 Flyway 迁移；缺失时按「SQL 实测回滚闭环」向用户索取，索取不成才退化为静态校验并明确说明。
+- 本机无 `mysql`/`ksql` 客户端时，可经开发工具 HTTP query 通道完成实测回滚闭环（MySQL 沙箱库 / Kingbase 事务回滚+影子 schema），操作路径与记录格式见 [references/http-channel-verification.md](references/http-channel-verification.md)。
 
 ## 标准工作流
 

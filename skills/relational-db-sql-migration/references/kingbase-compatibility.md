@@ -115,3 +115,8 @@ rg -n '\\|`|^\s*USE\s|REPLACE\s+INTO|INSERT\s+IGNORE|ON\s+DUPLICATE\s+KEY|MODIFY
 ```
 
 静态检查不能证明运行时兼容。存在凭据和客户端工具时，必须在一次性 Kingbase 数据库上执行完整 Flyway 迁移。
+
+## 运行时验证注意
+
+- Kingbase 的 `information_schema.columns.character_maximum_length` 对 varchar 可能显示 `-1`，不代表长度未生效；核验用 `pg_attribute.atttypmod`（`varchar(n)` 为 `n+4`）或 `format_type(atttypid, atttypmod)`（显示为 `character varying(n char)`）。
+- `ALTER COLUMN ... TYPE varchar(n)` 扩容不重写表数据，保留列注释、默认值与可空性；存在索引或视图依赖时仍需实测确认。
