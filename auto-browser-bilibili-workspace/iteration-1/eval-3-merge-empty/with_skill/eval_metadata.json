@@ -1,0 +1,9 @@
+{
+  "eval_id": 3,
+  "eval_name": "merge-empty",
+  "prompt": "--merge <空目录>",
+  "assertions": [
+    "退出码为 0",
+    "返回 merged=false, reason=no-streams"
+  ]
+}

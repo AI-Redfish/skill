@@ -1,0 +1,8 @@
+{
+  "status": "error",
+  "error": {
+    "code": "bad-url",
+    "message": "链接不是 B 站页面: https://example.com/video/123",
+    "hint": "需要 https://www.bilibili.com/video/BV... 形式的链接"
+  }
+}

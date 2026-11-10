@@ -1,0 +1,20 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 2,
+    "failed": 0,
+    "total": 2
+  },
+  "expectations": [
+    {
+      "text": "退出码为 0",
+      "passed": true,
+      "evidence": "实跑 exit=0"
+    },
+    {
+      "text": "返回 merged=false, reason=no-streams",
+      "passed": true,
+      "evidence": "outputs/merge.json"
+    }
+  ]
+}

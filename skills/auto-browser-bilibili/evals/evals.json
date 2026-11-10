@@ -1,0 +1,60 @@
+{
+  "skill_name": "auto-browser-bilibili",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我保存这个 B 站视频 https://www.bilibili.com/video/BV1xx411c7mD，之后我要本地看",
+      "expected_output": "browser_session.py ensure 后调 bili_clip.py --url，按 JSON 汇报输出目录、画质、文件清单与 failures",
+      "files": [],
+      "expectations": [
+        "先确保浏览器会话（ensure）再抓取",
+        "调用 bili_clip.py 且传入原链接",
+        "按退出码与 JSON 汇报 dir/files/quality",
+        "不伪造成功；failures 非空时如实报告"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "这个视频 https://www.bilibili.com/video/BV1xx411c7mD 是多P教程，帮我抓第 3 个分P",
+      "expected_output": "调用 bili_clip.py --url <链接> --page 3，汇报当前分P标题与输出目录",
+      "files": [],
+      "expectations": [
+        "使用 --page 3 而非默认第 1P",
+        "note.md 分P列表标注当前P",
+        "汇报 video_quality 与目录路径"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "https://www.bilibili.com/video/BV1xx411c7mD 这个视频讲了个啥？给我讲讲就行",
+      "expected_output": "不启动浏览器全量抓取：用 view API（curl）取标题/简介回答即可，并说明如需视频文件可用本 skill 沉淀",
+      "files": [],
+      "expectations": [
+        "不调用 bili_clip.py 全量抓取（只要元数据）",
+        "用 view API 或已沉淀条目回答",
+        "给出可选的沉淀建议"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "把 B 站上关于 Python 教程的视频全部下载下来",
+      "expected_output": "拒绝批量：说明本 skill 只支持用户主动指定的单篇链接（风控边界），请用户逐个给链接",
+      "files": [],
+      "expectations": [
+        "不批量遍历/不自动搜索",
+        "说明单篇边界与原因",
+        "不伪造完成"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "https://v.douyin.com/xxxx 帮我下载这个",
+      "expected_output": "如实说明非 B 站链接不在本 skill 范围（脚本会报 bad-url），不调用",
+      "files": [],
+      "expectations": [
+        "不调用 bili_clip.py",
+        "明确说明平台范围限制"
+      ]
+    }
+  ]
+}

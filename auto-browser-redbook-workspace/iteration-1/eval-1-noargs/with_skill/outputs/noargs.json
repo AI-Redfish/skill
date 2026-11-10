@@ -1,0 +1,8 @@
+{
+  "status": "error",
+  "error": {
+    "code": "bad-args",
+    "message": "缺少 --url / --tab / --list 之一",
+    "hint": "--url 需带 xsec_token 的笔记链接；无 token 时先在浏览器打开笔记，用 --tab"
+  }
+}

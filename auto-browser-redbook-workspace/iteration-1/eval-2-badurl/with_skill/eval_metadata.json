@@ -1,0 +1,10 @@
+{
+  "eval_id": 2,
+  "eval_name": "badurl",
+  "prompt": "--url https://example.com/note/123",
+  "assertions": [
+    "退出码为 2",
+    "stdout 输出 bad-url 错误 JSON",
+    "不启动浏览器（域名校验先于 ensure_session，round4 修复）"
+  ]
+}

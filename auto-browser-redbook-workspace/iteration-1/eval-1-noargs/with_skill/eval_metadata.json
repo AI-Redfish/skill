@@ -1,0 +1,10 @@
+{
+  "eval_id": 1,
+  "eval_name": "noargs",
+  "prompt": "不带参数运行 redbook_clip.py",
+  "assertions": [
+    "退出码为 2",
+    "stdout 输出 bad-args 错误 JSON",
+    "不启动浏览器"
+  ]
+}

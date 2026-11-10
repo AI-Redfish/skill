@@ -3,6 +3,6 @@
   "repo": "https://github.com/anthropics/skills",
   "ref": "main",
   "method": "git",
-  "commit": "683bc88e56f3e09ba94f7055977f3d3aa499f202",
-  "installed_at": "2026-10-08T17:49:29+0800"
+  "commit": "2c5958ecac7cee2b583967a2c4981d0f4a75c579",
+  "installed_at": "2026-11-09T18:18:00+0800"
 }

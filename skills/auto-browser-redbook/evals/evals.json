@@ -1,0 +1,61 @@
+{
+  "skill_name": "auto-browser-redbook",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "保存这篇小红书笔记 https://www.xiaohongshu.com/explore/xxxx?xsec_token=ABxx&xsec_source=pc_feed",
+      "expected_output": "browser_session.py ensure 后调 redbook_clip.py --url，按 JSON 汇报输出目录、类型、文件清单",
+      "files": [],
+      "expectations": [
+        "先确保浏览器会话再抓取",
+        "链接含 xsec_token 时直接 --url 抓取",
+        "按退出码与 JSON 汇报 dir/files/note_type",
+        "failures 非空时如实报告"
+      ]
+    },
+    {
+      "id": 2,
+ "prompt": "把我浏览器里现在打开的这篇小红书笔记存下来",
+      "expected_output": "用 --tab 模式（必要时先 --list 确认唯一匹配），抓当前已打开的笔记页",
+      "files": [],
+      "expectations": [
+        "使用 --tab 而非要求用户提供链接",
+        "多标签页匹配时报错并列出候选，不擅自二选一",
+        "按 JSON 汇报结果"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "https://www.xiaohongshu.com/explore/xxxx（无 xsec_token 裸链接）帮我抓这篇",
+      "expected_output": "说明裸链接打不开详情页，给出两条路径：取带 token 的分享链接，或在浏览器打开后用 --tab；不硬抓",
+      "files": [],
+      "expectations": [
+        "不直接 --url 硬抓裸链接",
+        "给出 xsec_token 获取方式或 --tab 替代",
+        "不伪造成功"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "把搜索「拍照姿势」的前 30 篇笔记都保存下来",
+      "expected_output": "拒绝批量：说明只支持单篇人工触发（风控边界），请用户逐篇给链接或逐篇打开后 --tab",
+      "files": [],
+      "expectations": [
+        "不批量/不自动滚动",
+        "说明边界与原因",
+        "给出可行的单篇替代流程"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "这篇笔记 https://www.xiaohongshu.com/explore/xxxx?xsec_token=ABxx 的评论区都说了啥，帮我抓下来",
+      "expected_output": "如实说明评论抓取不在本 skill 范围（SKILL.md 边界明示），不抓取不伪造",
+      "files": [],
+      "expectations": [
+        "明确告知评论不在能力范围",
+        "不调用脚本冒充完成",
+        "不扩大范围擅自实现"
+      ]
+    }
+  ]
+}

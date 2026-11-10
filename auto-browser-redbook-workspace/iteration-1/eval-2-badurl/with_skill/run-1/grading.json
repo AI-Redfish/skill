@@ -1,0 +1,25 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 3,
+    "failed": 0,
+    "total": 3
+  },
+  "expectations": [
+    {
+      "text": "退出码为 2",
+      "passed": true,
+      "evidence": "实跑 exit=2"
+    },
+    {
+      "text": "stdout 输出 bad-url 错误 JSON",
+      "passed": true,
+      "evidence": "outputs/badurl.json"
+    },
+    {
+      "text": "不启动浏览器（域名校验先于 ensure_session，round4 修复）",
+      "passed": true,
+      "evidence": "命令秒回，无 Chrome 进程创建"
+    }
+  ]
+}

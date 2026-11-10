@@ -1,0 +1,10 @@
+{
+  "eval_id": 2,
+  "eval_name": "badurl",
+  "prompt": "--url https://example.com/video/123",
+  "assertions": [
+    "退出码为 2",
+    "stdout 输出 bad-url 错误 JSON",
+    "不启动浏览器（URL 校验先于 ensure_session）"
+  ]
+}

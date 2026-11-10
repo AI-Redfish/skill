@@ -1,0 +1,8 @@
+{
+  "status": "error",
+  "error": {
+    "code": "bad-args",
+    "message": "缺少 --url（或 --merge / --list）",
+    "hint": "uv run bili_clip.py --url <视频链接>"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 3,
+    "failed": 0,
+    "total": 3
+  },
+  "expectations": [
+    {
+      "text": "退出码为 2",
+      "passed": true,
+      "evidence": "实跑 exit=2"
+    },
+    {
+      "text": "stdout 输出 bad-args 错误 JSON",
+      "passed": true,
+      "evidence": "outputs/noargs.json"
+    },
+    {
+      "text": "不启动浏览器",
+      "passed": true,
+      "evidence": "校验在 ensure_session 之前"
+    }
+  ]
+}

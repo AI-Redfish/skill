@@ -1,0 +1,8 @@
+{
+  "status": "error",
+  "error": {
+    "code": "bad-url",
+    "message": "链接不是小红书页面: https://example.com/note/123",
+    "hint": "需要 xiaohongshu.com 域名的笔记链接（带 xsec_token）"
+  }
+}
