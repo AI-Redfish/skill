@@ -1,0 +1,16 @@
+{
+  "provider": "agentr-pages",
+  "gateway_base": "http://127.0.0.1:8319",
+  "site_name": "Pages 导航",
+
+  "_注释_": "provider=agentr-pages 时只需上面 3 个字段；git 类 provider 用下面这些",
+  "_示例_gitcode": {
+    "provider": "gitcode",
+    "repo_url": "https://gitcode.com/<owner>/<repo>.git",
+    "branch": "master",
+    "clone_dir": "D:/pages/<repo>",
+    "owner": "<owner>",
+    "repo": "<repo>",
+    "custom_domain": ""
+  }
+}
