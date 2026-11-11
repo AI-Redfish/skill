@@ -1,0 +1,25 @@
+{
+  "id": "github",
+  "name": "GitHub",
+  "domains": [
+    "github.com",
+    "www.github.com"
+  ],
+  "files": [
+    {
+      "path": "notes/overview.md"
+    },
+    {
+      "path": "tools/search-repos.js",
+      "description": "Search GitHub repositories and extract results."
+    },
+    {
+      "path": "tools/open-issues.js",
+      "description": "Extract open issues from a repository."
+    },
+    {
+      "path": "browser-tools/repo-stats.js",
+      "description": "Extract visible repository stats after About and Languages load."
+    }
+  ]
+}

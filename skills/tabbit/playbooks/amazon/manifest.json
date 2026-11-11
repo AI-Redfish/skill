@@ -1,0 +1,18 @@
+{
+  "id": "amazon",
+  "name": "Amazon",
+  "domains": [
+    "www.amazon.com",
+    "amazon.com"
+  ],
+  "files": [
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "2 direct page-evaluation recipes."
+    }
+  ]
+}

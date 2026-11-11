@@ -1,0 +1,17 @@
+{
+  "id": "feishu-base",
+  "name": "飞书多维表格",
+  "domains": [
+    "*.feishu.cn"
+  ],
+  "files": [
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "21 direct page-evaluation recipes."
+    }
+  ]
+}

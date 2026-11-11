@@ -1,0 +1,18 @@
+{
+  "id": "jingdong",
+  "name": "京东",
+  "domains": [
+    "search.jd.com",
+    "item.jd.com"
+  ],
+  "files": [
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "2 direct page-evaluation recipes."
+    }
+  ]
+}

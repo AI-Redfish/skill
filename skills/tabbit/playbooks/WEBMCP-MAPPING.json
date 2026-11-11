@@ -1,0 +1,1267 @@
+{
+  "repository": "https://github.com/TabbitAi/tabbit-webmcp",
+  "revision": "13fef01b80ce371aeb53cf92bd3c677bb25c24bd",
+  "capabilities": [
+    {
+      "site": "bilibili",
+      "capability": "bilibili_get_video_context",
+      "operation": "get_context",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bilibili/webmcp.js",
+      "function": "bilibili_get_video_context",
+      "sourceModule": "packages/site-bilibili/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "bilibili",
+      "capability": "bilibili_download_video",
+      "operation": "download_media",
+      "effect": "download",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bilibili/webmcp.js",
+      "function": "bilibili_download_video",
+      "sourceModule": "packages/site-bilibili/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Explicit media-assets.js save step; 8 MiB media / 5 MiB subtitles, browser CORS and authentication apply."
+    },
+    {
+      "site": "bilibili",
+      "capability": "bilibili_export_subtitles",
+      "operation": "export_subtitles",
+      "effect": "export",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bilibili/webmcp.js",
+      "function": "bilibili_export_subtitles",
+      "sourceModule": "packages/site-bilibili/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Explicit media-assets.js save step; 8 MiB media / 5 MiB subtitles, browser CORS and authentication apply."
+    },
+    {
+      "site": "bilibili",
+      "capability": "bilibili_extract_comments",
+      "operation": "extract_comments",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bilibili/webmcp.js",
+      "function": "bilibili_extract_comments",
+      "sourceModule": "packages/site-bilibili/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "youtube",
+      "capability": "youtube_get_home_feed",
+      "operation": "get_home_feed",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "youtube/webmcp.js",
+      "function": "youtube_get_home_feed",
+      "sourceModule": "packages/site-youtube/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "youtube",
+      "capability": "youtube_get_video_download_urls",
+      "operation": "get_video_download_urls",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "youtube/webmcp.js",
+      "function": "youtube_get_video_download_urls",
+      "sourceModule": "packages/site-youtube/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "youtube",
+      "capability": "youtube_get_video_comments",
+      "operation": "get_video_comments",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "youtube/webmcp.js",
+      "function": "youtube_get_video_comments",
+      "sourceModule": "packages/site-youtube/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "youtube",
+      "capability": "youtube_get_video_details",
+      "operation": "get_video_details",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "youtube/webmcp.js",
+      "function": "youtube_get_video_details",
+      "sourceModule": "packages/site-youtube/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture",
+        "live read-only smoke: 2026-09-15, Me at the zoo, 19 seconds, 2 subtitle tracks"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "youtube",
+      "capability": "youtube_get_subtitle_file",
+      "operation": "get_subtitle_file",
+      "effect": "export",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "youtube/webmcp.js",
+      "function": "youtube_get_subtitle_file",
+      "sourceModule": "packages/site-youtube/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Explicit media-assets.js save step; 8 MiB media / 5 MiB subtitles, browser CORS and authentication apply."
+    },
+    {
+      "site": "amazon",
+      "capability": "amazon_get_search_results",
+      "operation": "get_search_results",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "amazon/webmcp.js",
+      "function": "amazon_get_search_results",
+      "sourceModule": "packages/site-amazon/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "amazon",
+      "capability": "amazon_get_product_details",
+      "operation": "get_product_details",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "amazon/webmcp.js",
+      "function": "amazon_get_product_details",
+      "sourceModule": "packages/site-amazon/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "xiaoyuzhou",
+      "capability": "xiaoyuzhou_get_episode_context",
+      "operation": "get_context",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "xiaoyuzhou/webmcp.js",
+      "function": "xiaoyuzhou_get_episode_context",
+      "sourceModule": "packages/site-xiaoyuzhou/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "xiaoyuzhou",
+      "capability": "xiaoyuzhou_download_audio",
+      "operation": "download_media",
+      "effect": "download",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "xiaoyuzhou/webmcp.js",
+      "function": "xiaoyuzhou_download_audio",
+      "sourceModule": "packages/site-xiaoyuzhou/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Explicit media-assets.js save step; 8 MiB media / 5 MiB subtitles, browser CORS and authentication apply."
+    },
+    {
+      "site": "xiaoyuzhou",
+      "capability": "xiaoyuzhou_extract_comments",
+      "operation": "extract_comments",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "xiaoyuzhou/webmcp.js",
+      "function": "xiaoyuzhou_extract_comments",
+      "sourceModule": "packages/site-xiaoyuzhou/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "xiaohongshu",
+      "capability": "xiaohongshu_get_note_context",
+      "operation": "get_context",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "xiaohongshu/webmcp.js",
+      "function": "xiaohongshu_get_note_context",
+      "sourceModule": "packages/site-xiaohongshu/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "xiaohongshu",
+      "capability": "xiaohongshu_get_post_images",
+      "operation": "get_images",
+      "effect": "download",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "xiaohongshu/webmcp.js",
+      "function": "xiaohongshu_get_post_images",
+      "sourceModule": "packages/site-xiaohongshu/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Explicit media-assets.js save step; 8 MiB media / 5 MiB subtitles, browser CORS and authentication apply."
+    },
+    {
+      "site": "xiaohongshu",
+      "capability": "xiaohongshu_extract_comments",
+      "operation": "extract_comments",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "xiaohongshu/webmcp.js",
+      "function": "xiaohongshu_extract_comments",
+      "sourceModule": "packages/site-xiaohongshu/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "x",
+      "capability": "x_get_home_feed",
+      "operation": "get_home_feed",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_get_home_feed",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "x",
+      "capability": "x_get_post_thread",
+      "operation": "get_post_thread",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_get_post_thread",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "x",
+      "capability": "x_get_profile_latest_posts",
+      "operation": "get_profile_latest_posts",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_get_profile_latest_posts",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "x",
+      "capability": "x_publish_post",
+      "operation": "publish_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_publish_post",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "x",
+      "capability": "x_publish_thread",
+      "operation": "publish_thread",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_publish_thread",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "x",
+      "capability": "x_publish_article",
+      "operation": "publish_article",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_publish_article",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "x",
+      "capability": "x_like_post",
+      "operation": "like_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_like_post",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "x",
+      "capability": "x_reply_post",
+      "operation": "reply_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_reply_post",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "x",
+      "capability": "x_quote_post",
+      "operation": "quote_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_quote_post",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "x",
+      "capability": "x_repost_post",
+      "operation": "repost_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "x-com/webmcp.js",
+      "function": "x_repost_post",
+      "sourceModule": "packages/site-x/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "weibo",
+      "capability": "weibo_get_home_feed",
+      "operation": "get_home_feed",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "weibo/webmcp.js",
+      "function": "weibo_get_home_feed",
+      "sourceModule": "packages/site-weibo/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "weibo",
+      "capability": "weibo_get_post_with_comments",
+      "operation": "get_post_with_comments",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "weibo/webmcp.js",
+      "function": "weibo_get_post_with_comments",
+      "sourceModule": "packages/site-weibo/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "weibo",
+      "capability": "weibo_get_profile_latest_posts",
+      "operation": "get_profile_latest_posts",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "weibo/webmcp.js",
+      "function": "weibo_get_profile_latest_posts",
+      "sourceModule": "packages/site-weibo/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "weibo",
+      "capability": "weibo_publish_post",
+      "operation": "publish_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "weibo/webmcp.js",
+      "function": "weibo_publish_post",
+      "sourceModule": "packages/site-weibo/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "weibo",
+      "capability": "weibo_like_post",
+      "operation": "like_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "weibo/webmcp.js",
+      "function": "weibo_like_post",
+      "sourceModule": "packages/site-weibo/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "weibo",
+      "capability": "weibo_reply_post",
+      "operation": "reply_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "weibo/webmcp.js",
+      "function": "weibo_reply_post",
+      "sourceModule": "packages/site-weibo/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "weibo",
+      "capability": "weibo_quote_post",
+      "operation": "quote_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "weibo/webmcp.js",
+      "function": "weibo_quote_post",
+      "sourceModule": "packages/site-weibo/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "weibo",
+      "capability": "weibo_repost_post",
+      "operation": "repost_post",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "weibo/webmcp.js",
+      "function": "weibo_repost_post",
+      "sourceModule": "packages/site-weibo/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "taobao",
+      "capability": "taobao_get_search_results",
+      "operation": "get_search_results",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "taobao/webmcp.js",
+      "function": "taobao_get_search_results",
+      "sourceModule": "packages/site-taobao/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "taobao",
+      "capability": "taobao_get_product_details",
+      "operation": "get_product_details",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "taobao/webmcp.js",
+      "function": "taobao_get_product_details",
+      "sourceModule": "packages/site-taobao/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "jingdong",
+      "capability": "jingdong_get_search_results",
+      "operation": "get_search_results",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "jingdong/webmcp.js",
+      "function": "jingdong_get_search_results",
+      "sourceModule": "packages/site-jingdong/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "jingdong",
+      "capability": "jingdong_get_product_details",
+      "operation": "get_product_details",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "jingdong/webmcp.js",
+      "function": "jingdong_get_product_details",
+      "sourceModule": "packages/site-jingdong/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "goofish",
+      "capability": "goofish_get_search_results",
+      "operation": "get_search_results",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "goofish/webmcp.js",
+      "function": "goofish_get_search_results",
+      "sourceModule": "packages/site-goofish/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "goofish",
+      "capability": "goofish_get_item_details",
+      "operation": "get_item_details",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "goofish/webmcp.js",
+      "function": "goofish_get_item_details",
+      "sourceModule": "packages/site-goofish/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "goofish",
+      "capability": "goofish_publish_item",
+      "operation": "publish_item",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "goofish/webmcp.js",
+      "function": "goofish_publish_item",
+      "sourceModule": "packages/site-goofish/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "goofish",
+      "capability": "goofish_reply_message",
+      "operation": "reply_message",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "goofish/webmcp.js",
+      "function": "goofish_reply_message",
+      "sourceModule": "packages/site-goofish/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_get_table_context",
+      "operation": "get_table_context",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_get_table_context",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_list_tables",
+      "operation": "list_tables",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_list_tables",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_create_table",
+      "operation": "create_table",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_create_table",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_rename_table",
+      "operation": "rename_table",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_rename_table",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_delete_table",
+      "operation": "delete_table",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_delete_table",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_create_field",
+      "operation": "create_field",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_create_field",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_rename_field",
+      "operation": "rename_field",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_rename_field",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_add_field_options",
+      "operation": "add_field_options",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_add_field_options",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_delete_field",
+      "operation": "delete_field",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_delete_field",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_list_records",
+      "operation": "list_records",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_list_records",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_verify_records",
+      "operation": "verify_records",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_verify_records",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_resolve_range",
+      "operation": "resolve_range",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_resolve_range",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_add_records",
+      "operation": "add_records",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_add_records",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_update_records",
+      "operation": "update_records",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_update_records",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_clear_cells",
+      "operation": "clear_cells",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_clear_cells",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_delete_records",
+      "operation": "delete_records",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_delete_records",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_list_views",
+      "operation": "list_views",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_list_views",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection"
+      ],
+      "liveWriteValidation": "not applicable",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_create_view",
+      "operation": "create_view",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_create_view",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_rename_view",
+      "operation": "rename_view",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_rename_view",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_update_view",
+      "operation": "update_view",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_update_view",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "feishu_base",
+      "capability": "feishu_base_delete_view",
+      "operation": "delete_view",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "feishu-base/webmcp.js",
+      "function": "feishu_base_delete_view",
+      "sourceModule": "packages/site-feishu-base/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "page command permission rejection"
+      ],
+      "liveWriteValidation": "not executed",
+      "limits": "Requires compatible loaded bitableStore model and command APIs; real service writes not exercised."
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_get_context",
+      "operation": "get_resume_context",
+      "effect": "read",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_get_context",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not applicable"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_set_basic_info",
+      "operation": "set_basic_info",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_set_basic_info",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upload_attachment",
+      "operation": "upload_resume_attachment",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upload_attachment",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_set_no_work_experience",
+      "operation": "set_no_work_experience",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_set_no_work_experience",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upsert_work_experience",
+      "operation": "upsert_work_experience",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upsert_work_experience",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upsert_education",
+      "operation": "upsert_education",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upsert_education",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upsert_internship",
+      "operation": "upsert_internship",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upsert_internship",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upsert_project",
+      "operation": "upsert_project",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upsert_project",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upsert_work_sample",
+      "operation": "upsert_work_sample",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upsert_work_sample",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upsert_award",
+      "operation": "upsert_award",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upsert_award",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upsert_language",
+      "operation": "upsert_language",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upsert_language",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_set_self_evaluation",
+      "operation": "set_self_evaluation",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_set_self_evaluation",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    },
+    {
+      "site": "bytedance_resume",
+      "capability": "bytedance_resume_upsert_social_account",
+      "operation": "upsert_social_account",
+      "effect": "write",
+      "source": "apps/extension/src/page-probe.ts",
+      "file": "bytedance-resume/webmcp.js",
+      "function": "bytedance_resume_upsert_social_account",
+      "sourceModule": "packages/site-bytedance-resume/src/index.ts",
+      "validation": [
+        "definition/load",
+        "wrong-origin rejection",
+        "controlled behavior fixture"
+      ],
+      "liveWriteValidation": "not executed"
+    }
+  ],
+  "sourceFilesSha256": {
+    "apps/extension/src/background.ts": "ea598aac7e4af0fd5b63d9b8a96792e6126c502ca8f823ff6f26cf481ce38d49",
+    "apps/extension/src/content.ts": "5f3a3190c3e540debe1f150d9951b65e4f6460345a18a17f48f9e46a37f5ae97",
+    "apps/extension/src/page-probe.ts": "dcb52ff239a9dbe08c4a66f219b32ec335a1f3c2e7dbcd05aa765d24a936b2f5",
+    "apps/extension/src/popup/main.tsx": "5844ae61fa796c104e515f5d25e5bc0a0f8ec9ddef957e563b6ea66adbcf3b02",
+    "apps/extension/src/popup/popup.css": "2064a14aa820d6ac9aa6b1fc09c2d0167f2e31e2f95cca07dc335b1a4fa905ff",
+    "packages/contracts/src/index.ts": "135851a72e603cf44c85d215f5917b262c5cc43cbee2d41f8ea89d807a8e9056",
+    "packages/runtime/src/adapter-factory.ts": "30b90d1d284246b1b2ae7132e1a190b75fc70def08f38b5e05944a56f84abaf4",
+    "packages/runtime/src/download.ts": "527fb4a93aa27d81fc8055b569c8888ea66984c966bdbb15e5fe4dd558ae3485",
+    "packages/runtime/src/index.ts": "1ea10398b4b68619f934184e05a14d0f5fd2580376ee0aa43305637f0cb3497e",
+    "packages/runtime/src/registrar.ts": "03983f8b4c38c4135409fb6fc78a2d20939d1eb892c870323c531b2d0d0f364f",
+    "packages/runtime/src/subtitles.ts": "3a0f32b9cf25a64f33e8e4e3f4e5d58c5afbdb63744ea1e95df4038968e42dc5",
+    "packages/runtime/src/types.ts": "9af9fddcd493c2f7bc392c322dd75792d3810df0b45ffc8c2d1e66c97ccf55fc",
+    "packages/site-amazon/src/index.ts": "c426c5ef52e08515d0d2456825ff11a05de7ab3f276d926d68d905b7f195f7b7",
+    "packages/site-bilibili/src/index.ts": "d2b638bbaa0ef62f39982d5bc486cf0dcfaff8682628339d51a865e1eb0fbdca",
+    "packages/site-bytedance-resume/src/index.ts": "26760e519e48dd056663626522f06bfc73e4531dd349ca334dcc5f395d11e9db",
+    "packages/site-feishu-base/src/index.ts": "ca102a2135b889257525498f73e97d7592b92e255f1ef7858e636e8612c040d4",
+    "packages/site-goofish/src/index.ts": "a700682f7448bbe4ff6bb76dab7141a19163fc75d34bb7de95283a8c1a9e9c4b",
+    "packages/site-jingdong/src/index.ts": "4a3dd9f04f8e99d561e941ebdbffae878af4e5e85c9861d2444ebe54f0f24111",
+    "packages/site-taobao/src/index.ts": "07f5be636cb855781241a5f1c9862e2ec82bc50ea5b546569ca524fbcb02b7d9",
+    "packages/site-weibo/src/index.ts": "26e9c473ac4bbd2e57906bfeb219a43224fb9eef779484e77674ce8445a4ebdd",
+    "packages/site-x/src/index.ts": "d59d4996db7e09856de57167fe789095efd5b5994d1b57c661deaaa4e19f1d34",
+    "packages/site-xiaohongshu/src/index.ts": "6f2a11cf8080021eca2185677ac708f365f6d65f1eecb1f27a3d4b0878287797",
+    "packages/site-xiaoyuzhou/src/index.ts": "964e1fdc33d77febd271d066117bbd438285d9b197c92ae6e774257eabddfa5f",
+    "packages/site-youtube/src/index.ts": "1ff636bd036565c0b9d29cb7709091e8547b0fdd0b03087b478eaff8fe2334cd",
+    "packages/sites/src/index.ts": "d24aa69e33d24a59f51847c79c7829bde9374bc1da86305bd5f3344f12a63616"
+  }
+}

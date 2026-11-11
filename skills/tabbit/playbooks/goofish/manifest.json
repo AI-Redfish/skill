@@ -1,0 +1,21 @@
+{
+  "id": "goofish",
+  "name": "闲鱼",
+  "domains": [
+    "www.goofish.com"
+  ],
+  "files": [
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "4 direct page-evaluation recipes."
+    },
+    {
+      "path": "temporary-page.js",
+      "description": "Nodejs temporary-page workflow preserving the original tab."
+    }
+  ]
+}

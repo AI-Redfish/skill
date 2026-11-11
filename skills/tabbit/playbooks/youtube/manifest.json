@@ -1,0 +1,22 @@
+{
+  "id": "youtube",
+  "name": "YouTube",
+  "domains": [
+    "www.youtube.com",
+    "youtube.com",
+    "m.youtube.com"
+  ],
+  "files": [
+    {
+      "path": "notes/channel-and-captions.md"
+    },
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "5 direct page-evaluation recipes."
+    }
+  ]
+}

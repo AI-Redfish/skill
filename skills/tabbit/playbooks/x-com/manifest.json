@@ -1,0 +1,42 @@
+{
+  "id": "x-com",
+  "name": "X (Twitter)",
+  "domains": [
+    "x.com",
+    "www.x.com",
+    "twitter.com",
+    "www.twitter.com"
+  ],
+  "files": [
+    {
+      "path": "notes/overview.md"
+    },
+    {
+      "path": "notes/timeline.md"
+    },
+    {
+      "path": "tools/timeline.js",
+      "description": "Extract posts from the current X timeline using the anti-click-wrap pattern."
+    },
+    {
+      "path": "tools/search-users.js",
+      "description": "Search for users on X."
+    },
+    {
+      "path": "browser-tools/extract-post.js",
+      "description": "Extract tweet data from the currently focused element in the timeline."
+    },
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "10 direct page-evaluation recipes."
+    },
+    {
+      "path": "temporary-pages.js",
+      "description": "Nodejs temporary-page workflow preserving the original tab."
+    }
+  ]
+}

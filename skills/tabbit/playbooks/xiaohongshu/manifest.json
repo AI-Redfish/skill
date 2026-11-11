@@ -1,0 +1,17 @@
+{
+  "id": "xiaohongshu",
+  "name": "小红书",
+  "domains": [
+    "www.xiaohongshu.com"
+  ],
+  "files": [
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "3 direct page-evaluation recipes."
+    }
+  ]
+}

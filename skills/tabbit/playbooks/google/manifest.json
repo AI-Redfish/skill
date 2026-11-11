@@ -1,0 +1,21 @@
+{
+  "id": "google",
+  "name": "Google Search",
+  "domains": [
+    "google.com",
+    "www.google.com"
+  ],
+  "files": [
+    {
+      "path": "notes/overview.md"
+    },
+    {
+      "path": "tools/search-extract.js",
+      "description": "Perform a Google search and extract top organic results."
+    },
+    {
+      "path": "browser-tools/autocomplete.js",
+      "description": "Get autocomplete suggestions for the current search query."
+    }
+  ]
+}

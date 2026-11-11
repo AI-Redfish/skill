@@ -1,0 +1,19 @@
+{
+  "id": "taobao",
+  "name": "淘宝",
+  "domains": [
+    "s.taobao.com",
+    "item.taobao.com",
+    "detail.tmall.com"
+  ],
+  "files": [
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "2 direct page-evaluation recipes."
+    }
+  ]
+}

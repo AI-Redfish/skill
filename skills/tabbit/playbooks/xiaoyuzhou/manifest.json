@@ -1,0 +1,17 @@
+{
+  "id": "xiaoyuzhou",
+  "name": "小宇宙",
+  "domains": [
+    "www.xiaoyuzhoufm.com"
+  ],
+  "files": [
+    {
+      "path": "webmcp.md",
+      "description": "Inputs, effects and source conversion notes."
+    },
+    {
+      "path": "webmcp.js",
+      "description": "3 direct page-evaluation recipes."
+    }
+  ]
+}
