@@ -87,3 +87,26 @@ Ctrl+V/回车落空。解法：粘贴前用 UIA 定位聊天输入框并鼠标�
 判未进入——会误杀真正的会话输入框（Name==目标）。正确顺序：先扫全部 Edit
 找 `Name==目标`（命中立即判成功），搜索残留的否定由 Document 的
 「- 搜一搜」显式排除承担。
+
+## 10. 视频号播放缓存为加密文件，原视频不可直接提取（实测 2026-11-11）
+
+适用：微信 4.x（Weixin 4.2.0.13，装在 `D:\program\weixin`），数据目录 `D:\program\xwechat_files\<wxid>\`（不在 `%USERPROFILE%\Documents`）；主窗口类 `Qt51514QWindowIcon`（mmui::MainWindow）。
+
+- 播放缓存实际位置：`%APPDATA%\Tencent\xwechat\radium\users\<uid>\xworker\liteapp\local\assets\tmp\wxalite*\finder\finder_videoCache_*`。每次播放会话一个文件（≈512KB–1.2MB），内容全随机（无 mp4 头）＝加密/混淆存储。
+- `xwechat_files`（msg/video、cache、resource）与 `%TEMP%` 均无明文视频；multitab `Cache_Data` 里只有 gzip 页面资源与 JPEG 封面。
+- 结论：`locate_channels_cache.py` 差分能发现缓存活动，但产物不可还原为 mp4；原视频提取改走 §11 录屏重制。
+
+## 11. 录屏重制路线（画面 + 系统声音 → mp4，实测通过）
+
+- 画面：`ffmpeg -y -f gdigrab -framerate 20 -offset_x 0 -offset_y 0 -video_size 1920x1080 -i desktop -c:v libx264 -preset veryfast -crf 28 -t 900 screen.mkv`。录 mkv 而非 mp4：强杀进程后 mkv 仍可读；`-t` 给上限防挂死。
+- 声音：soundcard WASAPI loopback（ffmpeg 的 dshow 无 loopback 设备，录不了系统声音）。选设备 `isloopback and 'Realtek' in name`，48000/2ch/s16le 写 raw，事后 `ffmpeg -f s16le -ar 48000 -ac 2 -i raw …` 重封。
+- **长录制不要用 `uv run` 包装**：uv 父进程被回收时会连带杀掉子进程（实测 200 秒后音频进程静默消失、无日志）。用 `uv venv` 建独立环境装 soundcard，直接跑 venv 的 python.exe；ffmpeg 无包装不受影响。
+- 验证 loopback 抓到声音：录 6 秒并在第 2 秒播 `C:\Windows\Media\notify.wav`，`volumedetect` 的 max 应 > -40dB（纯静音 ≈ -91dB）。
+- 合成与对齐：`silencedetect` 找音频语音区间；抽帧（`fps=1/10` + 缩略图）定位录屏中播放器区间；`ffmpeg -ss/-to` 裁剪后 `-map 0:v -map 1:a -c:a aac -shortest` 合成。
+- 前台抢占坑：机器被人工使用时 `SetForegroundWindow` / `SwitchToThisWindow` / `SetWindowPos(TOPMOST)` 均不可靠（前台反复被用户窗口抢回），坐标点击会落到别的窗口——**涉及人工播放的步骤直接请用户手动操作**，不要自动化点击。
+
+## 12. faster-whisper 转写环境坑（uv 实测）
+
+- `uv run` 默认解析到 Python 3.14：`av` 无对应 wheel → 源码编译失败。需 `--python 3.11 --with "av==12.3.0"`（faster-whisper 的 `decode_audio` 调 `av.open(metadata_errors=…)`，av 版本不匹配报 TypeError）。
+- HuggingFace 直连报 `SSL: UNEXPECTED_EOF`（系统代理 127.0.0.1:7890 抖动）：加 `HF_ENDPOINT=https://hf-mirror.com`。
+- 成功组合：`HF_ENDPOINT=https://hf-mirror.com uv run --python 3.11 --with faster-whisper --with "av==12.3.0" scripts/transcribe_video.py <音频> --model small`（172 秒音频约 43 秒转完）。
