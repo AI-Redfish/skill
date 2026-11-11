@@ -35,7 +35,7 @@ import _common as c  # noqa: E402
 
 XHS_REFERER = "https://www.xiaohongshu.com/"
 XHS_HOST_RE = r"(xiaohongshu\.com|xhslink\.com|xhs\.com)"
-DEFAULT_OUT_NAME = "clips"
+DEFAULT_OUT_NAME = ".agents/out/auto-browser-redbook/clips"  # 非 git 托管产物目录
 DOWNLOAD_TIMEOUT_SEC = 600
 
 # 注入页面执行的提取函数。优先读 __INITIAL_STATE__（SSR 全量数据），DOM 兜底。

@@ -12,8 +12,8 @@ metadata:
 一条流水线：**描述 → 生成自包含 HTML → 本地预览确认 → 脚本同步到部署仓库 → 输出公网 URL**。
 
 ```
-问需求(slug/入口) → 生成 workspace/<slug>/index.html → 用户预览确认
-   → python scripts/publish.py --page <slug> --src workspace/<slug> --update-index
+问需求(slug/入口) → 生成页面到本地暂存目录 → 用户预览确认
+   → python scripts/publish.py --page <slug> --src <暂存目录>/<slug> --update-index
    → 输出站点入口 URL 与本次页面 URL（+出口平台注意事项）
 ```
 
@@ -90,10 +90,10 @@ metadata:
 
 ## 页面生成规范（AI 生成 HTML 必须遵守）
 
-1. **单文件自包含**：每个页面是 `workspace/<slug>/index.html` 一个文件，
+1. **单文件自包含**：每个页面是 `<暂存目录>/<slug>/index.html` 一个文件，
    CSS/JS 全部内联；UTF-8 编码；`<html lang="zh-CN">` + viewport meta；
 2. **相对路径**：页面内引用的一切资源用相对路径；图片/字体等额外文件
-   放 `workspace/<slug>/` 内对应子目录（脚本会整目录同步）；
+   放 `<暂存目录>/<slug>/` 内对应子目录（脚本会整目录同步）；
    允许用公共 CDN（需在交付说明里注明"断外网时该资源降级"）；
 3. **无构建步骤**：不引入需要 npm/webpack 等编译的框架，用原生 HTML/CSS/JS 或
    CDN 版库；静态展示优先，不做需后端的交互；
@@ -104,11 +104,13 @@ metadata:
 
 ## 发布工作流（标准步骤）
 
-1. 生成页面到 `<skill_dir>/workspace/<slug>/index.html`；
+1. 生成页面到本地暂存目录 **`<工作目录>/.agents/out/html-pages-publish/workspace/<slug>/index.html`**
+   （非 git 托管产物目录：本地暂存不入任何仓库；**发布后的页面需要被 git 管理**——
+   由脚本推送到部署仓库）；不要把暂存页放进 skill 目录或业务仓库；
 2. 请用户预览确认（`file://` 直接打开，或
    `python -m http.server -d <目录>` 后给 `http://localhost:8000`）；
 3. 用户确认后执行发布（按 provider 二选一）：
-   - AgentR：`python <skill_dir>/scripts/publish.py --page <slug> --src <skill_dir>/workspace/<slug> --update-index`
+   - AgentR：`python <skill_dir>/scripts/publish.py --page <slug> --src <工作目录>/.agents/out/html-pages-publish/workspace/<slug> --update-index`
      （自动上传 + 刷新 nav 导航页 + 输出永久链接与局域网地址）；
    - git 类：同一条命令，自动同步到部署仓库并输出公网 URL；
 4. 向用户输出：站点入口 URL、本次页面 URL、出口平台注意事项
@@ -116,6 +118,14 @@ metadata:
 5. 更新已有页面：同名 slug 重新生成并再次执行第 3 步；
    删除页面：`--remove <slug> --update-index`；
    查看列表：`--list`（AgentR 模式从接口实时获取）。
+
+## 输出精简约束与产物 git 托管指定（所有落盘产物与答复通用）
+
+1. **只落盘有用的**：只把用户会直接使用的产物写到磁盘；过程稿、中间草稿、重复副本、无人引用的说明文件一律不落盘。
+2. **中间产物隔离**：本地预览稿、调试副本收进 `<工作目录>/.agents/out/html-pages-publish/`（非 git 托管产物目录）。
+3. **落盘前自问**：写文件前先问"用户会直接使用它吗"；不会就不写，改为文字说明。
+4. **答复同理**：汇报只讲结论、URL、路径与待办，不复述中间过程与脚本日志。
+5. **产物 git 托管指定**：本地暂存页面不需要被 git 管理，放 `<工作目录>/.agents/out/html-pages-publish/workspace/`；发布到部署仓库的页面**需要被 git 管理**（由脚本推送）。
 
 ## 常见故障与处理
 

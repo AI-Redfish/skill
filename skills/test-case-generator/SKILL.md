@@ -44,7 +44,7 @@ metadata:
 |---|---|---|
 | 需求文档（PRD）路径 | **必需** | 功能点、AC 验收标准、异常与边界规则的唯一来源 |
 | 技术/设计文档路径 | 推荐 | 技术口径（状态枚举、接口清单、数据规则）、AC 未覆盖场景的补充用例来源 |
-| 输出目录 | 可选 | 缺省 `<工作目录>/.agents/test-cases/`（gitignore 场景不污染提交） |
+| 输出目录 | 可选 | 缺省 `<工作目录>/.agents/out/test-case-generator/`（非 git 托管产物目录，不污染提交） |
 
 - 两份文档至少提供一份；**只给技术文档没有 PRD 时**先确认：无 AC 映射需求则
   按技术口径出用例（关联AC 列留空并在汇报标注"无 PRD，未做 AC 覆盖检查"）。
@@ -108,7 +108,7 @@ uv run <skill_dir>/scripts/validate_cases.py --cases <用例文档路径> --prd 
 
 ## 触发示例
 
-- "根据 D:/xxx/PRD.md 和技术文档生成测试用例" → 五步主流程，输出 .agents/test-cases/
+- "根据 D:/xxx/PRD.md 和技术文档生成测试用例" → 五步主流程，输出 .agents/out/test-case-generator/
 - "检查这份用例文档是否覆盖了 PRD 的所有 AC" → 仅跑 validate_cases.py 并解读 coverage
 - "这次需求 R1 不做，给其余功能出用例" → 范围声明写入文档，R1 相关 AC 标注"不适用本期"
 
@@ -129,6 +129,7 @@ uv run <skill_dir>/scripts/validate_cases.py --cases <用例文档路径> --prd 
 5. **本 skill 针对性约束**：交付物只有测试用例文档本身；校验 JSON、需求解构草稿
    等中间产物放 `.agents/test-cases/.work/` 或不落盘。
 
+- **产物 git 托管指定**：测试用例文档不需要被 git 管理，默认输出 `<工作目录>/.agents/out/test-case-generator/`；用户明确指定入库目录时以用户为准。
 ## 自我沉淀闭环（每次对话结束必检，最高优先级）
 
 1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——

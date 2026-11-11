@@ -1,6 +1,6 @@
 ---
 name: prd-review
-description: 审查和评审 PRD，支持文档梳理、问题审查、完整评审三种模式。支持链接、Word、PDF、Markdown、原型图及本地 HTML 原型，重点检查业务合理性、前后矛盾、跨模块一致性、原型与 PRD 一致性及可验收性。用户要求 PRD 评审、需求 review、找不合理/矛盾/缺失/歧义/风险或整理需求逻辑时使用。每次使用先提醒用户提供会议纪要或视频会议 AI 总结（无纪要时跳过），结合纪要与 PRD/原型一起分析。模式和范围已明确时直接执行，缺少必要信息时逐个提问。每次生成内容一致的 Markdown 与 HTML 报告，标题后先用简短需求概览说明核心目标、主流程与结果，适合时附简洁流程图；默认保存到当前 Agent 工作空间 .agents/prd-review/yyyy-MM-DD/PRD名称-HH-MM/（HH:MM 的 Windows 兼容写法），分析及校验完成即用当前电脑默认浏览器自动打开 HTML。仅对 modao.cc 链接使用 modao-prd-links。
+description: 审查和评审 PRD，支持文档梳理、问题审查、完整评审三种模式。支持链接、Word、PDF、Markdown、原型图及本地 HTML 原型，重点检查业务合理性、前后矛盾、跨模块一致性、原型与 PRD 一致性及可验收性。用户要求 PRD 评审、需求 review、找不合理/矛盾/缺失/歧义/风险或整理需求逻辑时使用。每次使用先提醒用户提供会议纪要或视频会议 AI 总结（无纪要时跳过），结合纪要与 PRD/原型一起分析。模式和范围已明确时直接执行，缺少必要信息时逐个提问。每次生成内容一致的 Markdown 与 HTML 报告，标题后先用简短需求概览说明核心目标、主流程与结果，适合时附简洁流程图；默认保存到当前 Agent 工作空间 .agents/out/prd-review/yyyy-MM-DD/PRD名称-HH-MM/（HH:MM 的 Windows 兼容写法），分析及校验完成即用当前电脑默认浏览器自动打开 HTML。仅对 modao.cc 链接使用 modao-prd-links。
 compatibility:
   tools: [Bash, WebFetch, Read, Write, AskUserQuestion]
 metadata:
@@ -41,7 +41,7 @@ metadata:
 
 ### 最终输出要求
 1. 先一句话复述用户真实需求（模式 + 范围）
-2. 再给出可直接使用的结论及 Markdown、HTML 报告路径（默认 `.agents/prd-review/yyyy-MM-DD/PRD名称-HH-MM/`，用户明确另指定目录优先），说明默认浏览器打开结果。
+2. 再给出可直接使用的结论及 Markdown、HTML 报告路径（默认 `.agents/out/prd-review/yyyy-MM-DD/PRD名称-HH-MM/`，用户明确另指定目录优先），说明默认浏览器打开结果。
 3. 说明关键假设、剩余不确定性和自查依据；95% 是内部审查目标，不是统计置信度。无法读取或未核验的内容明确标注，不凭主观百分比声称确定。
 
 ## 何时使用
@@ -231,11 +231,11 @@ metadata:
 
 #### 输出目录与命名
 
-- 默认每轮目录为 **`<当前Agent工作空间>/.agents/prd-review/yyyy-MM-DD/<PRD名称>-HH-MM/`**。
+- 默认每轮目录为 **`<当前Agent工作空间>/.agents/out/prd-review/yyyy-MM-DD/<PRD名称>-HH-MM/`**。
   `yyyy-MM-DD` 表示本机日期（如 2026-10-08），时间为 24 小时制，取创建本轮报告目录时的
   同一时刻；日期和时间不能分开取值以免跨午夜错配。
 - 用户原要求 `HH:MM`，Windows 文件/目录名不允许 `:`，所有平台统一使用兼容的 `HH-MM`，
-  例如 `.agents/prd-review/2026-10-08/订单管理-14-30/`；报告中保留正常时间和时区。
+  例如 `.agents/out/prd-review/2026-10-08/订单管理-14-30/`；报告中保留正常时间和时区。
 - **工作空间是本轮 Agent 会话的工作空间**：先使用会话提供的工作空间绝对路径；没有
   单独的工作空间字段时，在切换目录前记录启动时的 cwd。不能改用 skill 所在目录、PRD
   源文件所在目录或执行脚本时的 cwd，不在创建目录时向用户重复询问已知工作空间。
@@ -257,7 +257,7 @@ python "<skill绝对路径>/scripts/output_dir.py" --workspace "<Agent工作空�
 - 用户在本轮明确指定其他输出根目录时才传 `--output-root`，日期/PRD名称-时间层级仍保留；
   若明确要求具体完整文件路径则按其要求配对输出。只指定文件名不改变默认目录层级。
 - 链接清单、证据摘录、截图、辅助脚本和浏览器打开记录统一保存在本轮目录（可用 assets/），
-  不散落在 `.agents/prd-review/` 根目录或输入材料目录。
+  不散落在 `.agents/out/prd-review/` 根目录或输入材料目录。
 
 #### 执行与校验
 
@@ -412,7 +412,7 @@ python "<skill绝对路径>/scripts/report.py" "<报告Markdown绝对路径>"
 
 - 输出必须使用中文。
 - 输出结构要与用户选择的模式匹配，不要无差别输出所有章节；三种模式共同保留标题后的简短需求概览，先让读者理解需求，再进入详细审查。
-- 最终报告及相关文件默认保存到当前 Agent 工作空间 `.agents/prd-review/yyyy-MM-DD/PRD名称-HH-MM/`；本轮明确指定其他目录时遵从用户要求。
+- 最终报告及相关文件默认保存到当前 Agent 工作空间 `.agents/out/prd-review/yyyy-MM-DD/PRD名称-HH-MM/`；本轮明确指定其他目录时遵从用户要求。
 - 三种模式均必须生成内容一致的 Markdown 与 HTML 版本，完成自查和校验后立即用当前电脑默认浏览器打开 HTML，并在最终答复返回两份文件路径及打开结果。
 - 在 `文档梳理模式` 下，重点讲清逻辑，同时简要记录明显合理性/一致性断点。
 - 在 `问题审查模式` 下，重点检查合理性、前后矛盾、原型与 PRD 一致性及缺失项。
@@ -435,6 +435,7 @@ python "<skill绝对路径>/scripts/report.py" "<报告Markdown绝对路径>"
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
 5. **本 skill 针对性约束**：报告目录只放成对的 MD/HTML 两个交付文件；
    抓取的 PRD 原文、校验中间产物收进同目录 `work/` 子目录。
+- **产物 git 托管指定**：评审报告（Markdown 与 HTML）不需要被 git 管理，默认输出 `<工作目录>/.agents/out/prd-review/`；用户明确指定入库目录时以用户为准。
 
 ## 自我沉淀闭环（每次对话结束必检，最高优先级）
 
@@ -472,7 +473,7 @@ python "<skill绝对路径>/scripts/report.py" "<报告Markdown绝对路径>"
 - 整体输出可直接复制到评审纪要、PRD review 文档或会议结论中
 - 合理性和一致性均有实际检查记录，明确矛盾有双方证据，推断与未知规则已标注。
 - 同一问题只计数一次，优先级与影响匹配，不把演示占位当作生产缺陷。
-- 生成内容一致且配对的 Markdown 与 HTML，默认位于 Agent 工作空间 `.agents/prd-review/yyyy-MM-DD/PRD名称-HH-MM/`；重跑独立目录不覆盖旧结果，用户明确指定其他目录时优先。
+- 生成内容一致且配对的 Markdown 与 HTML，默认位于 Agent 工作空间 `.agents/out/prd-review/yyyy-MM-DD/PRD名称-HH-MM/`；重跑独立目录不覆盖旧结果，用户明确指定其他目录时优先。
 - HTML 离线可读、表格/图片/目录可用，并在校验完成后自动通过当前电脑默认浏览器打开；最终返回两份路径及真实打开结果。
 
 ## 示例触发语句

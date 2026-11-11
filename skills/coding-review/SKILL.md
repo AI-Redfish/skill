@@ -1,6 +1,6 @@
 ---
 name: coding-review
-description: 通用 coding-review（代码审查）规范，持续迭代中；当前核心专项：对 basic-platform-service（BPS，Java 多模块 + Redis/MySQL/RocketMQ/MinIO）执行静态安全隐患审查：Redis 滥用（KEYS 命令/永久 key/凭据硬编码）、MySQL 事务与 SQL 注入面、索引核对（对照 basic-platform-service-sql 归档）、前后端接口抽查（对照 wukong 前端仓库）、MQ 中间件（RocketMQ/RabbitMQ）及自主扩展角度（上传下载、日志泄漏、依赖停维、越权抽查），产出双格式（Markdown + HTML）审查报告到 .agents/reports/。当用户要求"代码审查""coding review""code review""检查项目安全隐患""安全审查""代码安全扫描""审查 Redis/MySQL/MQ 使用是否不当""核对索引是否缺失"时使用。不适用于：运行时渗透测试（无运行环境探测）、依赖漏洞 CVE 全量比对（需联网 OSV/NVD）、修复代码本身（审查通过后由用户另行安排修复）。
+description: 通用 coding-review（代码审查）规范，持续迭代中；当前核心专项：对 basic-platform-service（BPS，Java 多模块 + Redis/MySQL/RocketMQ/MinIO）执行静态安全隐患审查：Redis 滥用（KEYS 命令/永久 key/凭据硬编码）、MySQL 事务与 SQL 注入面、索引核对（对照 basic-platform-service-sql 归档）、前后端接口抽查（对照 wukong 前端仓库）、MQ 中间件（RocketMQ/RabbitMQ）及自主扩展角度（上传下载、日志泄漏、依赖停维、越权抽查），产出双格式（Markdown + HTML）审查报告到 .agents/out/coding-review/。当用户要求"代码审查""coding review""code review""检查项目安全隐患""安全审查""代码安全扫描""审查 Redis/MySQL/MQ 使用是否不当""核对索引是否缺失"时使用。不适用于：运行时渗透测试（无运行环境探测）、依赖漏洞 CVE 全量比对（需联网 OSV/NVD）、修复代码本身（审查通过后由用户另行安排修复）。
 compatibility: BPS 安全专项依赖 scripts/check-missing-indexes.py（Python 3.9+ 纯标准库）；索引核对需本地存在 D:/develop/project/basic-platform-service-sql 归档仓库；接口抽查需前端仓库 D:/develop/project/wukong。适用于 BPS 主仓库 release 或 dev 分支基线。
 metadata:
   author: AI-Redfish
@@ -125,7 +125,7 @@ metadata:
 
 ## 报告输出规范
 
-- 位置：`.agents/reports/security-review-<YYYY-MM-DD>.md` 与同名 `.html`，内容一致（用户已确认此约定）；同日复查产出新文件加 `-r2`/`-rN` 后缀，不覆盖既有报告。
+- 位置：`.agents/out/coding-review/security-review-<YYYY-MM-DD>.md` 与同名 `.html`，内容一致（用户已确认此约定）；同日复查产出新文件加 `-r2`/`-rN` 后缀，不覆盖既有报告。
 - 结构：元信息（基线 commit、方式）→ 风险总览表（编号 H/M/L + 位置精确到文件:行）→ 分方向详述（每项：证据代码、影响、建议）→ 正面样本 → 修复优先级（立即/短期/中期）→ 覆盖范围与未覆盖项。
 - 分级标准：高=可远程利用或凭据泄漏；中=性能劣化/防御缺失/停维组件；低=规范偏差/触发条件苛刻。
 - 未覆盖项必须如实列（Nacos 实际配置、运行时实测、全量契约比对等），不确定性明说，不编造。
@@ -137,6 +137,14 @@ metadata:
 - 修复交付格式（用户已确认）：每个审查点独立小节，固定三段标签 `**问题原因**` / `**影响**` / `**修复建议**`，保留一行一项的风险总览表，文件名 `security-review-<YYYY-MM-DD>-r2.md/.html`。
 - 脚本位置：`check-missing-indexes.py`、`check-sql-patterns.py`、`check-transaction-failures.py` 在工作区根目录 `scripts/`（非本 skill 目录）。
 - 交付拆分：密码轮换、Nacos 配置、EXPLAIN 实测、部署实例数确认等运维动作单列「需运维配合」清单，不混入代码修复项。
+
+## 输出精简约束与产物 git 托管指定（所有落盘产物与答复通用）
+
+1. **只落盘有用的**：只把用户会直接使用的产物写到磁盘；过程稿、中间草稿、重复副本、无人引用的说明文件一律不落盘。
+2. **中间产物隔离**：确需保留的中间产物收进 `.agents/out/coding-review/`（非 git 托管产物目录），不与交付产物混放。
+3. **落盘前自问**：写文件前先问"用户会直接使用它吗"；不会就不写，改为文字说明。
+4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
+5. **产物 git 托管指定**：审查报告（Markdown 与 HTML）不需要被 git 管理，输出到 `<工作目录>/.agents/out/coding-review/`；不生成用户没要的总结或分析文件。
 
 ## 验证与交付
 

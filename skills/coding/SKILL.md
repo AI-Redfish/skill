@@ -64,7 +64,7 @@ metadata:
 8. **验证为实**：改动后必须真实构建并运行匹配的测试；验证不通过逐个修复，禁止跳过或放宽断言；额外执行 `git diff --check` 与 `scripts/ci/check-architecture.sh --diff`；未做的验证（如实库联调、跨库执行）必须在总结中如实标注。
 9. **测试配套完备**：新增/改名测试文件必须确认纳入版本控制（`.gitignore` 白名单 + `git ls-files`/`git check-ignore` 验证，改名后复查）；跨域实体 `LambdaQueryWrapper` 的纯单测需 `TableInfoHelper.initTableInfo` 初始化缓存；还原/删除方法后同步删除前提过时的用例与失效 stub；Mapper XML/接口变更同步 SQL 解析级测试。
 10. **提交纪律**：用户要求"提交/合并成一个 commit"时，`git add -A` 后按需 `git reset --soft <基点>` 或 `--amend`，保证基点之上仅一个约定格式提交（`type(scope): 标题` + 分点正文）；绝不擅自 push，不碰受保护分支；提交前 `git diff --check` 必须干净。
-11. **文档与交付同步**:接口行为、任务配置、部署注意项变化必须同步更新仓库文档;涉及前端配合时,整理**可直接交给 AI 执行**的交接文档放入 `.agents/`（含修改前后请求对照、参数表、严禁事项、自测验收清单），并确认其被 gitignore 不污染提交；接口变更多、前端对接复杂时，升级为 [interface-handover-doc.md](references/interface-handover-doc.md) 的页面分组完整接口文档。
+11. **文档与交付同步**:接口行为、任务配置、部署注意项变化必须同步更新仓库文档;涉及前端配合时,整理**可直接交给 AI 执行**的交接文档放入 `.agents/out/coding/`（含修改前后请求对照、参数表、严禁事项、自测验收清单；`.agents/out/` 是非 git 托管产物目录，天然不污染提交）；接口变更多、前端对接复杂时，升级为 [interface-handover-doc.md](references/interface-handover-doc.md) 的页面分组完整接口文档。
 12. **如实汇报**：最终总结必须包含——修改内容 / 影响面（接口兼容性、数据行为、性能、部署注意）/ 验证状态（真实跑过什么、结果如何）/ 未覆盖项（如实库联调未做）；不夸大、不隐瞒、不虚构"已验证"。
 13. **安全前置阻断**：涉及权限、租户/数据范围、敏感数据、文件、外部调用、异步链路的改动，先过 [security-coding-constraints.md](references/security-coding-constraints.md) 的阻断条件；缺设计依据时标注为阻断并反馈，不得靠猜测落代码。
 14. **数据库变更走 Flyway**：表结构/索引/初始化数据变更必须以版本化 SQL 落盘，MySQL 与 KingBase 双端同步且幂等；禁止绕过 Flyway 手改库、禁止 `DROP TABLE`/`DROP COLUMN`。
@@ -120,7 +120,8 @@ metadata:
 3. **落盘前自问**：写文件前先问"用户会直接使用它吗"；不会就不写，改为文字说明。
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
 5. **本 skill 针对性约束**：交付物是代码修改与必要文档；不生成用户没要的总结、
-   说明或分析文件，交接文档只放 `.agents/`（见硬性约束第 11 条）。
+   说明或分析文件，交接文档只放 `.agents/out/coding/`（见硬性约束第 11 条）。
+- **产物 git 托管指定**：代码修改**需要被 git 管理**（按用户要求提交）；交接文档与接口文档等过程交付物不需要被 git 管理，输出到 `.agents/out/coding/`。
 
 ## 自我沉淀闭环（每次对话结束必检，最高优先级）
 
@@ -154,7 +155,7 @@ metadata:
 - 输入：「修改完成后提交，然后合并成一个 commit」→ soft reset 到基点或 amend，单条约定格式提交，不 push。
 - 输入：「新增一张业务表」→ Flyway 双端幂等脚本 + 实体/Mapper/Service/Controller 按模板生成，同步测试。
 - 输入：「这次需求比较大，先拆成子任务再逐个做」→ 命中拆分条件：扫同域代码模式 → 需求提取清单 → 子任务单+覆盖映射表交用户确认 → 逐任务实现验证，全部完成后按子任务逐项汇报。
-- 输入：「生成本次需求的接口文档」→ 基于 git diff 增量 + PRD 页面分组，输出页面→模块→按钮→接口四级文档（含依赖取值映射与字典），写入 `.agents/`。
+- 输入：「生成本次需求的接口文档」→ 基于 git diff 增量 + PRD 页面分组，输出页面→模块→按钮→接口四级文档（含依赖取值映射与字典），写入 `.agents/out/coding/`。
 - 输入：「给资产表加个备注字段」→ Flyway 双端加列 + Entity/DTO/VO + XML 自定义查询逐 statement 核对（resultMap/列片段/insert/update/where）+ Service 转换与过滤 + SQL 解析测试，`git grep` 复查零遗漏。
 
 ## 不适用场景

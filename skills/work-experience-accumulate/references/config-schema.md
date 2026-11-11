@@ -1,6 +1,6 @@
 # 配置格式
 
-配置文件：`<workdir>/.agents/work-experience-accumulate/config.json`。
+配置文件：`<workdir>/.agents/out/work-experience-accumulate/config.json`。
 
 `collect` 与 `dingtalk-preview` 支持可选 `--start/--end`（RFC3339 含时区，必须同时提供且 start 早于 end）：定时采集失败后对同一历史窗口补采。不传时用默认回溯窗口，行为不变。
 

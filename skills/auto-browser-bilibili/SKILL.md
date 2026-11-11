@@ -80,7 +80,7 @@ uv run scripts/browser_session.py status
 uv run scripts/bili_clip.py --url "https://www.bilibili.com/video/BVxxxx" [--out <目录>] [--page 2]
 ```
 
-- `--out` 默认 `<当前目录>/clips`；输出结构 `<out>/Bilibili/<YYYYMMDD>/<标题>-<NN>/`
+- `--out` 默认 `<当前目录>/.agents/out/auto-browser-bilibili/clips`（非 git 托管产物目录）；输出结构 `<out>/Bilibili/<YYYYMMDD>/<标题>-<NN>/`
 - 多 P 视频用 `--page` 指定分P（默认第 1P）；`--merge <目录>` 可对已有分离流补合并
 - 成功输出 JSON（stdout）：status/dir/files/quality/failures；失败退出码 2
 
@@ -128,6 +128,7 @@ video_quality: "1080P 高清"    # width / height / duration / page 另列
 5. **本 skill 针对性约束**：交付物只有沉淀条目目录（note.md + 媒体文件）；
    无其他中间产物落盘；分离流合并后即删除。
 
+- **产物 git 托管指定**：沉淀条目（note.md 与媒体文件）不需要被 git 管理，默认输出 `<当前目录>/.agents/out/auto-browser-bilibili/clips/`；用户明确指定目录时以用户为准。
 ## 已知坑（实战踩过，勿重踩）
 
 1. **Chrome 136+**：默认 profile 下 `--remote-debugging-port` 被静默禁用；

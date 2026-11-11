@@ -74,7 +74,8 @@ def ok(data: dict[str, Any]) -> int:
 
 
 def base_dir(workdir: Path) -> Path:
-    return workdir / ".agents" / NAME
+    # 非 git 托管产物目录：配置与运行数据均不入库。
+    return workdir / ".agents" / "out" / NAME
 
 
 def config_path(workdir: Path) -> Path:

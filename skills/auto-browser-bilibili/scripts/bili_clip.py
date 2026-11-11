@@ -36,7 +36,7 @@ import _common as c  # noqa: E402
 
 BILI_REFERER = "https://www.bilibili.com/"
 BILI_URL_RE = re.compile(r"bilibili\.com", re.I)
-DEFAULT_OUT_NAME = "clips"
+DEFAULT_OUT_NAME = ".agents/out/auto-browser-bilibili/clips"  # 非 git 托管产物目录
 DOWNLOAD_TIMEOUT_SEC = 600
 
 # 注入页面执行的提取函数。页面上下文 fetch 自带登录 cookie 与 Referer，

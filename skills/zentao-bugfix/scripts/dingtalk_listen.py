@@ -507,7 +507,7 @@ def build_fix_prompt(bug_id, base_branch=None, prepared=None):
             "%s\n"
             "步骤：1) 运行 `python %s prepare %s%s --project .`（或 uv run --no-project 同命令）；"
             "2) 按 SKILL.md 先在 worktree 中只读分析代码，补全 analysis.md（完整分析报告）"
-            "与 solution.md（解决方案），两份文档落盘在 worktree 的 .agents/zentao-bugfix/"
+            "与 solution.md（解决方案），两份文档落盘在 worktree 的 .agents/out/zentao-bugfix/"
             "<bugId>/ 下；此阶段禁止修改任何代码文件；analysis.md 必须包含「问题归属」章节并给出"
             "`**结论**: 前端问题|后端问题|前后端|待确认`（前端工作区 FRONTEND_WORKSPACES 只读分析，不是修复目标），"
             "并用 `**改动范围**: 仅当前工作空间|需要其他工作空间（本次不修改）` 声明本次只改当前工作空间；"
@@ -530,18 +530,15 @@ def verify_fix(bug_id, repo):
     "analysis_complete": bool, "analysis_state": "no"|"yes"|"missing",
     "solution_complete": bool, "solution_state": "no"|"yes"|"missing"}。
     analysis/solution 校验分析先行流程：analysis.md 与 solution.md 均应在修复前
-    已补全（无（待填写））；报告目录新布局 .agents/zentao-bugfix/<id>，旧 worktree
-    自动回退 .agents/bugfix/<id>。
+    已补全（无（待填写））；报告目录只认 .agents/out/zentao-bugfix/<id>。
     """
     parent = Path(repo).resolve().parent
     for pat in ("bugfix_%s_*" % bug_id, "bugfix_%s" % bug_id):
         for wt in sorted(parent.glob(pat)):
-            rd_new = wt / ".agents" / "zentao-bugfix" / str(bug_id)
-            rd_old = wt / ".agents" / "bugfix" / str(bug_id)
+            rd_new = wt / ".agents" / "out" / "zentao-bugfix" / str(bug_id)
             meta_new = (rd_new / "meta.json").is_file()
-            meta_old = (rd_old / "meta.json").is_file()
-            if wt.is_dir() and (meta_new or meta_old):
-                report_dir = rd_new if meta_new else rd_old
+            if wt.is_dir() and meta_new:
+                report_dir = rd_new
                 reports = sorted(p.name for p in report_dir.glob("fix-report*.md"))
 
                 def _state(p):

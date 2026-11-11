@@ -172,6 +172,10 @@ SKILL.md 模板创建。**七条硬规范**（评审门会检查）：
 7. **输出精简内嵌**：SKILL.md 必须包含「输出精简约束」章节（模板见
    references/authoring-standards.md），约束生成的 skill 只落盘用户会直接使用的产物、
    中间产物收进专门子目录、不复述过程日志；缺失为 error 级问题
+8. **产物 git 托管指定**：SKILL.md 必须在「路径与输出位置约定」中逐类指定产物是否需要被
+   git 管理：需要入库的按项目约定落盘；不需要入库的（下载内容、总结、报告、录屏、
+   运行数据等）统一输出到 `<工作目录>/.agents/out/<skill-name>/`（非 git 托管产物目录，
+   由 .gitignore 忽略）；缺失为 error 级问题（模板见 references/authoring-standards.md）
 
 SKILL.md 正文 ≤500 行（>300 行时把细节外置到 `references/`）。写完执行
 `gate.py init`（若未初始化），进入评审门。

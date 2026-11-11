@@ -81,7 +81,7 @@ uv run scripts/redbook_clip.py --tab <标题或URL子串>                 # 抓�
 uv run scripts/redbook_clip.py --list                               # 列出已开标签页
 ```
 
-- `--out` 默认 `<当前目录>/clips`；输出结构 `<out>/RedNote/<YYYYMMDD>/<标题>-<NN>/`
+- `--out` 默认 `<当前目录>/.agents/out/auto-browser-redbook/clips`（非 git 托管产物目录）；输出结构 `<out>/RedNote/<YYYYMMDD>/<标题>-<NN>/`
 - 成功输出 JSON（stdout）：status/dir/files/failures；失败退出码 2
 
 ### 3. 校验结果
@@ -131,6 +131,7 @@ title / author / url / captured_at / path / tags
 5. **本 skill 针对性约束**：交付物只有沉淀条目目录（note.md + 媒体文件，
    含诊断用的 dump-video.json）；无其他中间产物落盘。
 
+- **产物 git 托管指定**：沉淀条目（note.md 与媒体文件）不需要被 git 管理，默认输出 `<当前目录>/.agents/out/auto-browser-redbook/clips/`；用户明确指定目录时以用户为准。
 ## 已知坑（实战踩过，勿重踩）
 
 1. **裸链接打不开**：小红书笔记链接必须带 `xsec_token`（从分享/复制链接获取）；

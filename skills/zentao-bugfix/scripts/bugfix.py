@@ -44,7 +44,7 @@ zentao-bugfix skill 唯一脚本入口 —— 把所有确定性步骤脚本化�
                                                   查询禅道 + routes.json 分流 +
                                                   绑定工作区加锁或新建 worktree + 生成
                                                   analysis.md / solution.md 骨架
-                                                  （报告目录 .agents/zentao-bugfix/
+                                                  （报告目录 .agents/out/zentao-bugfix/
                                                   <bugId>/）
     render-html <bugId> [--project DIR] [--analysis-only]
                                                   从完整 MD 生成/更新同目录 HTML
@@ -480,17 +480,13 @@ def worktree_info(project_dir, bug_id, base_branch_arg=None):
 
 
 def report_dir_for(wt_path, bug_id):
-    """报告目录：<worktree>/.agents/zentao-bugfix/<bugId>/（v1.6+ 布局）。"""
-    return os.path.join(wt_path, ".agents", "zentao-bugfix", str(bug_id))
+    """报告目录：<worktree>/.agents/out/zentao-bugfix/<bugId>/（v1.7+ 布局，非 git 托管产物目录）。"""
+    return os.path.join(wt_path, ".agents", "out", "zentao-bugfix", str(bug_id))
 
 
 def resolve_report_dir(wt_path, bug_id):
-    """读取/复用时的报告目录：新版 zentao-bugfix 目录；旧 worktree 回退 .agents/bugfix/<id>。"""
-    new = report_dir_for(wt_path, bug_id)
-    legacy = os.path.join(wt_path, ".agents", "bugfix", str(bug_id))
-    if os.path.isdir(new) or not os.path.isdir(legacy):
-        return new
-    return legacy
+    """读取/复用时的报告目录：只认 v1.7+ 布局（.agents/out/zentao-bugfix/<bugId>/），不回退旧目录。"""
+    return report_dir_for(wt_path, bug_id)
 
 
 def find_existing_worktrees(project_dir, bug_id):
