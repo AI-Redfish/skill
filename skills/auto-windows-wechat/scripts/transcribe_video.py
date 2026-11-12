@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11,<3.13"
+# dependencies = ["faster-whisper==1.2.1", "av==12.3.0"]
+# ///
 """transcribe_video.py — 本地语音转写（faster-whisper，uv --with 按需拉起，无 API key）。
 
 用法:
-    uv run --with faster-whisper scripts/transcribe_video.py <video.mp4> \
+    uv run --no-project --python 3.11 scripts/transcribe_video.py <video.mp4> \
         [--model small] [--language zh] [-o 输出目录] [--name 自定义文件名]
 
 产物: <stem>.txt（逐段纯文本）与 <stem>.srt（带时间轴），默认与视频同目录。
@@ -11,7 +15,7 @@ stdout 末行 JSON {"output": {"ok": true, "txt": ..., "srt": ..., "audio_sec": 
 
 模型: tiny/base/small/medium/large-v3，默认 small（中文质量/速度平衡点；
 追求更准用 medium，CPU 明显变慢）。模型首次使用时从 HuggingFace 下载并缓存
-（small≈460MB），之后离线可用。依赖包由 uv --with 自动解析安装，无需预装。
+（small≈460MB），之后 HF_HUB_OFFLINE=1 离线可用。依赖由 PEP 723 声明，uv 隔离安装。
 """
 
 from __future__ import annotations
@@ -62,7 +66,7 @@ def main() -> int:
     try:
         from faster_whisper import WhisperModel
     except ImportError:
-        return fail("缺少 faster-whisper；请用 uv run --with faster-whisper 运行本脚本")
+        return fail("缺少 faster-whisper；请用 uv run --no-project --python 3.11 运行本脚本")
 
     outdir = Path(args.outdir) if args.outdir else video.parent
     outdir.mkdir(parents=True, exist_ok=True)

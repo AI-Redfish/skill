@@ -88,13 +88,13 @@ Ctrl+V/回车落空。解法：粘贴前用 UIA 定位聊天输入框并鼠标�
 找 `Name==目标`（命中立即判成功），搜索残留的否定由 Document 的
 「- 搜一搜」显式排除承担。
 
-## 10. 视频号播放缓存为加密文件，原视频不可直接提取（实测 2026-11-11）
+## 10. 本机视频号播放缓存无法直接提取（实测 2026-11-11）
 
 适用：微信 4.x（Weixin 4.2.0.13，装在 `D:\program\weixin`），数据目录 `D:\program\xwechat_files\<wxid>\`（不在 `%USERPROFILE%\Documents`）；主窗口类 `Qt51514QWindowIcon`（mmui::MainWindow）。
 
 - 播放缓存实际位置：`%APPDATA%\Tencent\xwechat\radium\users\<uid>\xworker\liteapp\local\assets\tmp\wxalite*\finder\finder_videoCache_*`。每次播放会话一个文件（≈512KB–1.2MB），内容全随机（无 mp4 头）＝加密/混淆存储。
 - `xwechat_files`（msg/video、cache、resource）与 `%TEMP%` 均无明文视频；multitab `Cache_Data` 里只有 gzip 页面资源与 JPEG 封面。
-- 结论：`locate_channels_cache.py` 差分能发现缓存活动，但产物不可还原为 mp4；原视频提取改走 §11 录屏重制。
+- 结论仅适用于本机缓存：差分能发现缓存活动，但未验证可还原为 MP4；不能据此推断网页授权媒体也不可下载。优先走 §13 后台授权解析，失败且获授权后才走 §11 录屏。
 
 ## 11. 录屏重制路线（画面 + 系统声音 → mp4，实测通过）
 
@@ -108,5 +108,22 @@ Ctrl+V/回车落空。解法：粘贴前用 UIA 定位聊天输入框并鼠标�
 ## 12. faster-whisper 转写环境坑（uv 实测）
 
 - `uv run` 默认解析到 Python 3.14：`av` 无对应 wheel → 源码编译失败。需 `--python 3.11 --with "av==12.3.0"`（faster-whisper 的 `decode_audio` 调 `av.open(metadata_errors=…)`，av 版本不匹配报 TypeError）。
-- HuggingFace 直连报 `SSL: UNEXPECTED_EOF`（系统代理 127.0.0.1:7890 抖动）：加 `HF_ENDPOINT=https://hf-mirror.com`。
-- 成功组合：`HF_ENDPOINT=https://hf-mirror.com uv run --python 3.11 --with faster-whisper --with "av==12.3.0" scripts/transcribe_video.py <音频> --model small`（172 秒音频约 43 秒转完）。
+- HuggingFace 直连曾报 `SSL: UNEXPECTED_EOF`。先检查网络与本地模型缓存；已缓存时使用 `HF_HUB_OFFLINE=1`。镜像是第三方服务，只有用户明确同意后才设置 `HF_ENDPOINT`，不默认静默切换。
+- 已验证组合：Python 3.11.9、`faster-whisper==1.2.1`、`av==12.3.0`、small CPU int8。现由转写脚本的 PEP 723 声明固定依赖，使用 `uv run --no-project --python 3.11 <skill_dir>/scripts/transcribe_video.py <视频>`。
+
+## 13. 元宝授权解析与后台媒体下载
+
+何时读：用户只提供视频号分享链接，希望后台获取视频、字幕、全文或总结。已在一个公开视频实测成功；接口并非稳定公开 API，其他链接及长期可用性未保证。
+
+1. 在 Tabbit 观察到的已登录元宝标签页，用 `page.fetch("/api/weixin/get_parse_result", ...)` 发 JSON：`{type:"video_channel_url", url:shareUrl, scene:1}`。设置 `method:"POST"`、`Content-Type: application/json`、`as:"json"`。HTTP 200 且 `code:0` 后读取 `data.playable_url`；401 时请用户登录。
+2. `playable_url` 是授权播放页，不是 MP4。仅在内存解析其 `token` 和 `eid`，检查 origin 为 `https://channels.weixin.qq.com`。不保存或打印含签名的 URL、Cookie、令牌。
+3. 用 `page.request.post("https://channels.weixin.qq.com/finder-preview/api/feed/get_feed_info", ...)`，请求体 `{baseReq:{generalToken:token}, exportId:eid}`，headers 的 Origin 为播放页 origin，Referer 为完整授权播放页。已观察 HTTP 201、`errCode:0`；媒体在 `data.feedInfo.videoUrl`。不依赖播放页导航成功。
+4. `page.request.get(mediaUrl)` 获取媒体。曾观察 Range 探测 206、完整 GET 200；下载脚本先探测大小，再请求完整范围。只允许 HTTPS 腾讯媒体域名，不请求响应注入的任意地址。
+5. 脚本通过 Tabbit result/resource 分页接收媒体，`--max-bytes` 最大 65536，按 `nextOffset` 直到 `eof`，拼接 `data` 后才解析 JSON。stdout 为空先查同一 request-id 的 receipt；失败响应不输出原始错误，以免泄漏签名。
+6. 下载只检查长度与 MP4 头；仍必须用 ffprobe 检查时长、音视频流，再用 ffmpeg 完整解码。不可把 HTTP 成功、扩展名或 MP4 头当作完整性证明。
+
+分享页面二维码用于手机微信观看，不是浏览器授权登录。扫码后手机播放不表示电脑浏览器已登录。元宝登录是独立步骤；不要求用户导出凭据。
+
+脚本消费一次性授权只向对应腾讯接口发送用户提供的分享链接和临时授权，不上传本地文件、聊天记录或浏览器凭据。下载有体积上限，不自动解密缓存或绕过私密内容、删除状态与权限拒绝。
+
+参考：`https://github.com/ltaoo/wx_channels_download/blob/main/internal/workers/sph/worker.js`。仅借鉴授权解析思路，脚本为本地独立实现；本次调用链以会话实测为依据，不视为官方 API 承诺。

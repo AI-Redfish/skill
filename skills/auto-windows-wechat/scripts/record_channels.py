@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["soundcard>=0.4.5,<0.5"]
+# ///
 """视频号视频录屏重制工具：ffmpeg gdigrab 画面 + soundcard loopback 系统声音 → 合成 mp4。
 
 子命令:

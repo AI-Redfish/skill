@@ -51,7 +51,7 @@ class ParamValidationTests(unittest.TestCase):
         # 直接测 _send 的提示注入逻辑：monkeypatch send_message 抛错
         orig = mod.send_message
 
-        def fake(target, text, wait_idle=True):
+        def fake(target, text, wait_idle=True, restart_wechat=False):
             raise error
 
         mod.send_message = fake
@@ -65,7 +65,7 @@ class ParamValidationTests(unittest.TestCase):
     def test_send_success_structure(self):
         orig = mod.send_message
 
-        def fake(target, text, wait_idle=True):
+        def fake(target, text, wait_idle=True, restart_wechat=False):
             pass
 
         mod.send_message = fake
@@ -82,10 +82,7 @@ class CliParsingTests(unittest.TestCase):
     """CLI 参数解析：位置参数 / -t -m / --no-wait。"""
 
     def test_positional_args(self):
-        result = mod._cli_result(["红色小鱼", "你好"])
-        inputs = {"inputs": {"target": "红色小鱼", "message": "你好", "wait_idle": True}}
-        # _cli_result 内部走 main；缺 message 时 main 拦截，这里两个都给了，
-        # 但 main 会真的发消息——mock 掉 send_message
+        # 必须先 mock 再调用 CLI，测试绝不发送真实消息。
         orig = mod.send_message
         mod.send_message = lambda *a, **k: None
         try:
@@ -99,7 +96,7 @@ class CliParsingTests(unittest.TestCase):
         orig = mod.send_message
         captured = {}
 
-        def fake(target, text, wait_idle=True):
+        def fake(target, text, wait_idle=True, restart_wechat=False):
             captured["target"] = target
             captured["wait_idle"] = wait_idle
 
