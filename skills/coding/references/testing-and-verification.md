@@ -44,7 +44,22 @@ sql.getParameterMappings()    // 断言参数绑定（foreach 参数名为 __frc
 
 只带 token 的请求只能算诊断证据，不能声明权限相关测试通过。
 
-## 5. 断言分级与数据红线
+## 5. 多模块本地构建与界面联调交付（2026-11-12 电梯监测实测）
+
+**单模块构建与测试**：
+
+1. 单模块编译需带依赖：`mvn package -pl <module> -am`；仅 `-pl` 不带 `-am` 会因依赖模块未 install 而报 `NoClassDefFound`/找不到符号。
+2. 依赖模块的既有失败测试不阻塞主线：`mvn install -pl <目标模块> -am -DskipTests` 装库后，对目标模块单独 `surefire:test -Dtest=<测试类>`。
+3. 可执行 jar 是 `*-boot.jar`（普通 jar 无主清单属性）；运行中的服务会锁定 jar（repackage 报 `Unable to rename`），先停服务再打包；打包后核对文件时间戳/内容（repackage 可能静默未更新，用 `unzip -p ... | grep <新方法名>` 验证新代码真的进包了）。
+4. 日志级别命令行参数可能被 nacos 覆盖或 logger 名不匹配，DEBUG 不打日志不代表方法没执行；改用 Redis MONITOR / 抓包实证调用链路。
+
+**界面联调交付**（给用户可点链接 + 界面可见数据）：
+
+1. 链路：前端 vite dev（`.env.development.local` 覆盖 proxy target，gitignore 内不提交）→ 本地 gateway → 本地业务服务 → 共享中间件；gateway 真实端口以实际监听为准（配置假设可能不成立）。
+2. 自测 token 从 Redis sa-token 键（`Authorization:login:token:{uuid}`）提取；非本人账号可能触发 `NoDataPermException`（如 `SysSpaceInfoMapper` 数据权限拦截，局部降级 success=true 但值为空），诊断前先排除。
+3. 界面造数键名/值格式必须 Redis MONITOR 实证，细节见 fulllink-testing skill 的 `references/frontend-e2e-verification.md`。
+
+## 6. 断言分级与数据红线
 
 - L0（HTTP 200/页面可打开）不算通过；断言必须到字段/行数/业务结果。
 - 测试输入与预期值运行时从目标环境现查，禁止写死 ID/SN；长整型 ID 按字符串处理。

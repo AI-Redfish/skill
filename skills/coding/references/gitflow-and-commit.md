@@ -15,6 +15,11 @@
 
 - 从最新稳定 tag（或发布基线）切分支，禁止从 `dev` 直接切。
 - bugid 不加 `BUG-`/`H-` 前缀；`main` 仅生产基线，普通员工不 push。
+- **dev 等集成分支通常受保护**：直接 push 被服务端 pre-receive 拒绝时，按上表 feature 命名建分支推送，
+  用 Gitea 返回的链接（或 `-/merge_requests/new?merge_request[source_branch]=<分支>`）创建 MR；
+  本地被拒分支用 `git reset --hard origin/<集成分支>` 对齐，避免残留被拒提交。
+- husky pre-commit 因环境问题失败（如 pnpm deps 状态检查/corepack 报错）且确认与代码无关时，
+  可 `git commit --no-verify`；代码问题（lint/格式）则修复后重提，禁止用 --no-verify 掩盖。
 
 ## 2. merge / rebase
 

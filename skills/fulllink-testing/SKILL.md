@@ -444,6 +444,8 @@ E2E 是从真实业务入口触发，经过实际服务/组件，验证最终业
 - "根据电梯监测 PRD 和后端技术文档出测试用例"（路由到用例生成模式，输出 AC 映射四维用例集）
 - "后端在 144 库、RabbitMQ 在 139，本地起 monitor/alarm 用 MQ 消息模拟规则引擎验证报警链路"
   （测试模式 + 全链路消息测试实战要点，见 references/fulllink-message-testing.md）
+- "测完给前端/产品可点击的验证链接，页面上要有测试数据"、"页面值为空/名称不对，帮我造数"、
+  "本地 mock 定位引擎/IoT 平台验证成功路径"（界面验证与造数，见 references/frontend-e2e-verification.md）
 
 ## 不适用场景
 
