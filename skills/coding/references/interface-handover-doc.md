@@ -34,11 +34,11 @@
 7. 所属后端模块：用 Swagger 地址同主机的 `/v3/api-docs/swagger-config`，从响应 `urls[]` 中取 `urls[].url` 去掉 `/v3/api-docs` 及查询参数后的业务前缀，与接口 URL 做**最长前缀匹配**，取该 `urls[].name`（示例：`/api/monitor/video/device/list` 匹配 `/api/monitor/v3/api-docs?group=default` 的前缀 `/api/monitor`，模块写“监测中心”）。无法访问、无 `urls` 或无匹配写“待确认”；**不按代码路径硬编码推断模块名**。
 8. 接口依赖与字段取值映射（模式 B）：见第 5 节。
 9. 字典整理（模式 B；模式 A 只在参数表标字典编码与 DictMap 字段）：见第 6 节。
-10. 生成 Markdown 按模式写入约定路径（模式 A 常为用户指定桌面/交付目录；模式 B 写入 `.agents/`）。
+10. 生成 Markdown 按模式写入约定路径（模式 A 常为用户指定桌面/交付目录；模式 B 写入 `.agents/out/coding/`）。
 
 ## 4. 输出格式与路径
 
-文件：`.agents/{{需求名称}}接口文档.md`（属用户直接使用的交付物，不受"不落盘"约束）。顶部必含 `Swagger 地址：`行。
+文件：`.agents/out/coding/{{需求名称}}接口文档.md`（属用户直接使用的交付物，非 git 托管产物目录，不受"不落盘"约束）。顶部必含 `Swagger 地址：`行。
 
 ```markdown
 # {{需求名称}}接口文档
@@ -149,7 +149,7 @@ Swagger 地址：{{swaggerUrl}}
 ## 10. 交付前自检
 
 **模式 B（自动化凭证向）自检**：
-- 文件在 `.agents/`，顶部含 `Swagger 地址：`行
+- 文件在 `.agents/out/coding/`，顶部含 `Swagger 地址：`行
 - 覆盖范围 = 增量接口 + PRD/原型确认复用的既有接口（不是只有 diff）；PRD 有页面但 diff 无接口时先查复用，确认没有才写"本次增量代码未发现新增/变更接口，且未从 PRD/原型确认复用既有接口"
 - diff 有接口但 PRD/原型找不到页面 → 归"待确认页面"
 - 四级标题结构正确（页面/模块/操作入口/接口）；每个接口八要素齐全

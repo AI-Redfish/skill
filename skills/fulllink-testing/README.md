@@ -1,6 +1,6 @@
-# fulllink-test
+# fulllink-testing
 
-git 变更驱动的全链路测试引擎 + 项目测试工作空间管理器（skill）。
+测试用例生成（需求驱动，AC 映射四维用例集）+ 变更驱动全链路测试引擎 + 项目测试工作空间管理器（skill，合并原 test-case-generator 与 fulllink-test）。
 
 ## 是什么
 
