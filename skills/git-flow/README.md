@@ -1,8 +1,12 @@
 # git-flow
 
-基于远程分支一键创建**同级目录** worktree 的并行开发 skill。
+Git 与代码托管平台的统一操作 skill。覆盖仓库同步、检索、分支、提交、合并/rebase、标签、worktree、子模块与迁移，以及 GitHub/GitLab/Gitee 的 PR/MR、Issue、CI、Release 操作。
 
-## 核心规则
+GitHub 文档、README、schema 与 Release 资产获取已并入本 skill。按需读取 [抓取与校验流程](references/github-docs-assets.md)，不再使用独立的 `github-docs-asset-fetch`。
+
+所有操作先确认对象与授权范围；查询/下载不隐含提交、推送或发布授权。以下保留 worktree 脚本的原有用法。
+
+## worktree 核心规则
 
 1. worktree 目录 = 主仓库**同级**（父目录下）
 2. 目录名 = 新分支名，`/` 全部替换为 `_`
@@ -40,5 +44,6 @@ python3 -m unittest discover -s tests -v
 
 ## 文档
 
-- 流程与规则：[SKILL.md](SKILL.md)
+- 统一任务入口与安全规则：[SKILL.md](SKILL.md)
+- GitHub 文档与 Release 资产获取：[references/github-docs-assets.md](references/github-docs-assets.md)
 - 排查手册（中断恢复/残留清理/fetch 超时/WSL 路径）：[references/troubleshooting.md](references/troubleshooting.md)
