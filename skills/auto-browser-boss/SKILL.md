@@ -4,7 +4,7 @@ description: Boss直聘求职者端自动化，手动触发单次执行两个任
 compatibility: Windows + 本机 Chrome + uv（PEP 723 自动装 playwright）；需专用 Chrome profile 已保存 Boss 登录态
 metadata:
   author: agent
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # auto-browser-boss — Boss直聘求职者自动投递与自动回复
@@ -62,17 +62,21 @@ uv run .agents/skills/auto-browser-boss/scripts/boss_reply.py --dry-run
 
 1. 首次触发且 `.agents/.env` 缺 `BOSS_QUERY` 时，进入理解闭环一次一问，收集关键词、城市代码、每日上限，写入 `.env`；同时引导用户共建 `faq.md`（薪资/到岗/学历等高频问答）。
 2. 检查 CDP 存活（`curl http://127.0.0.1:9222/json/version`），不通由脚本自动启动 Chrome（带占位标签）。
-3. 投递：`uv run scripts/boss_apply.py`；脚本导航仅允许搜索页 `/web/geek/jobs?query=...`。
+3. 投递（**接管模式**，脚本永不导航）：先请用户手动在调试 Chrome 打开目标组合的搜索页 `https://www.zhipin.com/web/geek/jobs?query=岗位&city=编码`，然后运行 `uv run scripts/boss_apply.py`，脚本接管当前页逐卡投递；投完请用户手动翻页/换城市岗位，说「继续」再跑。
 4. 请用户手动在 Chrome 打开聊天页 `https://www.zhipin.com/web/geek/chat` 并保持打开。
 5. 回复：`uv run scripts/boss_reply.py`；按输出摘要与 unmatched 清单向用户报告。
 
 ### 风控须知（实测事实，必须遵守）
 
-- 脚本 `goto` 聊天页或深层 URL → 被弹 about:blank 或 bticket 登录页。**只有搜索页允许脚本 goto**。
+- **脚本导航已被风控拦截（升级后）**：goto 任何 zhipin 页（含搜索页）都会被立即跳回空白页或直接拒连（ERR_CONNECTION_CLOSED）；同 IP curl 正常可证是环境级标记，仅限脚本导航，人工操作不受影响。**接管模式是唯一可行方式**：用户手动开页，脚本只读/点击，永不 goto。
+- **连续 goto 切换搜索页会触发升级**：曾从「页面弹回」升级到「连接拒绝」，冷却后降回。组合切换必须由用户手动导航，多次触发自然拉开间隔。
+- **风控等级 L3（2026-11-17 实测）**：CDP 连接后约 5 秒内，手动打开的搜索页被 JS 强制重定向到城市首页 `/xian/?seoRefer=index`，接管模式失效；连接瞬间（t+0）卡片可读。**结论与禁令**：此重定向由页面 JS（location.replace）发起，请求层 route 拦截已实测无效（文档仍被销毁），location 对象不可 hook——**禁止对抗**（hook/route/init script 均无效且会加深风控印象），直接转手动模式。
+- **恢复节奏**：冷却 2~3 天不连 CDP → 单次只读试水（连接后立即读卡片数，不点击；页面存活>30 秒 → 风控降级）→ 恢复接管模式 → 稳定数日再考虑恢复脚本导航。试水用临时探针，不新增 skill 文件。
 - 页面 URL 含 `ka=bticket` → 要求人工重新验证，脚本停止并提示。
 - 聊天页可能被整页踢回 `/web/geek/jobs`（风控标记状态）→ 脚本检测到即停，当天不再重试。
-- Boss 反自动化 JS 调 `window.close()`：唯一标签被关 = Chrome 整体退出。脚本已内置占位标签 + init script 屏蔽。
-- 每次动作间随机延时 8~20 秒；上限默认 50/天（低于 Boss 官方 100，降低风控概率）。
+- Boss 反自动化 JS 调 `window.close()`：唯一标签被关 = Chrome 整体退出。脚本已内置占位标签 + init script 屏蔽（拦不住 location 跳转）。
+- 动作间随机延时由 `BOSS_DELAY_MIN/MAX` 控制（默认 3~8 秒，当前 2~5）；上限默认 50/天（低于 Boss 官方 100，降低风控概率）。风控降级后建议将延时回拨到 3~8 以上。
+- **手动模式（风控激活期唯一安全策略）**：AI 不连接 CDP、不运行任何 Playwright 脚本；向用户输出组合清单与搜索 URL，用户在**日常 Chrome**（非调试 profile）手动打开并点击投递。已投与否 Boss 页面自标「已沟通」，重复点击无副作用，无需维护记录。手动投递数不入 jsonl，下次接管时以页面按钮状态为准跳过已投。
 
 ### 输出格式（执行报告模板，AI 触发后按此汇报）
 

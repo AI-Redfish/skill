@@ -98,7 +98,6 @@ def main():
     delay_min = float(env.get("BOSS_DELAY_MIN", 3))
     delay_max = float(env.get("BOSS_DELAY_MAX", 8))
     done_today = bc.today_count("apply")
-    pairs = [(q, c) for q in queries for c in cities]
     print(f"[配置] {len(pairs)} 组合：{' / '.join(q + '@' + c for q, c in pairs)} | 今日已投={done_today}/{daily_limit}")
     if done_today >= daily_limit:
         print("[结果] 已达当日上限，无需投递。")
@@ -106,58 +105,58 @@ def main():
 
     bc.start_chrome()
     h = bc.connect()
-    page = h.page
 
-    budget_total = min(args.limit or 10 ** 9, daily_limit - done_today)
-    applied_total, skipped_total = 0, 0
-
-    for pi, (query, city) in enumerate(pairs):
-        if applied_total >= budget_total:
+    # —— 接管模式：脚本永不导航（导航已被风控拦截）。使用用户手动打开的搜索页投递 ——
+    from urllib.parse import urlparse, parse_qs
+    page = None
+    cur_query, cur_city = "", ""
+    for pg in h.browser.contexts[0].pages:
+        if "/web/geek/jobs" in pg.url and "query=" in pg.url:
+            qs = parse_qs(urlparse(pg.url).query)
+            cur_query = (qs.get("query") or [""])[0]
+            cur_city = (qs.get("city") or [""])[0]
+            page = pg
             break
-        if pi > 0:
-            # 组合切换间隔至少 15 秒，降低连续导航风控风险
-            bc.rand_delay(max(delay_max, 15), max(delay_max, 15) + 10)
-        url = f"{bc.JOBS_URL}?query={query}&city={city}"
-        if env.get("BOSS_SALARY"):
-            url += f"&salary={env['BOSS_SALARY']}"
-        if env.get("BOSS_EXPERIENCE"):
-            url += f"&experience={env['BOSS_EXPERIENCE']}"
-        if env.get("BOSS_DEGREE"):
-            url += f"&degree={env['BOSS_DEGREE']}"
+    if page is None:
+        url = f"{bc.JOBS_URL}?query={queries[0]}&city={cities[0]}"
+        print("[需要手动导航] 未发现已打开的搜索页。请在调试 Chrome 手动打开：")
+        print(f"  {url}")
+        print("打开后说「继续」，脚本接管当前页投递；换城市/岗位也由你手动切换。")
+        h.browser.close()
+        h.pw.stop()
+        return
 
-        st = bc.risk_check(page)
-        if st == "login":
-            print("[风控] 页面要求重新验证（bticket）。停止，请人工在 Chrome 完成验证后重试。")
+    query, city = cur_query, cur_city
+    if (query, city) not in pairs:
+        print(f"[提示] 当前页 {query}@{city} 不在配置组合内，按当前页继续投递。")
+    print(f"[接管] 使用手动打开的搜索页：{query}@{city}，脚本不导航。")
+
+    # 轮询等卡片渲染（用户刚打开时可能还在渲染）
+    cards = []
+    for _ in range(6):
+        page.wait_for_timeout(3000)
+        if bc.risk_check(page) == "login":
+            print("[风控] 页面被弹到登录/验证页。停止，人工处理后再触发。")
+            h.browser.close()
+            h.pw.stop()
+            return
+        cards = bc.ev(page, JS_CARDS) or []
+        if cards:
             break
-        try:
-            # SPA 会拦截同域 goto，先跳空白页强制全新加载
-            page.goto("about:blank", wait_until="commit", timeout=15000)
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        except Exception as e:
-            print(f"[导航] {query}@{city} goto 失败：{str(e)[:60]}，跳过该组合。")
-            continue
+    print(f"[列表] {query}@{city} 解析到 {len(cards)} 个职位卡")
 
-        # 轮询等卡片渲染（实测 4s 不够，需 8s+）
-        cards = []
-        for _ in range(6):
-            page.wait_for_timeout(3000)
-            if bc.risk_check(page) == "login":
-                print("[风控] goto 后被弹到登录页。停止，人工验证后重试。")
-                return
-            cards = bc.ev(page, JS_CARDS) or []
-            if cards:
-                break
-        print(f"[组合 {pi + 1}/{len(pairs)}] {query}@{city} 解析到 {len(cards)} 个职位卡")
+    if args.dry_run:
+        for c in cards[: args.limit or 10]:
+            print(f"  - {c['job']} {c['salary']} {c['area']} | {c['company']} | {','.join(c['tags'])}")
+        print("[dry-run] 结束，未投递。")
+        h.browser.close()
+        h.pw.stop()
+        return
 
-        if args.dry_run:
-            for c in cards[: args.limit or 5]:
-                print(f"  - {c['job']} {c['salary']} {c['area']} | {c['company']} | {','.join(c['tags'])}")
-            continue
-
-        budget = budget_total - applied_total
-        applied, skipped = 0, 0
-        idx = 0
-        while applied < budget and idx < len(cards):
+    budget = min(args.limit or 10 ** 9, daily_limit - done_today)
+    applied, skipped = 0, 0
+    idx = 0
+    while applied < budget and idx < len(cards):
             href = cards[idx]["href"]
             try:
                 page.evaluate(JS_CLICK_CARD, idx)
@@ -187,7 +186,6 @@ def main():
                 pass
             extra = bc.ev(page, JS_DETAIL_INFO, retries=2)
             applied += 1
-            applied_total += 1
             rec = {
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "job": cards[idx]["job"], "salary": cards[idx]["salary"],
@@ -197,20 +195,16 @@ def main():
                 "query": query, "city": city,
             }
             bc.append_jsonl(f"apply-{time.strftime('%Y%m%d')}.jsonl", rec)
-            print(f"  [投递 {applied_total}] {cards[idx]['job']} {cards[idx]['salary']} | {cards[idx]['company']}")
+            print(f"  [投递 {applied}] {cards[idx]['job']} {cards[idx]['salary']} | {cards[idx]['company']}")
             idx += 1
             if applied < budget and idx < len(cards):
                 bc.rand_delay(delay_min, delay_max)
 
-        skipped_total += skipped
-        if applied < budget and idx >= len(cards):
-            print(f"  [分页] {query}@{city} 本页职位已用尽，未自动翻页。如需继续请手动翻页后再触发。")
+    if applied < budget and idx >= len(cards):
+        print("[分页] 本页职位已用尽。请手动翻页或切换其他组合的搜索页，然后说「继续」再跑一轮。")
 
-    if not args.dry_run:
-        print(f"[结果] 本次投递 {applied_total} 个，跳过 {skipped_total}，今日累计 {done_today + applied_total}/{daily_limit}。")
-        print(f"[记录] {bc.out_dir() / ('apply-' + time.strftime('%Y%m%d') + '.jsonl')}")
-    else:
-        print("[dry-run] 结束，未投递。")
+    print(f"[结果] 本次投递 {applied} 个，跳过 {skipped}，今日累计 {done_today + applied}/{daily_limit}。")
+    print(f"[记录] {bc.out_dir() / ('apply-' + time.strftime('%Y%m%d') + '.jsonl')}")
     h.browser.close()
     h.pw.stop()
 
