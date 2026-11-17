@@ -1,0 +1,42 @@
+{
+  "name": "auto-browser-boss",
+  "version": "1.0.0",
+  "evals": [
+    {
+      "id": "faq-load",
+      "title": "FAQ 知识库载入与关键词匹配",
+      "method": "单元测试 tests/test_boss_reply.py（match_faq 命中/未命中/空库 + 真实 faq.md 解析）",
+      "expected": "4 个用例全 PASS"
+    },
+    {
+      "id": "reply-dry-run",
+      "title": "回复脚本只读模式",
+      "method": "uv run scripts/boss_reply.py --dry-run",
+      "expected": "载入 FAQ ≥1 条；无聊天页时输出提示并安全退出（不 goto 聊天页、不发送）"
+    },
+    {
+      "id": "apply-dry-run",
+      "title": "投递脚本只读模式",
+      "method": "uv run scripts/boss_apply.py --dry-run",
+      "expected": "解析搜索页卡片 ≥1 条，字段（职位/薪资/公司）齐全，不点击、不投递"
+    },
+    {
+      "id": "apply-real-smoke",
+      "title": "投递链路真实验证",
+      "method": "用户授权后 uv run scripts/boss_apply.py（上限 1 次验证）",
+      "expected": "完成 点卡片→详情面板→立即沟通→弹窗确认 全链路，记录写入 apply-YYYYMMDD.jsonl",
+      "result": "2025 真实投递 1 个成功（chat_clicked），今日计数写入 jsonl"
+    },
+    {
+      "id": "reply-real",
+      "title": "会话解析真实验证",
+      "method": "用户手动打开聊天页后 boss_reply.py --dry-run",
+      "expected": "解析到会话列表条目",
+      "result": "BLOCKED：聊天页被风控弹回 jobs（2025 当日两次尝试均弹回），待风控解除日重测；代码已内置宽松匹配降级路径"
+    }
+  ],
+  "known_limitations": [
+    "聊天页会话解析、气泡读取、消息发送的精确选择器未经真实运行校准（风控拦截），首次成功进入聊天页时需按 selectors.md 校准回填",
+    "发送图片（如学信网截图）不在当前版本能力内，相关需求落入 unmatched 上报"
+  ]
+}
