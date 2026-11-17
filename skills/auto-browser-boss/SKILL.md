@@ -1,10 +1,10 @@
 ---
 name: auto-browser-boss
-description: Boss直聘求职者端自动化，手动触发单次执行两个任务：①自动投简历——按 .env 筛选条件（关键词/城市/薪资/经验/学历）遍历搜索结果并逐个点「立即沟通」，达到当日上限停止；②自动回复消息——读取聊天页未读会话，按 FAQ 关键词匹配自动回复，答不了的记录并上报。基于本机 Chrome 调试模式（CDP 9222）+ Playwright connectOverCDP。当用户说「帮我投简历」「Boss直聘自动投递」「自动回复 Boss 消息」「看看哪些 HR 没回」时使用。WHEN NOT：招聘端（Boss 端）发职位；定时轮询与监听（skill 只单次执行，定时由用户自建）；iPhone、其他招聘平台（猎聘/拉勾等）。
-compatibility: Windows + 本机 Chrome + uv（PEP 723 自动装 playwright）；需专用 Chrome profile 已保存 Boss 登录态
+description: Boss直聘求职者端自动化，手动触发单次执行两个任务：①自动投简历——按 .env 筛选条件遍历搜索结果逐个点「立即沟通」，达到当日上限停止，支持两种模式：纯视觉模式（mss 截屏 + OS 级鼠标仿真，零 CDP/零连接，风控期可用，推荐）与 CDP 接管模式（风控降级后可用）；②自动回复消息——读取聊天页未读会话，按 FAQ 关键词匹配自动回复，答不了的记录并上报。当用户说「帮我投简历」「Boss直聘自动投递」「自动回复 Boss 消息」「看看哪些 HR 没回」时使用。WHEN NOT：招聘端（Boss 端）发职位；定时轮询与监听（skill 只单次执行，定时由用户自建）；iPhone、其他招聘平台（猎聘/拉勾等）。
+compatibility: Windows + 本机 Chrome + uv（PEP 723 自动装依赖）；视觉模式另需 mss/opencv/pyautogui（自动装）且单显示器主屏运行；CDP 模式需专用 Chrome profile 已保存 Boss 登录态
 metadata:
   author: agent
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # auto-browser-boss — Boss直聘求职者自动投递与自动回复
@@ -47,10 +47,19 @@ metadata:
 ## 用法
 
 ```bash
-# 投递（达到当日上限自动停止）
 export PYTHONUTF8=1
+
+# === 视觉模式（无痕，推荐；日常 Chrome 即可，不碰 CDP）===
+# 首次校准（框选列表布局与按钮模板，换分辨率后需重跑）
+uv run .agents/skills/auto-browser-boss/scripts/boss_apply_visual.py --calibrate
+# 只定位不点击验证
+uv run .agents/skills/auto-browser-boss/scripts/boss_apply_visual.py --dry-run --limit 3
+# 正式投递当前屏可见卡片（额度与接管模式共享，自动接续）
+uv run .agents/skills/auto-browser-boss/scripts/boss_apply_visual.py --label "杭州·实施"
+
+# === CDP 接管模式（仅风控降级后可用，见风控须知）===
+# 投递（达到当日上限自动停止）
 uv run .agents/skills/auto-browser-boss/scripts/boss_apply.py
-# 只读演练（不实际点沟通）
 uv run .agents/skills/auto-browser-boss/scripts/boss_apply.py --dry-run --limit 3
 
 # 回复（先让用户在 Chrome 手动打开聊天页 /web/geek/chat）
@@ -58,11 +67,22 @@ uv run .agents/skills/auto-browser-boss/scripts/boss_reply.py
 uv run .agents/skills/auto-browser-boss/scripts/boss_reply.py --dry-run
 ```
 
+## 视觉模式（无痕，风控期首选）
+
+原理：mss 截屏 + OpenCV 模板匹配定位（零浏览器连接，页面无任何可探测 API），pyautogui OS 级鼠标仿真点击（isTrusted=true，与真手不可区分）。风控视角等同真人操作。
+
+- **何时用**：L3 风控激活期、任何 CDP 受限期、日常 Chrome 投递。与 CDP 接管模式二选一。
+- **首次使用**：先跑 `--calibrate`，按提示框选 4 样东西：①第一张卡片 ②第二张卡片 ③「立即沟通」按钮 ④弹窗「发送」按钮（后两步产物存 `assets/templates/`，git 托管；「继续沟通」模板可选）。分辨率/DPI 变更后必须重校准。
+- **节奏（均衡档）**：卡间停顿 2.5~6s，每 8~12 张随机插入 8~15s 长停顿（模拟被打断），单卡约 7s，100 份约 20~30 分钟。
+- **安全阀（脚本内置）**：连续 2 张定位失败即停；点击后页面无变化连续 2 次即停；`today_count("apply")` 与接管模式共享当日额度（BOSS_DAILY_LIMIT）；鼠标甩屏幕左上角或 Ctrl+C 紧急中断。
+- **流程**：用户在 Chrome 打开目标组合搜索页 → 跑脚本投当前屏 → 用户翻页/换组合 → 再跑（`--label` 标组合，写入 jsonl）。MVP 单屏一轮，不自动滚动翻页。
+- **限制**：单显示器主屏；运行期间占用鼠标；无 OCR 不记职位名（jsonl 记组合标签+序号）；列表页卡片需白底（行检测依赖白色占比，失效时调 layout.json 的 row_white_frac）；hover 快捷按钮不存在时自动 fallback 走「点卡片→详情面板」链路。
+
 ## 执行流程（AI 触发 skill 时）
 
 1. 首次触发且 `.agents/.env` 缺 `BOSS_QUERY` 时，进入理解闭环一次一问，收集关键词、城市代码、每日上限，写入 `.env`；同时引导用户共建 `faq.md`（薪资/到岗/学历等高频问答）。
-2. 检查 CDP 存活（`curl http://127.0.0.1:9222/json/version`），不通由脚本自动启动 Chrome（带占位标签）。
-3. 投递（**接管模式**，脚本永不导航）：先请用户手动在调试 Chrome 打开目标组合的搜索页 `https://www.zhipin.com/web/geek/jobs?query=岗位&city=编码`，然后运行 `uv run scripts/boss_apply.py`，脚本接管当前页逐卡投递；投完请用户手动翻页/换城市岗位，说「继续」再跑。
+2. **投递模式选择**：默认视觉模式（无痕，不碰 CDP）；仅当视觉模式校准失败且风控已确认降级（冷却试水通过）时才用 CDP 接管模式。检查 CDP 存活（`curl http://127.0.0.1:9222/json/version`）仅接管模式需要。
+3. 视觉模式投递：首次先引导 `--calibrate` 校准，再 `--dry-run --limit 3` 验证定位，通过后正式跑。请用户在日常 Chrome 打开目标组合搜索页并保持前台，跑 `boss_apply_visual.py --label "城市·岗位"`；投完当前屏请用户翻页/换组合，说「继续」再跑。
 4. 请用户手动在 Chrome 打开聊天页 `https://www.zhipin.com/web/geek/chat` 并保持打开。
 5. 回复：`uv run scripts/boss_reply.py`；按输出摘要与 unmatched 清单向用户报告。
 
@@ -117,5 +137,6 @@ uv run .agents/skills/auto-browser-boss/scripts/boss_reply.py --dry-run
 ## 不适用场景与限制
 
 - 聊天气泡与输入框的精确 DOM 未完全验证（探索期间聊天页被风控踢出）；boss_reply.py 的发送段采用宽松匹配（contenteditable + 「发送」文本按钮），首次真实运行需校准并回填 selectors.md。
-- Boss 页面为 Vue 动态渲染，`data-v-*` scoped 属性随版本变化；选择器失效时优先更新 selectors.md 与脚本 SEL 常量区。
+- Boss 页面为 Vue 动态渲染，`data-v-*` scoped 属性随版本变化；选择器失效时优先更新 selectors.md 与脚本 SEL 常量区。视觉模式不依赖 DOM，只依赖按钮外观（模板失配时重跑 --calibrate）。
+- 视觉模式：多显示器、分辨率/DPI 变更需重校准；模板含 Boss 按钮截图，随 Boss 改版可能失效；MVP 不自动滚动翻页；无 OCR 不记录职位名。
 - 面试邀约、简历附件发送、退群/拉黑处理不在本 skill 范围。
