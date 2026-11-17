@@ -243,12 +243,23 @@ def pick_region(screen_bgr, hint):
 
 # ---------------- 校准 ----------------
 
+def gui_ask(msg):
+    """弹窗提示并等待用户点确定（支持非交互终端代跑，如 AI 调用）。"""
+    import tkinter as tk
+    from tkinter import messagebox
+    r = tk.Tk()
+    r.withdraw()
+    r.attributes("-topmost", True)
+    messagebox.showinfo("Boss 投递校准", msg, parent=r)
+    r.destroy()
+
+
 def cmd_calibrate():
     TPL_DIR.mkdir(parents=True, exist_ok=True)
     print("== 校准开始（共 4 步，均在日常 Chrome 的 Boss 页面上操作）==\n")
 
     # 步骤 1：列表页布局
-    input("步骤 1/4：在 Chrome 打开 Boss 搜索结果列表页（确保首屏卡片可见），回到本窗口按回车。")
+    gui_ask("步骤 1/4：在 Chrome 打开 Boss 搜索结果列表页\n（确保首屏卡片可见、窗口最大化），\n准备好后点【确定】。")
     shot = grab_bgr()
     r1 = pick_region(shot, "① 框选【第一张职位卡片】整卡")
     if not r1:
@@ -269,7 +280,7 @@ def cmd_calibrate():
           f"（首屏通常 10~15 张；若为 0，运行时把 layout.json 的 row_white_frac 调低到 0.3 再试）")
 
     # 步骤 2：立即沟通按钮
-    input("\n步骤 2/4：点开任意一个职位（右侧出现详情面板和【立即沟通】按钮），按回车。")
+    gui_ask("步骤 2/4：点开任意一个职位\n（右侧出现详情面板和【立即沟通】按钮），\n点【确定】后开始框选。")
     shot2 = grab_bgr()
     r = pick_region(shot2, "③ 框选【立即沟通】按钮（详情面板里的蓝色按钮）")
     if not r:
@@ -278,8 +289,7 @@ def cmd_calibrate():
     print("  已保存 t_chat_btn.png")
 
     # 步骤 3：发送按钮（可选）
-    input("\n步骤 3/4：点击刚才的【立即沟通】；若弹出确认/打招呼弹窗，按回车框选【发送】按钮；"
-          "若无弹窗（直接发送），直接按回车跳过。")
+    gui_ask("步骤 3/4：点击刚才的【立即沟通】。\n若弹出确认/打招呼弹窗：点【确定】后框选【发送】按钮。\n若无弹窗（直接发送）：点【确定】后按 ESC 跳过。")
     shot3 = grab_bgr()
     r = pick_region(shot3, "④ 框选弹窗里的【发送】按钮（无弹窗则按 ESC 跳过）")
     if r:
@@ -289,8 +299,7 @@ def cmd_calibrate():
         print("  跳过 t_send_btn（运行时按按钮态变化判定投递结果）")
 
     # 步骤 4：继续沟通按钮（可选）
-    input("\n步骤 4/4：找一个【已投过】的职位点开详情（面板按钮变【继续沟通】），按回车框选；"
-          "没有已投职位则直接回车跳过。")
+    gui_ask("步骤 4/4：找一个【已投过】的职位点开详情\n（面板按钮变【继续沟通】），点【确定】后框选。\n没有已投职位：点【确定】后按 ESC 跳过。")
     shot4 = grab_bgr()
     r = pick_region(shot4, "⑤ 框选【继续沟通】按钮（灰色已投按钮，无则 ESC 跳过）")
     if r:
@@ -299,10 +308,11 @@ def cmd_calibrate():
     else:
         print("  跳过 t_chatted_btn（运行时未命中【立即沟通】即按已投跳过）")
 
-    input("\n按 ESC 关闭详情面板，然后回车完成校准。")
+    gui_ask("按 ESC 关闭详情面板，然后点【确定】完成校准。")
     LAYOUT_JSON.write_text(json.dumps(layout, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n校准完成：{LAYOUT_JSON}\n模板目录：{TPL_DIR}\n"
           "建议先跑 --dry-run --limit 3 验证定位，再正式投递。")
+    gui_ask("校准完成！可以开始投递了。")
 
 
 # ---------------- 投递主流程 ----------------
