@@ -4,7 +4,7 @@ description: 统一承接所有 Git 与代码托管平台相关操作，包括�
 compatibility: worktree 脚本需 Python 3.9+ 纯标准库与 git ≥2.20，支持 Linux/macOS/Windows 与 WSL；抓取示例需 curl，JSON 解码用 Python；平台操作按需使用已安装的官方 CLI 或 API。
 metadata:
   author: AI-Redfish
-  version: "1.4.0"
+  version: "1.5.0"
 ---
 
 # git-flow — Git 与代码托管平台统一操作入口
@@ -42,7 +42,7 @@ metadata:
 | :-- | :-- |
 | 创建、检查、修复或删除 worktree | 本文 worktree 工作流与现有 scripts/；排错读 [references/troubleshooting.md](references/troubleshooting.md) |
 | clone/fetch/pull、批量同步、状态/历史/代码检索、分支、提交、push、合并/rebase、标签、子模块、迁移或 bare 仓库 | 下方「通用 Git 工作流」；优先复用目标项目已有脚本 |
-| GitHub/GitLab/Gitee 的 PR/MR、Issue、CI、仓库设置、Release 管理 | 下方「代码托管平台工作流」；平台专属命令与接口按官方文档确认 |
+| GitHub/GitLab/Gitee 的 PR/MR、Issue、CI、仓库设置、Release 管理 | 下方「代码托管平台工作流」；平台专属命令与接口按官方文档确认；GitLab MR 无 CLI/无 token 时读 [references/gitlab-mr-api.md](references/gitlab-mr-api.md) |
 | GitHub README、文档、schema、源码单文件、文档树或 Release 资产抓取 | 先读 [references/github-docs-assets.md](references/github-docs-assets.md)，按探测、回退、验证流程执行 |
 
 ## 通用 Git 工作流
