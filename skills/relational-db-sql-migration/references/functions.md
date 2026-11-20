@@ -256,3 +256,78 @@ DROP FUNCTION IF EXISTS add_index_if_not_exists(text, text, text, text, boolean)
 ```
 
 Treat `column_list_v` and type definitions as trusted migration constants, never user input.
+
+## MySQL: drop_index_if_exists
+
+Index missing → silent skip; target table missing → `SIGNAL SQLSTATE '45000'` fails the migration (expose the gap instead of hiding it):
+
+```sql
+DROP PROCEDURE IF EXISTS `drop_index_if_exists`;
+DELIMITER $$
+CREATE PROCEDURE `drop_index_if_exists`(
+  IN db_name_v varchar(64),
+  IN table_name_v varchar(64),
+  IN index_name_v varchar(64)
+)
+BEGIN
+  DECLARE table_exists int DEFAULT 0;
+  DECLARE index_exists int DEFAULT 0;
+
+  SELECT COUNT(*) INTO table_exists
+  FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = db_name_v
+    AND TABLE_NAME = table_name_v;
+
+  IF table_exists = 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'drop_index_if_exists: target table not found';
+  END IF;
+
+  SELECT COUNT(*) INTO index_exists
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = db_name_v
+    AND TABLE_NAME = table_name_v
+    AND INDEX_NAME = index_name_v;
+
+  IF index_exists > 0 THEN
+    SET @ddl = CONCAT(
+      'ALTER TABLE `', db_name_v, '`.`', table_name_v,
+      '` DROP INDEX `', index_name_v, '`'
+    );
+    PREPARE stmt FROM @ddl;
+    EXECUTE stmt;
+    DEALLOCATE PREPARE stmt;
+  END IF;
+END$$
+DELIMITER ;
+
+CALL `drop_index_if_exists`(DATABASE(), 'example_table', 'uk_example_tenant');
+
+DROP PROCEDURE IF EXISTS `drop_index_if_exists`;
+```
+
+> 2026-11-20 实测：沙箱库首跑删索引成功、二跑幂等跳过、缺表 SIGNAL 生效（HTTP 500 即预期失败信号）。
+
+## Kingbase: drop_index_if_exists
+
+`DROP INDEX IF EXISTS` 原生幂等，包进 DO 块补前置表存在性断言（缺失 `RAISE EXCEPTION`）；索引名/模式名经 `format` 的 `%I` 转义：
+
+```sql
+DO $$
+DECLARE
+  table_exists int;
+BEGIN
+  SELECT COUNT(*) INTO table_exists
+  FROM information_schema.tables
+  WHERE table_schema = current_schema()
+    AND table_name = 'example_table';
+
+  IF table_exists = 0 THEN
+    RAISE EXCEPTION 'drop_index_if_exists: target table example_table not found in %', current_schema();
+  END IF;
+
+  EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'uk_example_tenant');
+END $$;
+```
+
+> 2026-11-20 实测：影子 schema + 事务回滚验证，首跑删 uk 断言通过、二跑幂等、缺表 RAISE 生效；回滚核验零残留。注：`DROP INDEX IF EXISTS` 只兜索引缺失，表缺失时 PG 系会因依赖报错，故 DO 块显式断言前置表。

@@ -24,6 +24,7 @@
 2. ALTER 路径补测：同一事务内 `CREATE SCHEMA sqlcheck_tmp` → 建影子表并写入与生产一致的注释 → 手动调用迁移内的辅助函数（`'<schema>','<table>','<col>',<type>`）→ SELECT 核验 → `ROLLBACK`。
 3. 列长度核验坑：Kingbase 的 `information_schema.columns.character_maximum_length` 对 varchar 可能显示 `-1`，不代表未生效；以 `pg_attribute.atttypmod`（`varchar(n)` 为 `n+4`）或 `format_type(atttypid, atttypmod)` 实证（显示 `character varying(n char)`）。
 4. 回滚核验：`pg_proc` 中辅助函数计数、`pg_namespace` 中影子 schema 计数均应为 0；`ALTER COLUMN ... TYPE varchar(n)` 扩容保留注释、默认值与可空性。
+5. **中途报错后的 aborted 事务（2026-11-20 实测坑）**：多语句脚本中途某条返回 HTTP 500（如 DO 块 `RAISE EXCEPTION` 断言触发）后，同一连接进入 aborted transaction 状态，紧随其后的任何查询都会继续 500（PG 系 `current transaction is aborted, commands ignored`）。先单独提交一条 `ROLLBACK;` 清理（应返回空结果），再继续后续验证；不要把后续 500 误判为脚本本身有错。判断方法：单独 `SELECT 1;` 也 500 即 aborted 残留，`ROLLBACK` 后恢复即证实。
 
 **实测记录格式（汇报模板）**
 
