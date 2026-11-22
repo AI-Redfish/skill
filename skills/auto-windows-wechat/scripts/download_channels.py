@@ -80,6 +80,19 @@ def cli_call(cli: Path, arguments: list[str], code: str | None = None) -> dict:
 
 
 def materialize(result: dict, cli: Path, task: str) -> dict:
+    # 新版 Tabbit CLI 将大结果存为本地 artifact 文件：
+    # 初始响应为 type:read_file（path / nextAction.path），receipt 中为 type:file + path。
+    ftype = result.get('type')
+    fpath = result.get('path')
+    if ftype == 'read_file' and not fpath:
+        nxt = result.get('nextAction')
+        if isinstance(nxt, dict):
+            fpath = nxt.get('path')
+    if ftype in ('file', 'read_file') and isinstance(fpath, str):
+        value = json.loads(Path(fpath).read_text(encoding='utf-8'))
+        if isinstance(value, dict):
+            return value
+        raise DownloadError('Tabbit 结果文件不是预期对象')
     resource = result.get('resourceId')
     if not resource:
         value = result.get('value')
@@ -121,6 +134,10 @@ def read_request(initial: dict, cli: Path, task: str, request: str) -> dict:
     for _ in range(4):
         status = result.get('status')
         if status == 'succeeded':
+            # 初始响应的大结果形态与 receipt 不一致；以 receipt 为准再读一次。
+            receipt = cli_call(cli, ['receipt', '--task', task, '--request-id', request])
+            if receipt.get('status') == 'succeeded':
+                result = receipt
             return materialize(result.get('result', {}), cli, task)
         if status in ('failed', 'interrupted') or result.get('ok') is False:
             raise DownloadError('后台请求失败；请检查登录态与站点状态，不要导出 Cookie')
@@ -193,7 +210,10 @@ try {
     const bytes = await response.body();
     if (bytes.length !== total || bytes.subarray(4,8).toString('ascii') !== 'ftyp')
       return {ok:false, error:'媒体不完整或不是 MP4；不将网页或加密内容交付为视频'};
-    return {ok:true, bytes:bytes.length, base64:bytes.toString('base64')};
+  const feedInfo = body.data.feedInfo;
+  const title = String(feedInfo.description || feedInfo.desc || feedInfo.title || '').trim().slice(0, 300);
+  const author = String(feedInfo.authorInfo?.nickname || feedInfo.author?.nickname || '').trim().slice(0, 100);
+  return {ok:true, bytes:bytes.length, base64:bytes.toString('base64'), title, author};
   } finally { await response.dispose(); }
 } catch (_) {
   return {ok:false, error:'后台请求异常；请检查登录态、网络或接口变化，再决定是否录屏'};
@@ -218,6 +238,7 @@ def save_media(value: dict, output: Path) -> dict:
     except FileExistsError:
         raise DownloadError('输出已存在，未覆盖；请指定新名称或先确认覆盖方式') from None
     return {'ok': True, 'video': str(output), 'bytes': len(data),
+            'title': value.get('title') or '', 'author': value.get('author') or '',
             'sha256': hashlib.sha256(data).hexdigest(), 'source': 'authorized-background',
             'validation': 'length-and-mp4-header; full-decode-required'}
 
@@ -229,21 +250,22 @@ def main() -> int:
     parser.add_argument('-o', '--output', type=Path, required=True)
     parser.add_argument('--cli', help='已安装 Tabbit 的稳定 CLI 路径')
     parser.add_argument('--max-mib', type=int, default=64, choices=range(1,257), metavar='1..256')
+    parser.add_argument('--task', help='复用同一个 Tabbit 任务名，避免多任务争抢单个标签页')
     args = parser.parse_args()
-    task = 'channels-' + uuid.uuid4().hex[:12]
+    task = args.task or ('channels-' + uuid.uuid4().hex[:12])
     cleanup = False
     try:
         if args.output.exists():
             raise DownloadError('输出已存在，未覆盖；请使用新文件名')
         cli = find_cli(args.cli)
         created = cli_call(cli, ['create', '--task', task])
-        if created.get('ok') is False or not created:
-            raise DownloadError('无法建立 Tabbit 任务；请检查稳定入口与浏览器状态')
+        # 新版 Tabbit CLI 已移除 create 子命令：任务由 nodejs 自动建立。
+        # create 失败不再致命；真正的连接错误会由后续 nodejs 调用报告。
         cleanup = True
         request = 'download-' + uuid.uuid4().hex[:12]
         cleanup = False  # Preserve uncertain pending requests for receipt inspection.
         try:
-            initial = cli_call(cli, ['nodejs', '--task', task, '--tab', str(args.tab),
+            initial = cli_call(cli, ['nodejs', '--task', task, '--claim', f'tab:{args.tab}',
                                     '--request-id', request, '--timeout-ms', '180000'],
                                make_program(args.url, args.max_mib * 1024 * 1024))
             value = read_request(initial, cli, task, request)

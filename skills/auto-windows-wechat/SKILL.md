@@ -132,8 +132,8 @@ AI 负责参数确认、结果解释和总结。脚本负责确定性操作。�
 
 1. **确认输入**：接受 `https://weixin.qq.com/sph/<视频标识>`。目标明确时不重复问。
    没有链接时只问链接；只给链接且此前未确定目标时，只问要下载、转写还是总结。
-2. **发现浏览器**：先读已安装的 Tabbit Skill。用稳定入口的 `create --task <任务名>`
-   发现元宝标签页，按 title / URL 获取真实 tabId，不复用历史编号。
+2. **发现浏览器**：先读已安装的 Tabbit Skill。新版 CLI 已移除 `create`，任务由 `nodejs` 自动建立：
+   用 `diagnose` 发现元宝标签页，按 title / URL 获取真实 tabId，不复用历史编号。
    没有页面时通过 Tabbit 打开 `https://yuanbao.tencent.com/` 并观察页面。
    `401/403` 或登录墙时请用户在浏览器登录；保留页面，不读 Cookie 存储、不导出凭据。
 3. **后台下载**：复用已观察到的元宝登录页：
@@ -143,7 +143,9 @@ AI 负责参数确认、结果解释和总结。脚本负责确定性操作。�
    脚本用内存中的临时授权解析媒体，不要求用户播放，不自动发送微信消息。
    默认最大 64 MiB，`--max-mib` 可设 1–256；更大视频停止并说明限制，不宣称已下载。
    脚本退出 0 且 `output.ok:true` 才代表获取了文件；此时仍须完整解码验证。
-   Tabbit 的发现任务完成后调用 `finish`，不使用 `--discard`，保留用户登录页。
+   批量下载多个链接时给脚本传固定 `--task <任务名>` 复用同一 Tabbit 任务，
+   避免多个任务争抢单个标签页（TAB_OWNERSHIP_CONFLICT）。
+   Tabbit 的任务完成后调用 `finish`，不使用 `--discard`，保留用户登录页。
 4. **验证视频**：检查 MP4 有视频和音频流、时长为正、大小非零，再完整解码：
    ```bash
    ffprobe -v error -show_entries format=duration,size:stream=codec_type,width,height -of json "<视频.mp4>"
