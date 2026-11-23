@@ -1,0 +1,67 @@
+{
+  "skill": "product-design",
+  "description": "端到端用例：正向触发（产品设计意图）与负向不触发（相邻 skill 场景）",
+  "cases": [
+    {
+      "id": "eval-001",
+      "query": "帮我设计一个 SaaS 数据分析产品的官网落地页",
+      "expect_trigger": true,
+      "expect_mode": "单页模式",
+      "must": [
+        "产物落在 .agents/out/product-design/<项目名>/",
+        "先生成 DESIGN.md 再生成页面",
+        "pages/ 下自包含 HTML，无外链资源",
+        "check_html.py 退出码 0"
+      ]
+    },
+    {
+      "id": "eval-002",
+      "query": "画一个外卖 App 的首页和订单列表，两页都要",
+      "expect_trigger": true,
+      "expect_mode": "多页模式",
+      "must": [
+        "生成 SITE.md 页面清单与路线图",
+        "移动端界面（手机壳或全屏移动布局）",
+        "每页过 check_html.py；完成后更新 SITE.md 勾选"
+      ]
+    },
+    {
+      "id": "eval-003",
+      "query": "把我们后台管理系统出一个设计规范，色板字体组件都定下来",
+      "expect_trigger": true,
+      "expect_mode": "设计系统模式",
+      "must": [
+        "只产出 DESIGN.md，不生成页面",
+        "九节结构完整，含刻度配置与反模式清单"
+      ]
+    },
+    {
+      "id": "eval-004",
+      "query": "刚那个原型把主按钮改成深玫红圆角药丸形状",
+      "expect_trigger": true,
+      "expect_mode": "调整模式",
+      "must": [
+        "只做定点修改，不重构页面其他部分",
+        "修改后重跑 check_html.py 通过"
+      ]
+    },
+    {
+      "id": "eval-005",
+      "query": "帮我评审一下这份 PRD 有没有逻辑矛盾",
+      "expect_trigger": false,
+      "expect_route": "prd-review"
+    },
+    {
+      "id": "eval-006",
+      "query": "把这个页面发布到公网让我手机能访问",
+      "expect_trigger": false,
+      "expect_route": "html-pages-publish"
+    },
+    {
+      "id": "eval-007",
+      "query": "根据 PRD 生成后端接口清单和 ER 图",
+      "expect_trigger": false,
+      "expect_route": "prd-techdoc"
+    }
+  ]
+}

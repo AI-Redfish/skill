@@ -105,7 +105,7 @@ uv run <skill_dir>/scripts/crawler.py fetch https://quotes.toscrape.com/ --forma
 - CSV 自动转义公式前缀。需要保留原始值时用 JSON/JSONL。
 - `--output` 可指定新路径，后缀须匹配格式；默认唯一文件名，不覆盖。
 - `--engine http` 默认不跟随重定向。遇到 3xx，核实 Location 后改用最终授权 URL。
-- `--engine browser` 可加 `--headful`、`--wait-selector`。
+- `--engine browser` 可加 `--headful`、`--wait-selector` 或 `--browser-executable` 指定已安装浏览器。
 `--timeout` 两种模式统一用秒。
 - `crawl --max-pages` 限制接纳的 URL 数，不含 robots.txt、子资源、浏览器跳转。
   范围 1..1000；`--concurrency` 范围 1..8。不要把页数边界说成物理请求硬上限。
