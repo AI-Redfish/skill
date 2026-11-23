@@ -127,3 +127,12 @@ Ctrl+V/回车落空。解法：粘贴前用 UIA 定位聊天输入框并鼠标�
 脚本消费一次性授权只向对应腾讯接口发送用户提供的分享链接和临时授权，不上传本地文件、聊天记录或浏览器凭据。下载有体积上限，不自动解密缓存或绕过私密内容、删除状态与权限拒绝。
 
 参考：`https://github.com/ltaoo/wx_channels_download/blob/main/internal/workers/sph/worker.js`。仅借鉴授权解析思路，脚本为本地独立实现；本次调用链以会话实测为依据，不视为官方 API 承诺。
+
+## 14. tabbit-cli diagnose 输出解析（脚本管道踩坑，实测 2026-11-23）
+
+何时读：脚本或管道直接解析 `diagnose` / `diagnose --task` 的 stdout JSON（如为 §13 后台下载取元宝 tabId）时。
+
+1. stdout 首行不是 JSON：launcher 先输出一行 `TABBIT_PLAYWRIGHT_INSTANCE=<实例 id>`，直接 `json.load(stdin)` 在第 1 行报 `Expecting value`。解析前过滤，只保留以 `{` 开头的行。
+2. 本任务打开的标签页不在 `available.tabs`：`diagnose --task X` 中，任务自建页面在顶层 `owned.tabs`；`available.tabs` 只列浏览器既有标签页。定位「刚打开的目标页」（如元宝页）时两个列表都要查。
+
+实例：§13 流程用 diagnose 拿元宝 tabId 传给 `download_channels.py --tab`，上述两点在同一会话先后踩中；过滤首行 + 合并查 `available.tabs` 与 `owned.tabs` 后一次命中。

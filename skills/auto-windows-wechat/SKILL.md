@@ -4,7 +4,7 @@ description: auto-windows 自动化系列之微信：给微信指定联系人 / 
 compatibility: 消息发送仅 Windows 10/11 + 已登录微信客户端，Python 3.10+ 标准库；后台视频下载需要已安装 Tabbit CLI 及元宝登录态，不依赖微信前台；转写推荐 uv + Python 3.11，PEP 723 声明 faster-whisper 与 av；录屏后备另需 ffmpeg、soundcard。
 metadata:
   author: AI-Redfish
-  version: "1.7.0"
+  version: "1.7.1"
 ---
 
 # auto-windows-wechat — 微信消息发送与视频号后台提取
