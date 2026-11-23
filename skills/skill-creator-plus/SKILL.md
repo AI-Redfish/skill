@@ -4,7 +4,7 @@ description: 基于 anthropics skill-creator 的增强版 Skill 创建器（元�
 compatibility: 脚本为 Python 3.9+ 纯标准库（python 直跑或 uv run 均可）；首次使用需网络安装依赖 skill（git clone 优先，备选 stdlib 下载 zip、npx skills add），安装到 <工作目录>/.agents/skills/skill-creator；可选环境变量 SKILL_CREATOR_PLUS_DEP_PATH 指定本地已有副本实现离线。
 metadata:
   author: AI-Redfish
-  version: "1.3.1"
+  version: "1.3.2"
   depends-on: anthropics/skills 的 skill-creator
 ---
 

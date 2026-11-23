@@ -207,8 +207,9 @@ description 按**四要素框架**写全：做什么（指令）+ 什么时候�
 | 禁交互 | 不用 `input()`；输入全走参数/环境变量/stdin |
 | 可发现 | `--help` 完整；错误信息含三要素（问题+原因+行动） |
 | 可判定 | 结果 JSON 到 stdout（`status/data/error`），日志到 stderr，退出码语义固定 |
-| 可重入 | 幂等（"不存在则创建"）；破坏性操作要 `--confirm`/`--dry-run` |
+| 可重入 | 幂等（“不存在则创建”）；破坏性操作要 `--confirm`/`--dry-run` |
 | 快失败 | 前置校验（文件存在、参数合法）尽早报错，不吞异常 |
+| 跨平台 | JSON/输出中的路径用 `Path.absolute()` 不用 `.resolve()`（Windows 会解析成 8.3 短名如 `ADMINI~1`，导致与用户输入比对失败） |
 
 ## 环境信息（.agents/.env）
 

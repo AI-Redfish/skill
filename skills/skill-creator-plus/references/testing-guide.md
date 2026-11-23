@@ -73,6 +73,7 @@ uv run <skill_dir>/scripts/env_utils.py ensure-gitignore --workdir <workdir>
     │   │   └── run-1/
     │   │       ├── grading.json      # 断言判定（格式见下）
     │   │       └── timing.json       # {"total_tokens","duration_ms","total_duration_seconds"}
+    │   │                             # ⚠ 数值字段必须为数字（未采集填 0 + note 说明），填 null 会崩官方 aggregate_benchmark
     │   └── without_skill/            # 基线（可选但推荐；同样布局）
     └── benchmark.json|.md            # gen_test_report 调官方脚本生成
 ```
