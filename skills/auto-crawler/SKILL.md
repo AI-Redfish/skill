@@ -63,9 +63,9 @@ uv run <skill_dir>/scripts/crawler.py --help
 uv run --with "scrapling[fetchers,shell]==0.5.1" scrapling install
 ```
 
-**环境信息**：可选 `AUTO_CRAWLER_PROXY` 从进程环境或 `<workdir>/.agents/.env` 读取。
-未配置时直连。只读这一键，不自动创建或修改 `.env`。
-需要保存代理凭据时先获用户授权，确认 `.agents/.env` 不被 Git 跟踪。
+**代理**：可选 `AUTO_CRAWLER_PROXY` 仅从当前进程环境读取。
+未配置时直连。脚本不读取 `.env` 文件。
+需要保存代理凭据时先获用户授权，并由用户自行配置安全的环境注入方式。
 不在对话、代码、报告中回显代理密码。抓取日志可能含 URL，不把凭据放 URL 查询参数。
 
 ## 标准工作流
@@ -105,7 +105,7 @@ uv run <skill_dir>/scripts/crawler.py fetch https://quotes.toscrape.com/ --forma
 - CSV 自动转义公式前缀。需要保留原始值时用 JSON/JSONL。
 - `--output` 可指定新路径，后缀须匹配格式；默认唯一文件名，不覆盖。
 - `--engine http` 默认不跟随重定向。遇到 3xx，核实 Location 后改用最终授权 URL。
-- `--engine browser` 可加 `--headful`、`--wait-selector` 或 `--browser-executable` 指定已安装浏览器。
+- `--engine browser` 可加 `--headful`、`--wait-selector`。
 `--timeout` 两种模式统一用秒。
 - `crawl --max-pages` 限制接纳的 URL 数，不含 robots.txt、子资源、浏览器跳转。
   范围 1..1000；`--concurrency` 范围 1..8。不要把页数边界说成物理请求硬上限。

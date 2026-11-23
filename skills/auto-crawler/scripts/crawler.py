@@ -84,15 +84,8 @@ def extract(page, fields: dict[str, str], row: str | None) -> list[dict]:
 
 
 def env_proxy(workdir: Path) -> str | None:
-    # Read only the explicitly documented optional key, never load arbitrary env keys.
-    value = os.environ.get("AUTO_CRAWLER_PROXY")
-    path = workdir / ".agents" / ".env"
-    if value is None and path.is_file():
-        for line in path.read_text(encoding="utf-8-sig").splitlines():
-            key, sep, candidate = line.strip().partition("=")
-            if sep and key == "AUTO_CRAWLER_PROXY":
-                value = candidate.strip().strip('"').strip("'")
-    return value or None
+    # Proxy credentials must be provided explicitly by the invoking process.
+    return os.environ.get("AUTO_CRAWLER_PROXY") or None
 
 
 def csv_cell(value) -> str:
@@ -153,11 +146,6 @@ def browser_options(args, proxy: str | None) -> dict:
         options["wait_selector"] = args.wait_selector
     if proxy:
         options["proxy"] = proxy
-    if args.browser_executable:
-        executable = Path(args.browser_executable).expanduser().resolve()
-        if not executable.is_file():
-            raise InputError("--browser-executable must point to an existing browser executable")
-        options["executable_path"] = str(executable)
     return options
 
 
@@ -259,7 +247,6 @@ def parser() -> argparse.ArgumentParser:
         sub.add_argument("--output", help="new output path; default .agents/out/auto-crawler/<unique>.<format>")
         sub.add_argument("--timeout", type=positive, default=30, help="seconds; default 30")
         sub.add_argument("--headful", action="store_true", help="show browser; browser engine only")
-        sub.add_argument("--browser-executable", help="explicit browser binary path; browser engine only")
         sub.add_argument("--wait-selector", help="wait for CSS selector; browser engine only")
         sub.add_argument("--solve-cloudflare", action="store_true", help="explicit opt-in; authorized sites only")
         if name == "crawl":
@@ -278,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         fields = fields_checked(args.field)
         if args.row and not fields:
             raise InputError("--row requires at least one --field")
-        if args.engine == "http" and (args.headful or args.wait_selector or args.solve_cloudflare or args.browser_executable):
+        if args.engine == "http" and (args.headful or args.wait_selector or args.solve_cloudflare):
             raise InputError("browser options require --engine browser")
         if args.command == "crawl" and not (1 <= args.max_pages <= 1000 and 1 <= args.concurrency <= 8):
             raise InputError("--max-pages must be 1..1000 and --concurrency 1..8")

@@ -81,7 +81,7 @@ result.items.to_csv("quotes.csv")
 
 ## 代理、认证与日志
 
-- 统一脚本只从 `AUTO_CRAWLER_PROXY` 读取可选代理。不写入代码或日志。
+- 统一脚本只从进程环境读取 `AUTO_CRAWLER_PROXY`。不读取 `.env`，不写入代码或日志。
 - 定制 Spider 可覆写 `configure_sessions(manager)`，添加 `FetcherSession` 或 `AsyncStealthySession`。
 - 代理需要用户名/密码时，先单独确认存储方式；不把凭据写入 URL、命令历史或报告。
 - 使用 HTTP Basic、Cookie 或网站登录前，确认用户授权；不从本机浏览器自动读取 cookie。
