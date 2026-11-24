@@ -1,10 +1,10 @@
 ---
 name: relational-db-sql-migration
-description: 为 basic-platform-service SQL 归档仓库创建、同步、审查或修复各关系型数据库的 Flyway SQL（已落地引擎：MySQL、Kingbase，可按扩展指引支持 PostgreSQL 等其他关系型库），并对字典表时间字段做预检与定位修复。适用于跨引擎同步、幂等新增或修改字段、幂等新增索引、修复目标引擎兼容性、去除源引擎专属语法（如 MySQL 反引号、JSON 反斜杠转义）、静态 SQL 校验、SQL 语法实测（生成后到指定验证环境实际执行一遍验证语法并强制回滚），以及字典表 create_time/update_time 固定时间（如 '2026-10-09 12:00:00'）改为 CURRENT_TIMESTAMP 的预检、定位修复与验证。当用户提到 Flyway 脚本、跨数据库迁移/同步、引擎兼容性、字典表时间字段、dict-time-check、check-dict-timestamp、SQL 时间写死、语法实测、执行验证、验证环境、测完回滚等话题时使用。
+description: 为 basic-platform-service SQL 归档仓库创建、同步、审查或修复各关系型数据库的 Flyway SQL（已落地引擎：MySQL、Kingbase，可按扩展指引支持 PostgreSQL 等其他关系型库），并对字典表时间字段做预检与定位修复。适用于跨引擎同步、幂等新增或修改字段、幂等新增索引、修复目标引擎兼容性、去除源引擎专属语法（如 MySQL 反引号、JSON 反斜杠转义）、静态 SQL 校验、SQL 语法实测（生成后到指定验证环境实际执行一遍验证语法并强制回滚），以及字典表 create_time/update_time 固定时间（如 '2026-10-09 12:00:00'）改为 CURRENT_TIMESTAMP 的预检、定位修复与验证。当用户提到 Flyway 脚本、跨数据库迁移/同步、引擎兼容性、字典表时间字段、dict-time-check、check-dict-timestamp、SQL 时间写死、语法实测、执行验证、验证环境、测完回滚、增量序号、顺序号冲突、MR 占号等话题时使用。
 compatibility: 修复脚本为 Python 3.9+ 纯标准库（uv run 或 python 直跑）；预检依赖仓库内 scripts/ci/check-dict-timestamp.sh（bash）。适用于 basic-platform-service-sql 仓库（<engine>/<database>/ 归档结构，已落地 mysql/ 与 kingbase/）。
 metadata:
   author: AI-Redfish
-  version: "3.4.0"
+  version: "3.5.0"
 ---
 
 # 关系型数据库 SQL 迁移 — 多引擎 Flyway 归档编写与字典表时间字段治理
@@ -74,7 +74,7 @@ V{YYYY.MM.DD.HH.mm.SS}_{迭代版本}.{顺序号}__{db}_{ops_type}.sql
 ```
 
 - **迭代版本**：以「增量 SQL 前置」中用户确认的版本号为准（如 `6.0.9.1`），并与当前分支版本一致；分支名去掉 `v` 前缀即版本段（`v6.0.9.1/feature/xxx` → `6.0.9.1`；历史批次 `6.0.4.1`、`6.0.8.1` 同理）。
-- **顺序号**：同一迭代内从 `.1` 起递增（`6.0.9.1.1`、`6.0.9.1.2`…），不归零、不跨迭代续号。确定下一个顺序号：`ls <engine>/<db>/ | grep "_{迭代版本}."` 取最大顺序号 +1；新迭代从 1 起。本地序号可能落后于远端：工作分支不是目标版本分支或长时间未 pull 时，必须先 `git fetch origin` 再核对 `origin/<目标版本分支>` 的实际最大序号（见「增量 SQL 前置」第 2 节第 5 条），与本地结果取较大者。
+- **顺序号**：同一迭代内从 `.1` 起递增（`6.0.9.1.1`、`6.0.9.1.2`…），不归零、不跨迭代续号。确定下一个顺序号：`ls <engine>/<db>/ | grep "_{迭代版本}."` 取最大顺序号 +1；新迭代从 1 起。本地序号可能落后于远端：必须先 `git fetch origin` 核对 `origin/<目标版本分支>` 的实际最大序号（见「增量 SQL 前置」第 2 节第 5 条），与本地结果取较大者；已合并分支仍不够——GitLab 上 target 为该分支的 open MR 可能已占用序号，也必须计入（见「增量 SQL 前置」第 2 节第 6 条）。
 - **时间戳**：同一迭代内复用该迭代的批次时间戳，顺序号保证同内执行顺序，新迭代用新时间戳保证跨迭代先后（历史实证：`6.0.8.1.27~36` 全部为 `2026.09.30.10.00.00`；`6.0.9.2.1~.4` 与 `.6` 均为 `2026.11.17.16.12.06`）。批次前缀从同迭代既有文件名提取：`ls <engine>/<db>/ | grep "_{迭代版本}."` 后解析 `V{...}_` 段取多数派。**禁止**把生成时刻当作时间戳来源——即使当天生成新 `.N+1` 文件也复用批次前缀（实战教训：`6.0.9.2.6` 首次误用生成时刻 `2026.11.20.10.51.00`，被仓库 owner 纠正后 `git mv` 改名返工）。全新迭代首文件无既有前缀时才新取时间戳；批次内存在多个前缀时以用户指定为准。
 - **禁止**使用无顺序号的固定产品版本段作为新文件版本段（如 `6.0.00.00`、`6.0.09.01` 均为反例：前者是历史遗留风格，后者已被仓库owner纠正）；也不要轻信需求文档中建议的文件名，以归档仓库实际文件名为准。
 - **双端文件名完全一致**（MySQL 与 Kingbase 仅内容不同，文件名含版本段逐字相同）；归档仓库与上游业务仓库 gateway Flyway 目录保持镜像，改名必须双端同步。
@@ -108,7 +108,12 @@ command -v mysql; command -v ksql     # 语法实测客户端（缺失不阻塞�
 2. 当前分支即目标版本分支时：`git pull origin <目标版本分支>` 把远程最新合入本地。
 3. 当前分支不是目标版本分支时：询问用户选择——① `git checkout <目标版本分支>` 后 pull；② 基于目标版本分支新建特性分支（命名 `v<版本号>/feature/<人员或主题>-<YYYYMMDD>`）后在该分支上工作；不擅自动分支。
 4. 拉取/切分失败（冲突、网络）即停止并报告用户，不擅自解决冲突。
-5. 当前分支未合并目标版本分支（如用户选择留在其他功能分支）时，确定文件名顺序号前必须 `git fetch origin` 后按远端核对：`git ls-tree -r origin/<目标版本分支> --name-only -- <engine>/<db>/` 提取该迭代最大顺序号，与本地工作区结果取较大者。只看本地目录会漏掉他人已推送的序号，造成 Flyway 版本冲突。
+5. 确定文件名顺序号前必须 `git fetch origin` 后按远端核对：`git ls-tree -r origin/<目标版本分支> --name-only -- <engine>/<db>/` 提取该迭代最大顺序号，与本地工作区结果取较大者（当前分支未合并目标版本分支时尤其必须）。只看本地目录会漏掉他人已推送的序号，造成 Flyway 版本冲突。
+6. 确定顺序号前还必须核对目标分支上**尚未合并的 open MR**（GitLab）：他人已推送但未合并的 MR 变更文件可能已占用该迭代序号，`origin/<目标版本分支>` 不包含它们，漏核必然冲突。核对方式按可用性依次选择：
+   - ① 已装 glab：`glab mr list --target-branch <目标分支> --state opened`，再逐 MR 用 `glab api "projects/<id>/merge_requests/<iid>/changes"` 取变更文件。
+   - ② 无 glab：`curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB/api/v4/projects/<id>/merge_requests?target_branch=<目标分支>&state=opened&per_page=100"`，逐 MR 再请求 `.../merge_requests/<iid>/changes`；凭据只走环境变量，不写文件、日志、URL；无 token 时按 git-flow 的 [references/gitlab-mr-api.md](../git-flow/references/gitlab-mr-api.md) 用会话认证。
+   - ③ 均不可用：明确告知「MR 未核对」，请用户在 GitLab 页面人工确认 open MR 清单后再定序号；不得静默跳过。
+   - 从各 MR 变更文件中过滤 `<engine>/<db>/` 下含 `_{迭代版本}.` 的文件名，提取最大顺序号；最终顺序号 = max(本地, `origin/<目标版本分支>`, 全部 open MR) + 1。
 
 ### 3. 在目标分支上添加 SQL 脚本文件
 
@@ -207,6 +212,7 @@ bash scripts/ci/check-dict-timestamp.sh files-from /tmp/list.txt
 | 实测中断（断连/超时/报错退出） | 回滚可能未执行 | 恢复后先补回滚并核验，清理残留沙箱，再继续 |
 | 回滚核验不一致 | 残留对象或结构漂移 | 如实报告差异并按快照恢复，不得隐瞒或跳过 |
 | 用户不提供验证环境 | 无法实测 | 仅静态校验并在汇报标注「未实测」，不得伪造实测结果 |
+| open MR 枚举不可用（无 CLI/token/权限） | 未合并 MR 可能已占用序号 | 按前置第 6 条③请用户人工核对后再定序号，汇报标注「MR 未核对」，不得静默跳过 |
 
 ## 输出规范
 
