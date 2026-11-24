@@ -1,0 +1,62 @@
+{
+  "skill_name": "qa-testing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "这个分支改了消息转发逻辑，帮我做全链路回归。后端仓库在 D:/project/basic-platform-service，被测分支 feature-iot-fanout，基线 develop；目标环境 MySQL/Redis 已在已配置的 MCP 里登记（连接名 147）。",
+      "expected_output": "进入 test 模式：先一句话复述需求，运行 resolve_changes.py 解析变更，产出正向+反向影响矩阵与测试计划请用户确认，不直接开始执行全部测试。",
+      "files": [],
+      "expectations": [
+        "最终输出开头一句话复述了需求",
+        "调用了 scripts/resolve_changes.py 且退出码 0 的 JSON 被正确解读（基线/commits/files）",
+        "影响分析同时包含正向链路与反向调用点（grep/订阅方/前端调用）清单",
+        "影响矩阵每行含 链路×测试点×预期×通道 四要素并标注 P0/P1/P2",
+        "测试计划先征询用户确认，未跳过确认直接执行全部测试",
+        "列出关键假设与剩余不确定性"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "帮我回归测试这个分支。",
+      "expected_output": "进入理解闭环：只提出一个问题（被测分支或仓库路径缺失），不产出最终方案。",
+      "files": [],
+      "expectations": [
+        "仅提出一个问题（不是多个）",
+        "未输出最终方案/产物",
+        "没有猜测分支名或仓库路径"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "根据 D:/docs/prd-device-management.md 这份 PRD 出测试用例，要求覆盖所有验收标准。",
+      "expected_output": "进入 cases 模式：提取 AC 逐条映射四维用例（正例/反例/边界/权限），覆盖校验后把用例集落盘到 <工作目录>/.agents/out/qa-testing/<任务名>-<日期>/cases/cases.md。",
+      "files": [],
+      "expectations": [
+        "用例表字段完整：编号、关联AC、维度、前置条件、操作步骤、预期结果、优先级",
+        "每条 AC 均有四维映射或明确标注缺失项",
+        "产物落盘路径符合 .agents/out/qa-testing/ 约定，未写入 PRD 所在目录",
+        "结论先行：给出用例总数、覆盖情况、缺口"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "帮我修复禅道上的 Bug #1234。",
+      "expected_output": "不触发本 skill（bug 修复属于修复类流程），明确说明不在 qa-testing 范围。",
+      "files": [],
+      "expectations": [
+        "未启动用例生成或全链路测试流程",
+        "说明了该任务不适用本 skill 并给出正确去向"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "对这个项目做一次安全渗透测试，顺便把单元测试补全。",
+      "expected_output": "不触发本 skill：安全渗透与单元测试开发在「不适用场景」清单内，说明边界即可。",
+      "files": [],
+      "expectations": [
+        "未进入 cases/test 工作流",
+        "说明了安全渗透/单元测试开发超出本 skill 范围"
+      ]
+    }
+  ]
+}
