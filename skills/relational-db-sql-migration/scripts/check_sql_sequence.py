@@ -148,6 +148,7 @@ def parse_file(path, iteration, database):
 
 def summarize(inventories, iteration, database):
     entries, by_seq, maxima = {}, defaultdict(set), {}
+    mr_claims = defaultdict(set)  # (engine, sequence, filename) -> {mr!iid}
     for source, paths in inventories.items():
         maximum = 0
         for path in paths:
@@ -161,9 +162,15 @@ def summarize(inventories, iteration, database):
             if source not in entries[key]['sources']:
                 entries[key]['sources'].append(source)
             by_seq[(item['engine'], item['sequence'])].add(item['filename'])
+            if source.startswith('mr!'):
+                mr_claims[(item['engine'], item['sequence'], item['filename'])].add(source)
         maxima[source] = maximum
     conflicts = [dict(engine=k[0], sequence=k[1], filenames=sorted(v))
                  for k, v in sorted(by_seq.items()) if len(v) > 1]
+    # Same filename claimed by 2+ open MRs: duplicate Flyway version once both merge.
+    # Advisory only: stacked MRs may legitimately share a diff path; human decides.
+    conflicts += [dict(engine=k[0], sequence=k[1], filenames=[k[2]], sources=sorted(v))
+                  for k, v in sorted(mr_claims.items()) if len(v) > 1]
     return dict(iteration=iteration, database=database, maxima=maxima,
                 next_sequence=max(maxima.values(), default=0) + 1,
                 conflicts=conflicts, files=sorted(entries.values(), key=lambda x: x['path']),
