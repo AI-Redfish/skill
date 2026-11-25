@@ -1,0 +1,72 @@
+{
+  "skill_name": "coding",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "资产台账的列表接口被 App 端和管理端共同调用，现在要给这个接口加一个『只看我今天录入的』过滤能力，尽量不要影响原逻辑。接口路径 /api/asset/rentalAsset/list，Service 方法 getRentalAssetsToSync。今天日期从请求参数传入。",
+      "expected_output": "只新增可选通用参数（如 queryDate，不传时行为与原接口完全一致含 SQL 生成结果），禁止业务专用开关；同步更新接口文档；最终输出按 6 段模板汇报。",
+      "files": [],
+      "expectations": [
+        "方案只新增可选通用参数，且明确声明不传参数时行为与原接口完全一致（含 SQL 生成结果）",
+        "未引入业务专用开关、预置模式或破坏性默认值",
+        "最终输出包含一句话需求复述、关键假设与剩余不确定性标注",
+        "最终输出按 SKILL.md 输出规范 6 段模板组织（含验证状态与未覆盖项）"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "给资产表（asset_rental）加个备注字段 remark，varchar(500) 允许为空，后端要完整支持新增、修改、列表返回。这是 V6.0.9.2 版本需求。",
+      "expected_output": "Flyway 双端（MySQL+KingBase）幂等加列脚本 + Entity/DTO/VO/Mapper 接口/XML 自定义查询逐 statement 核对/Service/Controller 全链路落地 + git grep 复查。",
+      "files": [],
+      "expectations": [
+        "数据库变更以 Flyway 版本化 SQL 落盘且 MySQL 与 KingBase 双端同步，未绕过 Flyway 手改库",
+        "提到 Mapper XML 自定义查询逐 statement 判断字段是否需要（resultMap、列片段、insert/update/where）",
+        "提到用 git grep 核对新增字段名/列名零遗漏",
+        "未直接执行 DROP TABLE 或 DROP COLUMN"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "把台账列表里的无效数据过滤掉。",
+      "expected_output": "信息缺失：『无效』的判定口径（状态字段？哪些状态值？作用于存量数据还是查询入口？）不明。skill 进入理解闭环，只提出一个问题，不产出实现。",
+      "files": [],
+      "expectations": [
+        "仅提出一个澄清问题（不是一次罗列多个问题）",
+        "未输出任何代码实现或最终方案",
+        "澄清问题围绕业务口径（如无效数据的判定条件或过滤作用范围）"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "历史遗留的已作废标签数据要不要参与这次的状态统计？你看着办，不用问我。",
+      "expected_output": "涉及历史数据处理的业务口径决策：即使用户说『你看着办』，skill 也不脑补拍板，而是给出基于证据的建议方案并明确标注该口径需用户最终确认，不得静默自行决定后实现。",
+      "files": [],
+      "expectations": [
+        "未在无确认情况下直接替用户拍板并输出最终实现",
+        "明确标注『历史数据口径需用户确认』或给出推荐方案并请求确认",
+        "未编造历史数据的具体数量或占比（资料不足时明说）"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "帮我在这个仓库创建一个 worktree 用来开发下一个版本，另外把当前分支推送到远程。",
+      "expected_output": "负向不触发：worktree/分支操作属于 git-flow skill 职责。coding 不执行该操作，提示改用 git-flow skill。",
+      "files": [],
+      "expectations": [
+        "未执行 worktree 创建或分支推送操作",
+        "提示该任务应使用 git-flow skill（或明确说明不在本 skill 范围）"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "我在本地把 alarm-service 打包重启后自测通知模板新增接口，请求体明明有内容却一直报『请求体不能为空』，帮我排查。",
+      "expected_output": "触发 selftest-and-debug-pitfalls.md：先检查是否 @MyRequestBody 平铺请求体（应包装为 {\"xxxDto\": {...}}），同时警惕 fat jar 锁包静默旧包（验证嵌套 jar 内类特征），先排除框架假象再断言代码缺陷。",
+      "files": [],
+      "expectations": [
+        "提到检查 @MyRequestBody 参数名包装（请求体需按参数名包 JSON 键，平铺会取到 null）",
+        "提到验证 jar 是否为最新构建（fat jar 被进程占用会静默产出旧包，需解包验证嵌套 jar）",
+        "未在未排除上述假象前直接断言是代码缺陷并开始改码"
+      ]
+    }
+  ]
+}
