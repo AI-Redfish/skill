@@ -4,7 +4,7 @@ description: WHEN:用户要求开发前后端代码（实现需求、修改接�
 compatibility: 无脚本依赖；需 git 与项目对应工具链（Java 项目:JDK17+Maven；前端项目:Node/pnpm；BPS 仓库另读 CODING_STANDARDS.md 与 .share/skills/ 专项细则）。
 metadata:
   author: AI-Redfish
-  version: "4.0.0"
+  version: "4.1.0"
 ---
 
 # coding — 带约束的 AI 结对编码守门人（通用前后端）
@@ -57,7 +57,7 @@ metadata:
 | [testing-and-verification.md](references/testing-and-verification.md) | 用户提供的 Markdown 测试用例目录全量回归、缺陷归因与修复/报告、构建/单测/联调验证 |
 | [prototype-fidelity.md](references/prototype-fidelity.md) | 需求带原型图/设计稿，要求实现页面、组件、弹窗、抽屉、报表等 UI（前后端通用） |
 | [interface-handover-doc.md](references/interface-handover-doc.md) | 交付阶段生成页面分组接口文档，双模式：A 开发对接向（完整参数表/状态标注/派生枚举/双端覆盖，提给前端人工对接）、B 自动化凭证向（接口依赖与字段取值映射、字典关联，供测试脚本）；含前端 api.js 实证与死代码/路径不一致标注 |
-| [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md) | 接口自测与联调排错前必读：默认止于单元测试的边界、本地起服务（UTF-8/Nacos 注册启动/fat jar 锁包/端口与配置优先级/微服务栈完整启动规则）、模拟登录与 HTTP 复现（中文编码/多数据源/网关前缀/包装请求体）、框架行为假象识别（totalCount=0/数据权限组织过滤/字典编码先查库）、内网 GitLab 代理坑 |
+| [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md) | 接口自测与联调排错前必读：默认止于单元测试的边界、本地起服务（UTF-8/Nacos 注册启动/fat jar 锁包/端口与配置优先级/微服务栈完整启动规则）、**联调全链路启动 SOP 第 12 节**（gateway+upms+改动服务清单、并行启动、就绪三层判定、端口占用因果链、多网卡注册 IP、实体缺列差集补齐、混路由识别）、模拟登录与 HTTP 复现（中文编码/多数据源/网关前缀/包装请求体）、框架行为假象识别（totalCount=0/数据权限组织过滤/字典编码先查库）、内网 GitLab 代理坑 |
 
 ## 关联权威来源（项目存在时读取，不存在跳过）
 

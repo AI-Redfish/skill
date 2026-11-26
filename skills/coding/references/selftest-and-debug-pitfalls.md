@@ -1,6 +1,6 @@
 # 自测与联调避坑清单（selftest-and-debug-pitfalls）
 
-**内容 + 何时读**：BPS 项目接口自测、本地起服务、微服务栈启动、HTTP 复现、联调排错前读本清单，避免重复踩同一批坑。适用范围：BPS 类 Java 多模块仓库（Spring Boot + MyBatis-Plus + 橙单框架）的本地自测与环境联调。来源：V6.0.9.2 通知模板/离线下载迭代自测实战（2026-11-25）；第 11 节来源：共享租赁优化本地联调实战（2026-11-26，upms/wms/contract/gateway 四服务注册 147 Nacos zly 空间全链路验证过程提炼）。
+**内容 + 何时读**：BPS 项目接口自测、本地起服务、微服务栈启动、HTTP 复现、联调排错前读本清单，避免重复踩同一批坑。适用范围：BPS 类 Java 多模块仓库（Spring Boot + MyBatis-Plus + 橙单框架）的本地自测与环境联调。来源：V6.0.9.2 通知模板/离线下载迭代自测实战（2026-11-25）；第 11 节来源：共享租赁优化本地联调实战（2026-11-26，upms/wms/contract/gateway 四服务注册 147 Nacos zly 空间全链路验证过程提炼）；第 12 节来源：V6.0.9.2 主动报警前后端联调实战（2026-11-26，gateway/upms/alarm 三服务并行启动 + 多网卡注册 IP/端口占用/缺列对齐/混路由四类坑现场复盘）。
 
 ## 1. @MyRequestBody 参数必须按参数名包装请求体
 
@@ -94,6 +94,57 @@ java -Dfile.encoding=UTF-8 -jar <服务>.jar \
 - **端口冲突**：先启动的服务可能占住另一个服务的端口；`netstat -ano | grep :<port>` 找 PID 杀掉让目标服务绑定，再重启被杀服务。每次启动前先确认目标端口空闲。
 - **v1 API 查实例必须带 groupName**：`/nacos/v1/ns/instance/list?serviceName=x&namespaceId=y&groupName=<group>`——不带 groupName 默认查 DEFAULT_GROUP，会误判「未注册」（实测踩过：zly 空间四服务注册成功但查询结果全空，加 groupName 后全部命中）。
 - **namespace 假象**：nacos client 日志 `initializer namespace from ... attribute : null` 是 nacos-client 内部属性日志，不代表 namespace 参数没生效；注册是否成功以实例查询结果为准。
-- **最小服务栈判定**：只起本期改动涉及的服务 + 网关 + 前端；未启动的服务由网关静态路由指向已部署环境（或其已注册实例）承接，数据用真实库。启动前向用户确认服务清单与端口规划。
+- **服务清单判定（分场景）**：纯后端自测可用最小栈（只起改动服务+网关）；**前后端联调默认清单 = gateway（前端入口）+ upms（登录基础服务）+ 本期改动服务**，三者缺一联调不成立（实测教训：只起改动服务被用户打回，要求补 gateway+upms）。启动前向用户确认清单与端口规划。完整启动 SOP 见第 12 节。
 - **验证结束立即停服务**（见第 7 条）：临时实例 taskkill 后约 30 秒自动从 Nacos 摘除，不干扰共享环境。
 - **前端联调**：vite 代理指向本地网关（如 `http://127.0.0.1:8082`），E2E 走本地全链路；登录链路经网关 `lb://upms` 路由到本地实例。
+
+## 12. 本地联调全链路启动 SOP——固定流程，避免每次重启耗时（2026-11-26 主动报警联调实战提炼）
+
+### 12.1 服务清单与 jar 时效
+
+- 联调默认清单 = **gateway + upms + 本期改动服务**（同第 11 节口径）；端口与注册信息在 Nacos 配置中心下发（bootstrap.yml 无 port），从各服务日志 `Tomcat started on port X` 获取。本环境基线：gateway 8082 / upms 9000 / alarm 11004。
+- **仅本期改动的模块需重新构建**：`mvn -pl <模块> -am package -DskipTests -Dmaven.gitcommitid.skip=true`（gitcommitid 插件不 skip 会在无 git 信息环境报错）。gateway/upms 未改动时旧 jar 直接用——启动前 `ls -la target/*.jar` 核对构建时间晚于最后一次相关代码改动即可。
+- 构建前先杀占用旧 jar 的 java 进程（见第 5 节锁包坑）。
+
+### 12.2 并行启动（总耗时 = 最慢服务 ≈ 2.5 分钟，而非串行累加）
+
+1. **启动前预检**：一次查全部目标端口 `powershell "Get-NetTCPConnection -LocalPort 8082,9000,11004 -State Listen"`，有占用先清理（见 12.4），避免启动到 100 秒才报 PortInUse。
+2. 每服务一个启动脚本（模板见第 6 节 + `.agents/out/<service>-restart/start-<service>.ps1`），**并行**执行全部脚本（Start-Process 立即返回不阻塞）。
+3. **等待策略**：`sleep 90` 后逐个 grep 就绪关键词，未就绪再补 `sleep 60` 重查。禁止单条长 sleep（>120s）阻塞等待——命令会被超时 abort，且 abort 后进程仍会拉起（见 12.4）。
+4. 各服务启动耗时基线：alarm ≈103–113s、upms ≈159s；gateway 打完 sa-token banner 后可能不再输出就绪行，以端口探测为准（见 12.3）。
+
+### 12.3 就绪判定（三层，逐层收紧）
+
+- **日志关键词**：`Tomcat started on port` + `Started XxxApplication` + `nacos registry ... register finished` 三者齐 = 就绪；注册行同时核对实例 IP（见 12.5）。
+- **端口探测**：`curl http://localhost:<port>/` 返回 HTTP 404 = 进程活着（根路径无映射是正常现象，别当失败）。
+- **端到端路由**：curl 网关业务路径（无 token 预期 `UNAUTHORIZED_LOGIN`），同时确认**本地服务日志出现同一时刻的请求记录**——这一步同时验证网关路由与实例命中。
+
+### 12.4 端口占用（PortInUseException）因果链
+
+- 高频起因：上一次被 abort 的启动命令**仍然拉起了进程**（Start-Process 异步，命令 abort 不杀进程），残留实例占住端口。
+- 排障顺序：`Get-NetTCPConnection -LocalPort <port> -State Listen` 拿 PID → `Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"` 确认 CommandLine 是目标 jar → `Stop-Process -Force` → 重启。
+- **噪音陷阱**：PortInUse 失败后 Spring 仍继续初始化，后续还会炸出别的异常（如 Unknown column 刷屏）——先解决端口根因、重启成功后再逐个看剩余报错，别被启动失败现场的后续日志带偏。
+
+### 12.5 多网卡注册 IP（联调请求全超时的元凶）
+
+- 本机有 VPN/虚拟网卡时（Tailscale 100.64.0.0/10 CGNAT 段等），Spring Cloud **可能自动选中它**注册 Nacos——远端网关路由不到该 IP，经网关的联调请求全部超时。
+- 启动参数**必须显式** `--spring.cloud.nacos.discovery.ip=<以太网IP>`；用 `Get-NetIPAddress -AddressFamily IPv4` 查，排除 `127.*`、`169.254.*`、`100.64–127.*`（CGNAT）、Docker 网桥（`172.17.*` 等）网段。
+- 启动日志核对：`registering service <name> with instance Instance{ip=<期望的局域网IP>...}`。
+
+### 12.6 本地新代码 vs 共享库缺列
+
+- 本地分支实体新增列（`@TableField`）而共享库（如 147）未执行对应迁移 → 该表**所有 MyBatis-Plus 全列查询失败**（列表页、定时任务全挂），日志周期性刷 `Unknown column 'x' in 'field list'`。
+- 对齐方法：从实体类提取全部 `@TableField(value=...)` 列名 ↔ 查 `information_schema.COLUMNS` 实际列，差集即缺列；列定义从 SQL 归档仓库对应迁移脚本取原文，幂等 ALTER 补齐（可空列无风险；唯一索引对全 NULL 历史数据不冲突）。
+- 补列后观察调度日志恢复（错误计数不再增长 + 出现正常任务日志）。
+- 良性 ERROR 别误判：启动日志 `For security constraints with URL pattern [/*] only the HTTP methods...` 每次启动都有，无碍。
+
+### 12.7 混路由：本地实例与远端旧实例并存
+
+- 本地实例注册共享 Nacos 后，网关负载均衡**随机分流**本地新代码实例与远端旧代码实例 → 同一接口行为时灵时不灵（联调最大干扰源）。
+- 识别命中实例：① 不同版本错误文案差异（如新代码「主动报警位置不能为空」vs 旧代码「警情类型不能为空」）；② 本地服务日志有无该请求记录。
+- 处置：用户确认后缩容远端容器（`docker service scale <service>=0`）；未改动服务（upms/gateway）代码一致，混路由无影响，无需处理。
+
+### 12.8 服务直连免登录（仅限本地自测）
+
+- 绕过网关直连服务端口时，请求加 header `DONT_AUTH: true` 可跳过 sa-token 校验（`ApplicationConstant.HTTP_HEADER_DONT_AUTH`，common-core）；**网关层照样拦截**，经网关的请求必须真 token。
+- 请求体按第 1 节包装格式；本地验证无 token 拦截属预期，别当路由故障。
