@@ -59,6 +59,7 @@
 - `MyPageUtil.makeResponseData(list)` 无分页调用时 **totalCount 固定 0**，真实数据在 dataList——被 totalCount=0 误导会白排查一轮。
 - 数据权限拦截器（common-datafilter 的 `MybatisDataFilterInterceptor`）按用户数据权限组织范围给 `*OrgId` 列（如 manage_org_id）拼条件：**权限外组织新增的数据本人 list/view 都不可见**（getById 也被拼条件），是设计行为。跨权限账号自测时表现为「插入成功但查不到」。
 - 报「字典编码不存在」先查库（ops `sys_dict_key` / mgr `sys_tenant_dict_key`）再断言接口问题：菜单 URL 参数（如 `formIntegratedInspectionPlan`）是页面标识不是字典编码，真实字典可能是另一个（如 `formPlanManage`）。
+- **数据全查不出（totalCount=0）先查 `@TenantFilterColumn` 误标**：该注解语义是「此列存租户ID」，框架会给所有查询拼 `列名 = 登录用户tenantId` 等值条件（`MybatisDataFilterInterceptor.processTenantFilter`）；业务字段（如管理组织 manage_org_id）误标后条件永假 → 本人查不到任何数据。定位三板斧：① mapper 加 DEBUG 日志重启看实际 SQL（第 7 节）；② DONT_AUTH 直连对照（无 TokenData 时拦截器不拼，能查到 = 拦截器层问题）；③ 查 DATA_PERM Redis 快照排除数据权限规则（`{0:"null"}` = TYPE_ALL 不拦）。修复时确认表内 `tenant_id` 列自有 `@TenantFilterColumn` 兑底，去掉误标注解不影响租户隔离；并举一反三排查同次提交全部实体的该注解使用（实测 2026-11-26：AlarmNotifyTemplate.manageOrgId 误标为唯一问题点）。
 
 ## 10. 147 环境排错路径
 
@@ -69,11 +70,12 @@
 
 ## 11. 本地微服务栈启动（Nacos 注册模式）——默认边界与三条硬规则
 
-**默认边界**：开发完成默认只跑单元测试，**不启动后端服务**；仅当用户明确要求「启动服务测试/联调」时才启动，并遵守以下三条硬规则：
+**默认边界**：开发完成默认只跑单元测试，**不启动后端服务**；仅当用户明确要求「启动服务测试/联调」时才启动，并遵守以下四条硬规则：
 
 1. **本地启动，不远程部署**：在本机跑 jar/vite，不构建镜像部署到 147 等远程机器（远程走 CI 管线，本地改码对远程容器无效）。
 2. **必须走 Nacos 注册**：项目有 Nacos 注册逻辑就必须以注册模式启动，禁止用 `--spring.cloud.nacos.discovery.enabled=false` 等非注册方式绕过——网关与下游服务的 `lb://` 路由依赖注册发现，绕过注册会让依赖服务解析不到实例（网关 503/路由失败）。
 3. **启动测试所需的全部服务，不遗漏**：按调用链盘点（前端 → 网关 → 本期改动服务 → 被它调用/依赖的其他服务），逐个启动并逐一确认已注册；漏起服务表现为网关 404/503 或 `lb://` 解析失败。
+4. **修改代码后的默认验证 = 编译 + 单测，不含启动/重启服务**：修复缺陷或补改代码后，验证闭环止于「构建 + 相关单测 + 基线对照」，在答复中报告结果并说明「需重启服务才生效」，由用户决定是否重启；禁止顺手重启服务验证（实测教训：2026-11-26 修复 source_system_code 后直接构建准备重启，被用户纠正）。例外：联调进行中因构建/清理导致服务被停，恢复运行属联调延续，但需在报告中明确说明。
 
 **显式参数覆盖 bootstrap.yml**：jar 内 bootstrap.yml 可能指向错误环境（实测：默认指向 144:8848 的旧 namespace，服务静默注册到错误空间），必须用命令行参数显式指定（命令行优先级最高）：
 
@@ -103,8 +105,9 @@ java -Dfile.encoding=UTF-8 -jar <服务>.jar \
 ### 12.1 服务清单与 jar 时效
 
 - 联调默认清单 = **gateway + upms + 本期改动服务**（同第 11 节口径）；端口与注册信息在 Nacos 配置中心下发（bootstrap.yml 无 port），从各服务日志 `Tomcat started on port X` 获取。本环境基线：gateway 8082 / upms 9000 / alarm 11004。
-- **仅本期改动的模块需重新构建**：`mvn -pl <模块> -am package -DskipTests -Dmaven.gitcommitid.skip=true`（gitcommitid 插件不 skip 会在无 git 信息环境报错）。gateway/upms 未改动时旧 jar 直接用——启动前 `ls -la target/*.jar` 核对构建时间晚于最后一次相关代码改动即可。
-- 构建前先杀占用旧 jar 的 java 进程（见第 5 节锁包坑）。
+- **仅本期改动的模块需重新构建**：`mvn -pl <模块> -am package -DskipTests -Dmaven.gitcommitid.skip=true`（gitcommitid 插件不 skip 会在无 git 信息环境报错）。构建前先杀占用旧 jar 的 java 进程（见第 5 节锁包坑）。
+- **jar 时效验证不能只看 mtime**：spring-boot repackage 用 rename 替换，**保留旧文件 mtime**——实测新包显示旧时间戳（2026-11-26 踩）。正确验证：`unzip -p <jar> BOOT-INF/classes/<新改的Class>.class` 与 `target/classes` 同名 class 比 md5，一致即新包。
+- `-pl 模块A,模块B -am package` 可能把最后一个模块的 repackage 静默跳过——重跑单模块 package 并以 jar 内 class md5 为准。
 
 ### 12.2 并行启动（总耗时 = 最慢服务 ≈ 2.5 分钟，而非串行累加）
 
