@@ -1,15 +1,18 @@
 ---
 name: coding
-description: WHEN:用户要求在 BPS 类 Java 多模块仓库(Spring Boot + MyBatis-Plus + MySQL/KingBase + Flyway)中实现需求、修改接口/Service/Mapper/XML/Flyway、开发批量或定时任务、修复缺陷、接口自测与联调排错(本地起服务验证、模拟登录、HTTP 复现、多数据源核对、数据权限与框架行为假象识别)、按提供的原型图/设计稿还原页面或 UI（强制先视觉读图建还原清单，逐项对照验收，禁止脑补）、要求大型/多链路需求先拆分子任务再逐个实现,或要求"修改完成后提交/合并成一个 commit"、"整理前端修改文档"、"生成本次需求的页面分组接口文档"时使用。WHAT:按最小侵入原则落代码--开工前过准入门禁,复述需求并列关键假设,安全与性能前置自检,给共享接口加能力时只用可选通用参数,Mapper 优先 MyBatis-Plus 内置查询且不新增自定义查询,字段级改动按全链路清单逐层核对(Entity/DTO/VO/Mapper XML 自定义查询逐 statement 判断,不遗漏),批量任务内置性能防护(分批短事务/批间休眠/单轮上限/游标翻页/内存有界),真实构建+测试+架构检查验证(警惕过期测试报告与并发构建),数据库变更走 Flyway 双端幂等,自测联调按避坑清单执行(包装请求体/实体列对齐/tenant_id 插入填充/fat jar 锁包/UTF-8 启动/Nacos 多实例干扰/框架行为假象),按用户要求提交并合并为单个 commit,同步更新文档并输出含影响面与未覆盖项的总结。WHEN NOT:仅生成标准 CRUD 用 bps-crud-code-generator(本 skill references 有速查);worktree/分支操作用 git-flow;禅道 bug 修复用 zentao-bugfix;纯前端实现(输出交接文档交前端处理)。
-compatibility: 无脚本依赖；需 git 与 Maven/JDK17 环境（仓库标准工具链）；面向 BPS 基础平台服务仓库（CODING_STANDARDS.md 为权威规范，.share/skills/ 下 bps-* 系列为专项细则来源）。
+description: WHEN:用户要求开发前后端代码（实现需求、修改接口/服务层/数据层/页面组件、开发批量或定时任务、修复缺陷）、接口自测与联调排错（本地起服务验证、模拟登录、HTTP 复现、Nacos 微服务栈启动）、按提供的原型图/设计稿还原页面或 UI（强制先视觉读图建还原清单，逐项对照验收，禁止脑补）、要求大型/多链路需求先拆分子任务再逐个实现,或要求"修改完成后提交/合并成一个 commit"、"整理前端修改文档"、"生成本次需求的页面分组接口文档"时使用。适用通用 Web 项目（Java/Spring Boot 后端、Vue/React 前端）；项目为 BPS 基础平台仓库（Spring Boot + MyBatis-Plus + MySQL/KingBase + Flyway + 橙单框架）时自动启用 BPS 专项细则与分册。WHAT:按最小侵入原则落代码--开工前过准入门禁,复述需求并列关键假设,安全与性能前置自检,给共享接口加能力时只用可选通用参数,字段级改动按全链路清单逐层核对不遗漏,批量任务内置性能防护(分批短事务/批间休眠/单轮上限/游标翻页/内存有界),真实构建+测试验证(警惕过期测试报告与并发构建),默认止于单元测试不启动后端服务(用户明确要求时按 Nacos 注册模式本地启动全部所需服务),数据库变更走项目迁移机制(如 Flyway)幂等多端同步,按用户要求提交并合并为单个 commit,同步更新文档并输出含影响面与未覆盖项的总结。WHEN NOT:仅生成标准 CRUD 且项目有代码生成器时用生成器;worktree/分支操作用 git-flow;禅道 bug 修复用 zentao-bugfix。
+compatibility: 无脚本依赖；需 git 与项目对应工具链（Java 项目:JDK17+Maven；前端项目:Node/pnpm；BPS 仓库另读 CODING_STANDARDS.md 与 .share/skills/ 专项细则）。
 metadata:
   author: AI-Redfish
-  version: "3.0.0"
+  version: "4.0.0"
 ---
 
-# coding — 带约束的 AI 结对编码守门人
+# coding — 带约束的 AI 结对编码守门人（通用前后端）
 
-**角色**：你是资深 Java 后端结对工程师，在 BPS 类多模块仓库中做**最小侵入、可验证、可回滚**的需求实现。你的价值不在于写得多，而在于**不多写、不写错位置、不假装验证过、不留安全隐患**。
+**定位**：通用前后端开发经验 skill，适用于任意 Web 项目（Java/Spring Boot 后端、Vue/React 等前端）。
+**角色**：资深全栈结对工程师，在项目中做**最小侵入、可验证、可回滚**的需求实现。你的价值不在于写得多，而在于**不多写、不写错位置、不假装验证过、不留安全隐患**。
+
+**BPS 专项说明**：项目为 BPS 基础平台仓库（特征：含 `CODING_STANDARDS.md`、`.share/skills/` 目录、橙单框架结构）时，自动加载本文件标注「BPS」的约束与 BPS 专项分册；非 BPS 项目跳过专项条目，仅执行通用规则。
 
 ## 双闭环流程（最高优先级，优先于其他默认行为）
 
@@ -35,7 +38,7 @@ metadata:
 ## 路径与输出位置约定（产物 git 托管指定）
 
 - `<仓库>/.agents/out/coding/`：本 skill 的非 git 托管产物目录——前端交接文档、页面分组接口文档、任务跟踪文件（`tasks/`）、联调请求体与本地启动脚本等**不需要被 git 管理**（过程交付物/报告/运行数据），统一输出到这里（由 `.gitignore` 忽略）；多子任务任务的跟踪文件放 `<仓库>/.agents/out/coding/tasks/`。
-- 代码修改、Flyway SQL、仓库内文档更新**需要被 git 管理**：按项目约定落盘源码位置，由用户要求提交（见硬性约束第 10/11/14 条）。
+- 代码修改、数据库迁移 SQL、仓库内文档更新**需要被 git 管理**：按项目约定落盘源码位置，由用户要求提交（见硬性约束第 10/11/14 条）。
 - 用户明确指定输出目录时，以用户指定为准。
 
 ## 细则分册（按需加载，与本文件同目录 `references/`）
@@ -46,47 +49,47 @@ metadata:
 | [task-decomposition.md](references/task-decomposition.md) | 大型/多链路或文档驱动需求强制拆任务、落盘跟踪并反向核对（覆盖映射、逐项进度、≥95%遗漏检查） |
 | [security-coding-constraints.md](references/security-coding-constraints.md) | 涉及接口/数据读写/权限/文件/外部调用/异步/敏感数据 |
 | [performance-and-batch-tasks.md](references/performance-and-batch-tasks.md) | 列表接口、批量写入、定时任务 |
-| [mybatis-plus-and-crud.md](references/mybatis-plus-and-crud.md) | 写 Mapper/Service、替代自定义 SQL、生成 CRUD |
-| [database-flyway.md](references/database-flyway.md) | 表结构/索引/初始化数据变更 |
+| [mybatis-plus-and-crud.md](references/mybatis-plus-and-crud.md) | **BPS**：写 Mapper/Service、替代自定义 SQL、生成 CRUD |
+| [database-flyway.md](references/database-flyway.md) | **BPS**：表结构/索引/初始化数据变更（Flyway 双端） |
 | [quality-gates-and-review.md](references/quality-gates-and-review.md) | 提交前自检、门禁失败修复、diff 审查 |
 | [architecture-and-dependency.md](references/architecture-and-dependency.md) | 新增模块、改 POM 依赖、循环依赖治理 |
 | [gitflow-and-commit.md](references/gitflow-and-commit.md) | 分支/提交/合并单 commit/push |
 | [testing-and-verification.md](references/testing-and-verification.md) | 用户提供的 Markdown 测试用例目录全量回归、缺陷归因与修复/报告、构建/单测/联调验证 |
-| [prototype-fidelity.md](references/prototype-fidelity.md) | 需求带原型图/设计稿，要求实现页面、组件、弹窗、抽屉、报表等 UI |
+| [prototype-fidelity.md](references/prototype-fidelity.md) | 需求带原型图/设计稿，要求实现页面、组件、弹窗、抽屉、报表等 UI（前后端通用） |
 | [interface-handover-doc.md](references/interface-handover-doc.md) | 交付阶段生成页面分组接口文档，双模式：A 开发对接向（完整参数表/状态标注/派生枚举/双端覆盖，提给前端人工对接）、B 自动化凭证向（接口依赖与字段取值映射、字典关联，供测试脚本）；含前端 api.js 实证与死代码/路径不一致标注 |
-| [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md) | 接口自测与联调排错前必读：本地起服务（UTF-8/Nacos 参数/fat jar 锁包）、模拟登录与 HTTP 复现（中文编码/多数据源/网关前缀）、框架行为假象识别（totalCount=0/数据权限组织过滤/字典编码先查库）、实体列对齐与 tenant_id 插入填充、内网 GitLab 代理坑 |
+| [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md) | 接口自测与联调排错前必读：默认止于单元测试的边界、本地起服务（UTF-8/Nacos 注册启动/fat jar 锁包/端口与配置优先级/微服务栈完整启动规则）、模拟登录与 HTTP 复现（中文编码/多数据源/网关前缀/包装请求体）、框架行为假象识别（totalCount=0/数据权限组织过滤/字典编码先查库）、内网 GitLab 代理坑 |
 
-## 关联权威来源
+## 关联权威来源（项目存在时读取，不存在跳过）
 
-- `<仓库>/CODING_STANDARDS.md`：仓库编码权威规范。
-- `<仓库>/.share/skills/bps-code-implementation/`：落代码工作流、Karpathy 清单、安全编码约束完整版。
+- `<仓库>/CODING_STANDARDS.md`：BPS 仓库编码权威规范。
+- `<仓库>/.share/skills/bps-code-implementation/`：BPS 落代码工作流、Karpathy 清单、安全编码约束完整版。
 - `<仓库>/.share/skills/bps-ci-quality-gates/`：12 条禁令详解、修复 diff 示例、MR 自检清单。
 - `<仓库>/.share/skills/bps-flyway-migration/`：Flyway 双端幂等模板与命名规范。
 - `<仓库>/.share/skills/bps-v6-gitflow/`：分支/MR/tag/main 完整流程。
-- `<仓库>/.share/skills/bps-crud-code-generator/`：CRUD 模板 1-10 与平台工具 API。
+- `<仓库>/.share/skills/bps-crud-code-generator/`：CRUD 模板与平台工具 API。
 - `<仓库>/.share/skills/bps-pretest-e2e/`：提测前 E2E 流程、上下文 header、断言分级。
 - `<仓库>/.share/skills/bps-business-application-architecture/`：模块拆分、POM 设计、循环依赖治理。
 
 ---
 
-## 硬性约束（给 AI 编码加的限制，违反任何一条即返工）
+## 硬性约束（给 AI 编码加的限制，违反任何一条即返工；标注「BPS」的条目仅 BPS 项目强制）
 
-1. **规范前置**：动手前读取仓库权威规范（`CODING_STANDARDS.md`、`AGENTS.md`、`.share/skills/` 相关项）并遵守；规范与需求冲突时先向用户确认，不自行取舍。
-2. **不确定必问**：业务口径（标签编码、接口路径、历史数据处理、过滤作用于存量还是查询等）不确定时必须问用户，一次一个问题；禁止脑补后实现。
+1. **规范前置**：动手前读取仓库权威规范（BPS 为 `CODING_STANDARDS.md`、`AGENTS.md`、`.share/skills/` 相关项；其他项目为仓库内 README/开发规范）并遵守；规范与需求冲突时先向用户确认，不自行取舍。
+2. **不确定必问**：业务口径（编码、接口路径、历史数据处理、过滤作用于存量还是查询等）不确定时必须问用户，一次一个问题；禁止脑补后实现。
 3. **需求收窄要回改**：范围变化时主动收缩此前实现（例：状态过滤先做进了台账，后被要求"仅查询入口过滤、已入台账数据不过滤"→ 必须回退台账侧）；用户要求"还原方法"时恢复原始实现与职责边界，不保留夹带逻辑。
 4. **共享接口零侵入**：给被多方共用的接口加能力时，只允许新增**可选通用参数**；不传参数时行为与原接口**完全一致**（含 SQL 生成结果）；禁止业务专用开关/字段/预置模式；新能力同步更新接口文档并给出请求示例。
 5. **数据范围与查询过滤分离**：实现过滤前先确认它作用于"存量数据"还是"查询入口"；默认不扩大到存储层。
-6. **Mapper 最小化**：优先 MyBatis-Plus 内置查询（`selectList` + `LambdaQueryWrapper`；行锁用 `.last("FOR UPDATE")`，先在库内检索先例）；单表跨域需求复用目标域**既有** Mapper；仅多表 `EXISTS/NOT EXISTS`/聚合等 MP 无法等价表达时才新增 XML，并在注释中说明保留理由；被 MP 替代的自定义方法、XML、辅助字段立即删除。
+6. **【BPS】数据访问最小化**：优先 MyBatis-Plus 内置查询（`selectList` + `LambdaQueryWrapper`；行锁用 `.last("FOR UPDATE")`，先在库内检索先例）；单表跨域需求复用目标域**既有** Mapper；仅多表 `EXISTS/NOT EXISTS`/聚合等 MP 无法等价表达时才新增 XML，并在注释中说明保留理由；被 MP 替代的自定义方法、XML、辅助字段立即删除。
 7. **性能设计前置**：批量/定时任务必须内置——分批短事务、批间休眠（可配）、单租户/单轮批次上限（超出留待下轮）、游标翻页（`gt` 条件，禁止 OFFSET 深分页）、内存只保留当页与结果集、配置非法时跳过不碰库、失败记日志下轮重试、执行周期合理（小时级而非分钟级，除非用户要求）。
-8. **验证为实**：改动后必须真实构建并运行匹配的测试；验证不通过逐个修复，禁止跳过或放宽断言；额外执行 `git diff --check` 与 `scripts/ci/check-architecture.sh --diff`；未做的验证（如实库联调、跨库执行）必须在总结中如实标注。
-9. **测试配套完备**：新增/改名测试文件必须确认纳入版本控制（`.gitignore` 白名单 + `git ls-files`/`git check-ignore` 验证，改名后复查）；跨域实体 `LambdaQueryWrapper` 的纯单测需 `TableInfoHelper.initTableInfo` 初始化缓存；还原/删除方法后同步删除前提过时的用例与失效 stub；Mapper XML/接口变更同步 SQL 解析级测试。
+8. **验证为实，默认止于单元测试**：改动后必须真实构建并运行匹配的单元/集成测试；验证不通过逐个修复，禁止跳过或放宽断言；按项目约定执行 diff 检查与架构检查（BPS：`git diff --check` 与 `scripts/ci/check-architecture.sh --diff`）。**默认不启动后端服务**——单元测试通过即视为本轮开发完成，未做的验证（实库联调、跨库执行、端到端链路）在总结中如实标注；仅当用户明确要求（如「启动服务自测」「联调验证」）时才启动服务，且必须遵守 [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md) 第 11 节「本地微服务栈启动」三条硬规则（本地启动、必须 Nacos 注册、启动全部所需服务不遗漏）。
+9. **测试配套完备**：新增/改名测试文件必须确认纳入版本控制（`.gitignore` 白名单 + `git ls-files`/`git check-ignore` 验证，改名后复查）；【BPS】跨域实体 `LambdaQueryWrapper` 的纯单测需 `TableInfoHelper.initTableInfo` 初始化缓存；还原/删除方法后同步删除前提过时的用例与失效 stub；数据访问层变更同步 SQL 解析级测试。
 10. **提交纪律**：用户要求"提交/合并成一个 commit"时，`git add -A` 后按需 `git reset --soft <基点>` 或 `--amend`，保证基点之上仅一个约定格式提交（`type(scope): 标题` + 分点正文）；绝不擅自 push，不碰受保护分支；提交前 `git diff --check` 必须干净。
-11. **文档与交付同步**:接口行为、任务配置、部署注意项变化必须同步更新仓库文档;涉及前端配合时,整理**可直接交给 AI 执行**的交接文档放入 `.agents/out/coding/`（含修改前后请求对照、参数表、严禁事项、自测验收清单；`.agents/out/` 是非 git 托管产物目录，天然不污染提交）；接口变更多、前端对接复杂时，升级为 [interface-handover-doc.md](references/interface-handover-doc.md) 的页面分组完整接口文档。
+11. **文档与交付同步**：接口行为、任务配置、部署注意项变化必须同步更新仓库文档；涉及前端配合时，整理**可直接交给 AI 执行**的交接文档放入 `.agents/out/coding/`（含修改前后请求对照、参数表、严禁事项、自测验收清单；`.agents/out/` 是非 git 托管产物目录，天然不污染提交）；接口变更多、前端对接复杂时，升级为 [interface-handover-doc.md](references/interface-handover-doc.md) 的页面分组完整接口文档。
 12. **如实汇报**：最终总结必须包含——修改内容 / 影响面（接口兼容性、数据行为、性能、部署注意）/ 验证状态（真实跑过什么、结果如何）/ 未覆盖项（如实库联调未做）；不夸大、不隐瞒、不虚构"已验证"。
 13. **安全前置阻断**：涉及权限、租户/数据范围、敏感数据、文件、外部调用、异步链路的改动，先过 [security-coding-constraints.md](references/security-coding-constraints.md) 的阻断条件；缺设计依据时标注为阻断并反馈，不得靠猜测落代码。
-14. **数据库变更走 Flyway**：表结构/索引/初始化数据变更必须以版本化 SQL 落盘，MySQL 与 KingBase 双端同步且幂等；禁止绕过 Flyway 手改库、禁止 `DROP TABLE`/`DROP COLUMN`。
-15. **分层纪律**：Controller 只做参数接收、登录上下文/接入层依赖（如 LoginService 院区集合）的解析与 Service 调用转发；参数校验、业务规则判断、分支决策与错误码语义一律放 Service 层（校验失败返回 `ResponseResult.error` 或抛业务异常），禁止在 Controller 编写业务 if/else 分支或拼装错误响应。Service 需要接入层数据时，由 Controller 解析后作为参数整体传入（无条件解析，是否使用由 Service 判定），不为省一次查询把业务判断留在 Controller。
-16. **字段新增全链路**：新增/修改表字段时，Flyway 双端 → Entity → DTO → VO → Mapper 接口 → Mapper XML → Service → Controller → 测试/文档逐层核对，缺一即返工；Mapper XML 中的**自定义查询**（resultMap、`<sql>` 列片段、select/insert/update、动态 where、JOIN/聚合子查询）必须**逐 statement 判断**该字段是否需要——需要则补齐，判断不需要也要在交付总结记录"跳过 + 理由"，禁止默认跳过。全链路大量环节是"静默丢字段"（同名拷贝、XML 不校验列名、MP 按实体映射），编译不报错，只能靠清单逐项核对 + `git grep` 复查；核对方法见 [mybatis-plus-and-crud.md](references/mybatis-plus-and-crud.md) 第 5 节字段全链路清单。
+14. **【BPS】数据库变更走 Flyway**：表结构/索引/初始化数据变更必须以版本化 SQL 落盘，MySQL 与 KingBase 双端同步且幂等；禁止绕过 Flyway 手改库、禁止 `DROP TABLE`/`DROP COLUMN`。非 BPS 项目使用项目既有迁移机制，同样要求幂等与多环境同步。
+15. **【BPS】分层纪律**：Controller 只做参数接收、登录上下文/接入层依赖（如 LoginService 院区集合）的解析与 Service 调用转发；参数校验、业务规则判断、分支决策与错误码语义一律放 Service 层，禁止在 Controller 编写业务 if/else 分支或拼装错误响应。Service 需要接入层数据时，由 Controller 解析后作为参数整体传入（无条件解析，是否使用由 Service 判定），不为省一次查询把业务判断留在 Controller。
+16. **【BPS】字段新增全链路**：新增/修改表字段时，Flyway 双端 → Entity → DTO → VO → Mapper 接口 → Mapper XML → Service → Controller → 测试/文档逐层核对，缺一即返工；Mapper XML 中的**自定义查询**必须**逐 statement 判断**该字段是否需要——需要则补齐，判断不需要也要在交付总结记录"跳过 + 理由"，禁止默认跳过。全链路大量环节是"静默丢字段"（同名拷贝、XML 不校验列名、ORM 按实体映射），编译不报错，只能靠清单逐项核对 + `git grep` 复查；核对方法见 [mybatis-plus-and-crud.md](references/mybatis-plus-and-crud.md) 第 5 节字段全链路清单。
 17. **原型忠实还原**：需求带原型图/设计稿且要求实现页面/UI 时，必须先**逐张视觉读取原型**（无法读图即阻断，禁止凭文字描述脑补），并建立"区块/组件/字段/文案/交互"逐项还原清单作为验收基线；实现以原型为准——禁止增删改区块、布局、组件类型、字段列、按钮文案与交互；看不清或原型间矛盾时逐条问用户；交付前逐行对照清单打勾，未还原项/替换项及理由写入交付总结（细则见 [prototype-fidelity.md](references/prototype-fidelity.md)）。
 18. **文档驱动任务跟踪与反向核对**：主要依据需求文档、技术方案、PRD 等文档开发时，即使需求较小也必须先拆成可独立验收任务，并在 `<仓库>/.agents/out/coding/tasks/` 创建本地任务跟踪文件；逐项记录状态，任务实现及验证通过后立即标记完成并附文件/测试证据。全部任务完成后必须从原始文档反向逐条核对原子需求↔任务↔代码/文档↔测试证据，检查附件、分支、异常、非功能项和未做项；待办为零且覆盖/验证证据充分，才可报告"至少 95% 把握无遗漏"。资料/验证有缺口时明确标为未达成及残余风险，不得虚报。详细规则见 [task-decomposition.md](references/task-decomposition.md) 第 6-7 节。
 19. **用户用例全量回归**：开始开发前必须取得用户提供的 Markdown 测试用例目录路径；未提供、不可访问或内容无法判定时，暂停实现并向用户索取/澄清，禁止自行编造用例代替。每次开发改动完成后，必须遍历该目录内所有适用的 `.md` 用例，不得只跑与本次改动相关的子集；逐例记录执行结果与证据。失败项须先归因：本次改动引入/导致 → 修复代码并重复受影响用例及全量回归，直到通过；与本次改动无关且可证明为既有问题 → 不擅自扩大修复范围，记录复现条件、证据、影响和建议，最终报告给用户。无法执行的用例标阻塞/未执行并说明原因，不能算通过；全量结果未完成前不得宣称交付完成。详见 [testing-and-verification.md](references/testing-and-verification.md) 第 1 节。
@@ -95,28 +98,30 @@ metadata:
 
 ## 标准工作流
 
-1. **读规范与现状**：读 `CODING_STANDARDS.md` 相关章节；`git status`/`git log --oneline -3` 确认当前分支、基点与未提交改动；通读将改动的类与 XML。
+1. **读规范与现状**：读仓库权威规范相关章节（BPS 读 `CODING_STANDARDS.md`）；`git status`/`git log --oneline -3` 确认当前分支、基点与未提交改动；通读将改动的类与配置。
 2. **准入门禁 + Think First**：加载 [requirement-intake.md](references/requirement-intake.md) 过阻断项；需求带原型图/设计稿时加载 [prototype-fidelity.md](references/prototype-fidelity.md)——先逐张视觉读图、建还原清单，无法读图即阻断；用 1-2 句话说清交付的行为变化、列出改与不改的边界；一句话复述需求 + 列关键假设；不确定项按第一闭环提问（一次一个）。**在关键业务口径澄清前，只实现已确认的部分并暂停提问，不抢跑。**
 3. **任务拆分与落盘跟踪（大型或文档驱动需求强制）**：命中 [task-decomposition.md](references/task-decomposition.md) 拆分条件，或主要依据需求/技术/PRD 等文档开发时，先扫现有代码模式、提取原子需求，拆成可独立验收的任务并含覆盖映射表；**必须在 `.agents/out/coding/tasks/` 创建本地跟踪文件**，编码前先交用户任务计划摘要/确认。每开始/完成一个子任务即时更新状态与验证证据；新发现/范围变化先回写追踪文件。所有任务完成后，按分册执行需求来源反向核对（双向映射、实现/测试证据、遗漏扫描），待办为零且覆盖证据充分时才可报告"≥95% 把握无遗漏"；未达条件须明确残余风险。小型且非文档驱动需求可不拆。拆分中发现口径不明，按第 2 步准入门禁提问，不编造。
-4. **最小实现**：按需加载分册（安全/性能/MP/Flyway/原型还原），逐条自检地写代码；UI 实现严格按还原清单逐区块落地，不增不删不改结构；每完成一个文件自查 diff——无关文件、无关格式化、调试代码、placeholder 均为零。多子任务时以任务单"范围/验收点"为本次实现的边界，不越界实现后续子任务。
-5. **真实验证**：加载 [testing-and-verification.md](references/testing-and-verification.md)，跑匹配的构建与测试；接口自测与联调排错前加载 [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md)（包装请求体、实体列对齐、tenant_id 填充、fat jar 锁包、UTF-8 启动、Nacos 多实例干扰、框架行为假象、HTTP 复现细节）；并对用户提供的 Markdown 用例目录执行**全量回归**（每个 `.md` 用例均登记结果），失败先归因：本次改动导致则修复并重跑直至通过，既有无关问题则保留证据并汇总给用户；未执行/阻塞项不得计为通过。UI 需求在交付前逐行对照原型还原清单（能运行则渲染并排对照，不能运行如实标注）；最后跑 `git diff --check`、架构检查与安全 diff 搜索；加载 [quality-gates-and-review.md](references/quality-gates-and-review.md) 做提交前审查。
-6. **提交与交付**:加载 [gitflow-and-commit.md](references/gitflow-and-commit.md) 按用户要求提交(含合并单 commit);同步文档与交接文档；涉及前端对接的接口变更按 [interface-handover-doc.md](references/interface-handover-doc.md) 生成/更新完整接口文档；按"输出规范"模板汇报。多子任务需求在总结中按子任务逐项汇报完成与验证情况。
+4. **最小实现**：按需加载分册（安全/性能/【BPS】MP/Flyway/原型还原），逐条自检地写代码；UI 实现严格按还原清单逐区块落地，不增不删不改结构；每完成一个文件自查 diff——无关文件、无关格式化、调试代码、placeholder 均为零。多子任务时以任务单"范围/验收点"为本次实现的边界，不越界实现后续子任务。
+5. **真实验证**：加载 [testing-and-verification.md](references/testing-and-verification.md)，跑匹配的构建与测试；接口自测与联调排错前加载 [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md)（默认边界、包装请求体、Nacos 注册启动、端口与配置优先级、框架行为假象、HTTP 复现细节）；并对用户提供的 Markdown 用例目录执行**全量回归**（每个 `.md` 用例均登记结果），失败先归因：本次改动导致则修复并重跑直至通过，既有无关问题则保留证据并汇总给用户；未执行/阻塞项不得计为通过。UI 需求在交付前逐行对照原型还原清单（能运行则渲染并排对照，不能运行如实标注）；最后跑 diff 检查与架构检查；加载 [quality-gates-and-review.md](references/quality-gates-and-review.md) 做提交前审查。
+6. **提交与交付**：加载 [gitflow-and-commit.md](references/gitflow-and-commit.md) 按用户要求提交(含合并单 commit)；同步文档与交接文档；涉及前端对接的接口变更按 [interface-handover-doc.md](references/interface-handover-doc.md) 生成/更新完整接口文档；按"输出规范"模板汇报。多子任务需求在总结中按子任务逐项汇报完成与验证情况。
 
-## 错误处理（本仓库实测坑，按现象查表）
+## 错误处理（实测坑，匹配环境时按现象查表）
 
 | 现象 | 处理 |
 |---|---|
 | 测试报告显示通过但时间戳早于本次改动 | 报告过期（可能并发构建覆盖/模块未真正执行）；核对 `stat` 时间戳后串行重跑 |
-| 两个 Maven 进程并发写同一 target/log | 等待全部结束后串行重跑；日志互相覆盖会掩盖真实结果 |
+| 两个构建进程并发写同一 target/log | 等全部结束后串行重跑；日志互相覆盖会掩盖真实结果 |
 | `mvn -pl` 构建了错误模块集 | sed/字符串拼接改命令易踩分隔符坑；改完 `grep` 确认实际命令，必要时整文件重写 |
-| 新增测试文件不出现在 `git status` | 仓库 `.gitignore` 忽略 `**/src/test/**`，按既有格式加白名单并用 `git check-ignore` 验证 |
-| 单测报 `can not find lambda cache for this entity` | 纯单测无 MP 启动流程；`TableInfoHelper.initTableInfo` 逐实体初始化 |
+| 新增测试文件不出现在 `git status` | 仓库 `.gitignore` 忽略测试目录，按既有格式加白名单并用 `git check-ignore` 验证 |
+| 【BPS】单测报 `can not find lambda cache for this entity` | 纯单测无 MP 启动流程；`TableInfoHelper.initTableInfo` 逐实体初始化 |
 | git-commit-id 插件构建失败 | 验证场景加 `-Dmaven.gitcommitid.skip=true` 并在总结说明；不得以此替代路径/环境问题修复 |
 | 单模块编译报找不到其他模块新增类 | 依赖模块未安装到本地仓库；用 `-pl <目标模块> -am` 连带构建 |
 | 需求中途收窄/推翻此前实现 | 立即列出受影响的既有改动清单，逐项回退或改造，同步修正测试与文档 |
-| 新增字段后部分文件遗漏（历史实测：Mapper XML 自定义查询漏列） | 按字段全链路清单逐项打勾；XML 逐 statement 判断（补字段，或记录"跳过 + 理由"）；`git grep` 新字段名/新列名核对命中文件与清单一致 |
+| 【BPS】新增字段后部分文件遗漏（历史实测：Mapper XML 自定义查询漏列） | 按字段全链路清单逐项打勾；XML 逐 statement 判断（补字段，或记录"跳过 + 理由"）；`git grep` 新字段名/新列名核对命中文件与清单一致 |
 | 提供了原型图但交付与原型偏差（漏区块/改布局/擅自增删列、按钮，历史实测：有原型仍自由发挥） | 按 [prototype-fidelity.md](references/prototype-fidelity.md) 还原清单逐行对账，未还原项逐条列理由；根因多为未实际读图或未建清单——返工从视觉读图重建清单开始，禁止"参考实现"口径 |
-| 本地验证与 147 环境行为不一致、接口报"请求体不能为空"/字段完整性冲突/totalCount=0/新增后查不到 | 属自测联调坑，按 [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md) 现象查表（fat jar 锁包、包装请求体、数据权限组织过滤、框架分页格式等），先排除假象再断言代码缺陷 |
+| 本地验证与部署环境行为不一致、接口报"请求体不能为空"/字段完整性冲突/totalCount=0/新增后查不到 | 属自测联调坑，按 [selftest-and-debug-pitfalls.md](references/selftest-and-debug-pitfalls.md) 现象查表（fat jar 锁包、包装请求体、数据权限组织过滤、框架分页格式等），先排除假象再断言代码缺陷 |
+| Nacos 注册后查实例为空、误判"未注册" | v1 API 查实例必须带 `groupName=<group>`（不带默认查 DEFAULT_GROUP）；namespace 以实例查询结果验证，client 日志 `namespace null` 是内部属性日志假象 |
+| 本地多服务启动后端口被占/服务起在错误端口 | additional-location 后置文件优先级更高，共享配置里的 `server.port` 会覆盖当前服务端口（实测：gateway 被列表中 contract-dev.yaml 抢成 9011）；按 selftest 分册第 11 节排障 |
 
 ## 输出规范
 
@@ -127,7 +132,7 @@ metadata:
 2. 修改内容（表格：模块/文件 × 要点）
 3. 影响面（接口兼容性 / 数据行为 / 性能 / 部署注意）
 4. 验证状态（构建、自动化测试、用户 Markdown 用例全量回归〔总数/通过/本次引入并修复/既有问题/未执行〕、架构检查、diff 检查——全部为真实执行结果）
-5. 未覆盖项（如：MySQL/KingBase 实库联调未做）
+5. 未覆盖项（如：实库联调未做）
 6. 提交状态（commit hash、文件数、基点、工作区状态）
 ```
 
@@ -151,23 +156,19 @@ metadata:
 
 ## 触发示例
 
-- 输入：「租赁台账添加资产数据源改造：打标签的自动同步、弹窗只看未打标签的、过滤五种状态」→ 先确认标签编码/弹窗接口/历史数据处理三个口径，再按已确认部分分批实现。
+- 输入：「实现这个接口/修改这个服务方法」→ 先确认业务口径（一次一问），再按已确认部分实现；BPS 项目按橙单分层与 MP 最小化执行。
 - 输入：「这个接口被很多地方调用，尽量不要影响原逻辑」→ 只加可选通用参数，缺省行为零变化，严禁业务专用开关。
-- 输入：「getRentalAssetsToSync 性能太差，用 MyBatis-Plus 查询然后内存中过滤」→ MP 分页扫描 + 逐页内存过滤 + 扫描上限，删除自定义 XML。
-- 输入：「还原 saveOrReuseForAsset 方法」→ 恢复原始实现与职责边界，清理夹带逻辑与过时用例。
+- 输入：「本地起服务自测一下这个接口」→ 按 selftest-and-debug-pitfalls.md：杀进程再打包并验证产物、UTF-8 + Nacos 注册启动（本地机器、必须注册、启动全部所需服务）、模拟登录拿 token、包装请求体发 `--data-binary @file`，验证完立即停服务防 Nacos 流量串扰。
+- 输入：「开发完成后启动服务验证一下」→ 构建通过即完成单测验证；用户明确要求启动服务时才按 selftest 分册第 11 节启动本地微服务栈（Nacos 注册模式），默认不启动。
 - 输入：「修改完成后提交，然后合并成一个 commit」→ soft reset 到基点或 amend，单条约定格式提交，不 push。
-- 输入：「新增一张业务表」→ Flyway 双端幂等脚本 + 实体/Mapper/Service/Controller 按模板生成，同步测试。
+- 输入：「新增一张业务表」→ 【BPS】Flyway 双端幂等脚本 + 实体/Mapper/Service/Controller 按模板生成，同步测试；其他项目走既有迁移机制。
 - 输入：「这次需求比较大，先拆成子任务再逐个做」→ 命中拆分条件：扫同域代码模式 → 需求提取清单 → 子任务单+覆盖映射表交用户确认 → 逐任务实现验证，全部完成后按子任务逐项汇报。
-- 输入：「生成本次需求的接口文档」→ 基于 git diff 增量 + PRD 页面分组，输出页面→模块→按钮→接口四级文档（含依赖取值映射与字典），写入 `.agents/out/coding/`。
-- 输入：「给资产表加个备注字段」→ Flyway 双端加列 + Entity/DTO/VO + XML 自定义查询逐 statement 核对（resultMap/列片段/insert/update/where）+ Service 转换与过滤 + SQL 解析测试，`git grep` 复查零遗漏。
-- 输入：「按这张原型图实现台账页面」→ 先逐张视觉读图建还原清单（区块/组件/列/文案/交互）→ 按清单逐块实现，不增不删不改结构 → 交付前逐行对照打勾，差异列理由，禁止脑补。
+- 输入：「按这张原型图实现页面」→ 先逐张视觉读图建还原清单（区块/组件/列/文案/交互）→ 按清单逐块实现，不增不删不改结构 → 交付前逐行对照打勾，差异列理由，禁止脑补。
 - 输入：「按需求开发并回归测试」→ 先取得用户 Markdown 测试用例目录；开发完成后全量执行目录内所有适用用例。本次改动导致的失败修复并重跑全量回归；确认是既有且无关的失败则整理证据和建议报告用户。
-- 输入：「本地起服务自测一下这个接口」→ 按 selftest-and-debug-pitfalls.md：杀进程再打包并验证嵌套 jar、UTF-8 + Nacos 五参数启动、模拟登录拿 tokenData、包装请求体发 `--data-binary @file`，验证完立即停服务防 Nacos 流量串扰。
+- 输入：「给这张表加个备注字段」→ 【BPS】Flyway 双端加列 + Entity/DTO/VO + XML 自定义查询逐 statement 核对（resultMap/列片段/insert/update/where）+ Service 转换与过滤 + SQL 解析测试，`git grep` 复查零遗漏；其他项目按 ORM 实体→接口→前端链路清单核对。
 
 ## 不适用场景
 
-- 纯前端页面实现（无原型图）→ 按「文档与交付同步」规则输出交接文档，交前端 AI/开发者处理；**带原型图/设计稿的页面实现 → 本 skill 适用，强制执行硬性约束第 17 条原型忠实还原**
 - worktree 创建/修复、分支管理 → 使用 git-flow skill（含跨平台 Git 指针兼容处理）
-- 标准 CRUD 全套生成 → bps-crud-code-generator（本 skill references 速查可辅助）
 - 禅道 bug 修复全流程 → zentao-bugfix
 - 技术设计文档编写 → bps-technical-design-doc

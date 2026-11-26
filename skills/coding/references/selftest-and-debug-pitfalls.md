@@ -1,6 +1,6 @@
 # 自测与联调避坑清单（selftest-and-debug-pitfalls）
 
-**内容 + 何时读**：BPS 项目接口自测、本地起服务、HTTP 复现、联调排错前读本清单，避免重复踩同一批坑。适用范围：BPS 类 Java 多模块仓库（Spring Boot + MyBatis-Plus + 橙单框架）的本地自测与环境联调。来源：V6.0.9.2 通知模板/离线下载迭代自测实战（2026-11-25，alarm 通知模板四项修复全链路验证过程提炼）。
+**内容 + 何时读**：BPS 项目接口自测、本地起服务、微服务栈启动、HTTP 复现、联调排错前读本清单，避免重复踩同一批坑。适用范围：BPS 类 Java 多模块仓库（Spring Boot + MyBatis-Plus + 橙单框架）的本地自测与环境联调。来源：V6.0.9.2 通知模板/离线下载迭代自测实战（2026-11-25）；第 11 节来源：共享租赁优化本地联调实战（2026-11-26，upms/wms/contract/gateway 四服务注册 147 Nacos zly 空间全链路验证过程提炼）。
 
 ## 1. @MyRequestBody 参数必须按参数名包装请求体
 
@@ -66,3 +66,34 @@
 - SSH 走 MCP 连接（147 conn）；容器日志 `docker logs <容器>`；DB/Redis 走 MCP 只读连接。
 - 优先「本地起服务直连验证」（localhost:port），不动 147 容器——CI 镜像不可本地替换。
 - 内网 GitLab（192.168.0.51:3000）**不要走代理**：repo 级 `remote.origin.proxy=7890` 会导致 502，推送时用 `git -c http.proxy= -c https.proxy= push` 置空覆盖；外网 GitHub 才需要代理。
+
+## 11. 本地微服务栈启动（Nacos 注册模式）——默认边界与三条硬规则
+
+**默认边界**：开发完成默认只跑单元测试，**不启动后端服务**；仅当用户明确要求「启动服务测试/联调」时才启动，并遵守以下三条硬规则：
+
+1. **本地启动，不远程部署**：在本机跑 jar/vite，不构建镜像部署到 147 等远程机器（远程走 CI 管线，本地改码对远程容器无效）。
+2. **必须走 Nacos 注册**：项目有 Nacos 注册逻辑就必须以注册模式启动，禁止用 `--spring.cloud.nacos.discovery.enabled=false` 等非注册方式绕过——网关与下游服务的 `lb://` 路由依赖注册发现，绕过注册会让依赖服务解析不到实例（网关 503/路由失败）。
+3. **启动测试所需的全部服务，不遗漏**：按调用链盘点（前端 → 网关 → 本期改动服务 → 被它调用/依赖的其他服务），逐个启动并逐一确认已注册；漏起服务表现为网关 404/503 或 `lb://` 解析失败。
+
+**显式参数覆盖 bootstrap.yml**：jar 内 bootstrap.yml 可能指向错误环境（实测：默认指向 144:8848 的旧 namespace，服务静默注册到错误空间），必须用命令行参数显式指定（命令行优先级最高）：
+
+```bash
+java -Dfile.encoding=UTF-8 -jar <服务>.jar \
+  --spring.cloud.nacos.discovery.server-addr=<host>:8848 \
+  --spring.cloud.nacos.discovery.namespace=<namespaceId-UUID> \
+  --spring.cloud.nacos.discovery.group=<group> \
+  --spring.cloud.nacos.discovery.ip=<本机IP> \
+  --spring.cloud.nacos.discovery.username=<user> \
+  --spring.cloud.nacos.discovery.password=<pwd> \
+  --spring.cloud.nacos.config.enabled=false \
+  --spring.config.additional-location="file:<配置1>,file:<配置2>,file:<最后一个=最高优先级>"
+```
+
+- `config.enabled=false` 禁拉配置中心；功能配置用**目标空间配置快照**：从 Nacos 管理端拉取 yaml（如 `upms-dev.yaml`）存本地，additional-location 加载，替代连配置中心。
+- **additional-location 后面的文件优先级更高**：多个服务共用一份配置列表时，共享配置里的 `server.port` 会覆盖当前服务端口（实测：gateway 因列表含 `contract-dev.yaml` 被抢占成 9011）。修复：把目标服务的 `server.port` 写进列表最后一个文件顶部，稳定覆盖。
+- **端口冲突**：先启动的服务可能占住另一个服务的端口；`netstat -ano | grep :<port>` 找 PID 杀掉让目标服务绑定，再重启被杀服务。每次启动前先确认目标端口空闲。
+- **v1 API 查实例必须带 groupName**：`/nacos/v1/ns/instance/list?serviceName=x&namespaceId=y&groupName=<group>`——不带 groupName 默认查 DEFAULT_GROUP，会误判「未注册」（实测踩过：zly 空间四服务注册成功但查询结果全空，加 groupName 后全部命中）。
+- **namespace 假象**：nacos client 日志 `initializer namespace from ... attribute : null` 是 nacos-client 内部属性日志，不代表 namespace 参数没生效；注册是否成功以实例查询结果为准。
+- **最小服务栈判定**：只起本期改动涉及的服务 + 网关 + 前端；未启动的服务由网关静态路由指向已部署环境（或其已注册实例）承接，数据用真实库。启动前向用户确认服务清单与端口规划。
+- **验证结束立即停服务**（见第 7 条）：临时实例 taskkill 后约 30 秒自动从 Nacos 摘除，不干扰共享环境。
+- **前端联调**：vite 代理指向本地网关（如 `http://127.0.0.1:8082`），E2E 走本地全链路；登录链路经网关 `lb://upms` 路由到本地实例。
