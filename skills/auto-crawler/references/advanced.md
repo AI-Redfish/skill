@@ -75,9 +75,9 @@ result.items.to_csv("quotes.csv")
 - 初始 `concurrent_requests=4`、每域值 `0`、delay `0`；顯式設定較低並發與非零 delay。
 - AutoThrottle 可增加延遲；robots 的 Crawl-delay / Request-rate 也可能增加延遲。
 - 0.5 默认不自动重试被判定为 blocked 的请求。要增加 retry，先向用户说明站点规则并获得确认。
-- 结果在 `CrawlResult.items`。`.to_json()`、`.to_jsonl()`、`.to_csv()`、`.to_xml()` 自动建父目录；导出路径需指向工作目录 `.agents/out/auto-crawler/`。
+- 结果在 `CrawlResult.items`。`.to_json()`、`.to_jsonl()`、`.to_csv()`、`.to_xml()` 自动建父目录；导出路径需指向工作目录 `.agents/out/YYYYMMDD/auto-crawler/`。
 - Spider 会把 items 放内存。超大任务改用 streaming/ItemPipeline；先查官方 Advanced features 文档，勿猜 API。
-- checkpoint 由 `Spider(crawldir=..., interval=...)` 开启；恢复机制必须先用可重复公共样本验证。checkpoint 属运行数据，放 `.agents/out/auto-crawler/checkpoints/`。
+- checkpoint 由 `Spider(crawldir=..., interval=...)` 开启；恢复机制必须先用可重复公共样本验证。checkpoint 属运行数据，放 `.agents/out/YYYYMMDD/auto-crawler/checkpoints/`。
 
 ## 代理、认证与日志
 

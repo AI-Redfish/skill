@@ -62,7 +62,7 @@ metadata:
 ## 路径与输出位置约定
 
 - `<skill_dir>` = 本 SKILL.md 所在目录；脚本一律 `python3 <skill_dir>/scripts/xxx.py` 调用
-- 产物（HTML/MP4）默认写到**工作目录** `.agents/out/wedding-invitation/`（非 git 托管产物目录；`.agents/out/` 由 .gitignore 忽略）或用户指定目录，绝不写入 skill 目录
+- 产物（HTML/MP4）默认写到**工作目录** `.agents/out/YYYYMMDD/wedding-invitation/`（非 git 托管产物目录；`.agents/out/` 由 .gitignore 忽略）或用户指定目录，绝不写入 skill 目录
 - MP4 导出的临时目录 `<html同目录>/<html主名>-export/` 默认用后即删（`--keep-temp` 保留）
 
 ## 环境信息
@@ -165,7 +165,8 @@ WSL/npm/镜像等踩坑速查见 [references/tech-notes.md](references/tech-note
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
 5. **本 skill 针对性约束**：交付物只有四步四产物；调试 HTML、录屏片段、
    日志等临时文件放系统临时目录，不进输出目录、不列为交付物。
-- **产物 git 托管指定**：请柬 HTML、PPT 与 MP4 均不需要被 git 管理，默认输出 `<工作目录>/.agents/out/wedding-invitation/`；用户明确指定目录时以用户为准。
+- **产物 git 托管指定**：请柬 HTML、PPT 与 MP4 均不需要被 git 管理，默认输出 `<工作目录>/.agents/out/YYYYMMDD/wedding-invitation/`（YYYYMMDD 为当天日期）；用户明确指定目录时以用户为准。
+- **out 产物清理**：今日首次执行任务时检查一次 `.agents/out/` 日期目录；目录日期距今天超过 15 天提示用户可删除，用户确认后删除，AI 不自行删除；日期目录之外的持久数据不清理。
 
 ## 自我沉淀闭环（每次对话结束必检，最高优先级）
 

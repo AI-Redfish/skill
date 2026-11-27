@@ -43,7 +43,8 @@ metadata:
 - `<workdir>` 是使用方运行时工作目录，通过 `--workdir` 指定，默认 cwd。
 - **产物 git 托管指定**：Skill 代码、测试、references **需要被 git 管理**，按项目约定保存。
 - 抓取数据、Markdown、运行记录、checkpoint **不需要被 git 管理**。
-  默认放 `<工作目录>/.agents/out/auto-crawler/`，由工作空间 `.gitignore` 忽略。
+  默认放 `<工作目录>/.agents/out/YYYYMMDD/auto-crawler/`（YYYYMMDD 为当天日期），由工作空间 `.gitignore` 忽略。
+- **out 产物清理**：今日首次执行任务时检查一次 `.agents/out/` 日期目录；目录日期距今天超过 15 天提示用户可删除，用户确认后删除，AI 不自行删除；日期目录之外的持久数据不清理。
   用户明确指定目录时以用户为准。写敏感数据前核验忽略规则，不擅自修改既有 `.gitignore`。
 - 只接受新输出文件；脚本不覆盖任何既有文件。生成唯一文件名以避免并发冲突。
 - 临时探测数据只在需要时保留，不生成 README、总结或备用副本。
@@ -146,7 +147,7 @@ uv run <skill_dir>/scripts/crawler.py fetch https://quotes.toscrape.com/ --forma
 ## 输出精简约束
 
 1. 只落盘用户直接使用的产物，不创建过程稿、重复副本或无人引用的说明。
-2. 必需中间产物隔离到 `.agents/out/auto-crawler/` 子目录，不与交付文件混放。
+2. 必需中间产物隔离到 `.agents/out/YYYYMMDD/auto-crawler/` 子目录，不与交付文件混放。
 3. 写文件前确认消费者、生命周期与验证方式；不需要的改为简短说明。
 4. 答复只讲结果、路径、风险与待办，不复述日志。
 5. 本 Skill 的交付物只有用户要求的数据及必要的定制爬虫代码。

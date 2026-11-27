@@ -170,7 +170,7 @@ def main() -> int:
         if not d.is_dir():
             print(json.dumps({"status": "error", "error": {
                 "message": f"--dir 不存在或不是目录：{args.dir}",
-                "hint": "检查路径；产物默认在 .agents/out/product-design/<项目名>/pages/"}},
+                "hint": "检查路径；产物默认在 .agents/out/YYYYMMDD/product-design/<项目名>/pages/"}},
                 ensure_ascii=False), file=sys.stderr)
             return 2
         for p in sorted(d.glob("*.html")):

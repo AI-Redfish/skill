@@ -80,7 +80,7 @@ metadata:
 ## 路径与产物
 
 - 新建 worktree 位于仓库同级，分支 `bugfix/<bugId>_<YYYYMMDD>`，目录将 `/` 替换成 `_`。
-- 每个 Bug 的报告位于 `<实际修复工作区>/.agents/out/zentao-bugfix/<bugId>/`，含 `bug.md`、`bug-raw.json`、截图、`meta.json`、`analysis.md`/`analysis.html`、`solution.md`/`solution.html`、`fix-report.md`/`fix-report.html`；绑定模式另含 `validation.log`。脚本只认此布局，不读取旧目录 `.agents/zentao-bugfix/` 或 `.agents/bugfix/`。
+- 每个 Bug 的报告位于 `<实际修复工作区>/.agents/out/zentao-bugfix/<bugId>/`，含 `bug.md`、`bug-raw.json`、截图、`meta.json`、`analysis.md`/`analysis.html`、`solution.md`/`solution.html`、`fix-report.md`/`fix-report.html`；绑定模式另含 `validation.log`。脚本只认此布局，不读取旧目录 `.agents/zentao-bugfix/` 或 `.agents/bugfix/`。报告按 bugId 复用且跨天累积，属持久数据：**不进日期目录、不参与 15 天清理**。
 - `<项目>/.agents/zentao-bugfix/runs/<bugId>.json` 保存目标、运行 ID、状态、修复前 HEAD/文件与暂存信息、锁、最终 commit。report 与监听校验以此定位绑定工作区。
 - 持久锁位于仓库实际 Git 公共管理目录的 `zentao-bugfix-locks/`；同仓库同分支以及同工作区均互斥，多监听进程共享。失败时不自动清锁。监听 Agent 会话另持有操作系统锁，进程退出自动释放活动锁，持久锁继续保护现场。
 - 新建 worktree 使用 `worktree_paths.py` 查询真实管理目录，将 `.git` 的 `gitdir:` 与管理目录的 `gitdir` 回指针改为相对路径（统一 `/`）；支持嵌套 worktree 与目录重名后缀。验证失败恢复指针原字节，保留目录/分支并返回 3。
@@ -333,7 +333,8 @@ python <skill_dir>/scripts/dingtalk_listen.py retry <bugId>
   3. 落盘前自问：写文件前先问"用户会直接使用它吗"；不会就不写，改为文字说明。
   4. 答复同理：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
   5. 本 skill 针对性约束：交付物只有三组 MD/HTML 报告与（绑定模式的）提交；worktree、锁、缓存、日志等运行产物放 `.agents/`。
-- **产物 git 托管指定**：分析/方案/修复报告不需要被 git 管理，输出到 `<工作区>/.agents/out/zentao-bugfix/<bugId>/`；代码修复**需要被 git 管理**（验证后按规则提交）。
+- **产物 git 托管指定**：分析/方案/修复报告不需要被 git 管理，输出到 `<工作区>/.agents/out/zentao-bugfix/<bugId>/`（持久目录，不进日期目录）；代码修复**需要被 git 管理**（验证后按规则提交）。
+- **out 产物清理**：今日首次执行任务时检查一次 `.agents/out/` 日期目录（`YYYYMMDD*`）；目录日期距今天超过 15 天提示用户可删除，用户确认后删除，AI 不自行删除；本 skill 报告目录等非日期持久数据不清理。
 
 ## 自我沉淀闭环（每次对话结束必检，最高优先级）
 

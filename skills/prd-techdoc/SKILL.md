@@ -249,7 +249,8 @@ WSL/Windows 环境补充（实测有效）：
 ### 交付路径约定
 
 - 交付物是**配对的 Markdown 与 HTML**：`<当前 Agent 工作空间>/.agents/techdoc/yyyy-MM-DD/<需求名称>-后端技术文档.md` 与同名 `.html`；`yyyy-MM-DD` 取创建交付目录时的本机日期。
-- **产物 git 托管指定**：技术文档交付给后端开发使用，**需要被 git 管理**，交付目录位于工作空间仓库内（不在 `.agents/out/`）；用户要求不入库时改放到 `.agents/out/prd-techdoc/`。
+- **产物 git 托管指定**：技术文档交付给后端开发使用，**需要被 git 管理**，交付目录位于工作空间仓库内（不在 `.agents/out/`）；用户要求不入库时改放到 `.agents/out/YYYYMMDD/prd-techdoc/`（YYYYMMDD 为当天日期）。
+- **out 产物清理**：今日首次执行任务时检查一次 `.agents/out/` 日期目录；目录日期距今天超过 15 天提示用户可删除，用户确认后删除，AI 不自行删除；日期目录之外的持久数据不清理。
 - HTML 由 `scripts/render-html.py` 生成，与 Markdown 内容一致，样式内嵌、离线可读、Mermaid 以内联 SVG 展示。
 - 用户明确指定其他路径时以用户为准；未指定时不要写入被分析的 PRD、原型或前后端项目仓库。
 - 交付目录只放这一对文档；PRD 原文、渲染产物、校验输出等中间产物放系统临时目录，交付前清理。

@@ -126,7 +126,7 @@ def serialize(items: list[dict], fmt: str) -> str:
 
 
 def output_path(args) -> Path:
-    base = (args.workdir / ".agents" / "out" / "auto-crawler").resolve()
+    base = (args.workdir / ".agents" / "out" / datetime.now().strftime("%Y%m%d") / "auto-crawler").resolve()
     path = Path(args.output).expanduser() if args.output else base / (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8] + "." + args.format)
     if not path.is_absolute():
@@ -249,7 +249,7 @@ def parser() -> argparse.ArgumentParser:
         sub.add_argument("--row", help="CSS row selector, or xpath:EXPRESSION")
         sub.add_argument("--field", action="append", default=[], help="repeat NAME=CSS or NAME=xpath:EXPRESSION; first match per row")
         sub.add_argument("--format", choices=("json", "jsonl", "csv", "xml", "md"), default="json")
-        sub.add_argument("--output", help="new output path; default .agents/out/auto-crawler/<unique>.<format>")
+        sub.add_argument("--output", help="new output path; default .agents/out/<YYYYMMDD>/auto-crawler/<unique>.<format>")
         sub.add_argument("--timeout", type=positive, default=30, help="seconds; default 30")
         sub.add_argument("--headful", action="store_true", help="show browser; browser engine only")
         sub.add_argument("--browser-executable", help="explicit browser binary path; browser engine only")

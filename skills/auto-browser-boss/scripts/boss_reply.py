@@ -7,7 +7,7 @@
 
 前置：用户已在 Chrome 手动打开聊天页 /web/geek/chat（脚本不 goto 聊天页——风控拦截）。
 用法：uv run boss_reply.py [--dry-run]
-产物：.agents/out/auto-browser-boss/unmatched-YYYYMMDD.jsonl
+产物：.agents/out/YYYYMMDD/auto-browser-boss/unmatched-YYYYMMDD.jsonl（YYYYMMDD 为当天日期目录）
 """
 import argparse
 import json
@@ -208,7 +208,7 @@ def main():
     else:
         print(f"[结果] 回复 {replied} | 未匹配/失败 {unmatched} | 跳过 {skipped}")
         if unmatched:
-            print(f"[上报] 未回复会话见 {bc.out_dir() / ('unmatched-' + time.strftime('%Y%m%d') + '.jsonl')}")
+            print(f"[上报] 未回复会话见 {bc.day_dir() / ('unmatched-' + time.strftime('%Y%m%d') + '.jsonl')}")
     h.browser.close()
     h.pw.stop()
 

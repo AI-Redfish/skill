@@ -120,7 +120,7 @@ metadata:
 - worktree 是 Git 工作树，位置由 worktree 核心规则 1/2 决定，不在 skill 目录内产生文件
 - 需要 Git 托管的代码/配置只写目标仓库的约定位置；不得顺带提交或推送
 - 不需要 Git 托管的下载内容、API JSON、sitemap 与校验文件，统一写入
-  `<工作目录>/.agents/out/git-flow/<来源名>/`，不写 skill 目录，不默认覆盖已有产物
+  `<工作目录>/.agents/out/YYYYMMDD/git-flow/<来源名>/`，不写 skill 目录，不默认覆盖已有产物
 - 临时探测文件使用系统临时目录；交付说明清理方式，不自动删除用户文件
 - 用户消息中的 Windows 路径（`D:\...`）按实际宿主转换：WSL 用 `/mnt/d/...`，
   Git Bash 用 `/d/...`，Windows Python 可用 `D:/...`；向用户汇报时用 Windows 格式
@@ -240,7 +240,8 @@ IDEA不显示Git时先验证IDE使用的Git，再检查Directory Mappings；不�
    验证结果用文字汇报，不另写验证记录、日志或说明文件。
 
 - **产物 git 托管指定**：Git 工作树与用户要求的仓库修改按项目约定管理；
-  下载及运行数据放 `<工作目录>/.agents/out/git-flow/<来源名>/`，不纳入 Git，不写 skill 目录。
+  下载及运行数据放 `<工作目录>/.agents/out/YYYYMMDD/git-flow/<来源名>/`（YYYYMMDD 为当天日期），不纳入 Git，不写 skill 目录。
+- **out 产物清理**：今日首次执行任务时检查一次 `.agents/out/` 日期目录；目录日期距今天超过 15 天提示用户可删除，用户确认后删除，AI 不自行删除；日期目录之外的持久数据不清理。
 ## 自我沉淀闭环（每次对话结束必检，最高优先级）
 
 1. **回顾识别**：每次对话结束前，回顾本次对话是否出现值得沉淀的信号——

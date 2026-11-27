@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """init_workspace.py — 初始化 product-design 产物目录与设计系统骨架。
 
-用途: 在 <workdir>/.agents/out/product-design/<项目名>/ 下创建 DESIGN.md 骨架、
+用途: 在 <workdir>/.agents/out/YYYYMMDD/product-design/<项目名>/ 下创建 DESIGN.md 骨架、
       (多页模式) SITE.md 骨架、pages/ 与 shots/ 子目录。幂等：已存在的文件不覆盖。
 依赖: Python 3.9+ 纯标准库，无第三方依赖（python 直跑或 uv run 均可）。
 用法:
@@ -11,7 +11,7 @@
 参数:
   --name     项目名（必需，用于目录名与文档标题）
   --mode     single=单页(默认) / multi=多页（额外生成 SITE.md）
-  --workdir  运行时工作目录（默认当前目录），产物落其 .agents/out/product-design/ 下
+  --workdir  运行时工作目录（默认当前目录），产物落其 .agents/out/YYYYMMDD/product-design/ 下
   --dir      直接指定产物目录（优先级高于 --workdir 推导）
   --force    覆盖已存在的骨架文件（默认跳过）
   --json     结果另存到指定文件路径
@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import datetime
 import sys
 from pathlib import Path
 
@@ -117,7 +118,7 @@ def main() -> int:
     if args.dir:
         root = Path(args.dir)
     else:
-        root = Path(args.workdir) / ".agents" / "out" / "product-design" / safe_dirname(args.name)
+        root = Path(args.workdir) / ".agents" / "out" / datetime.now().strftime("%Y%m%d") / "product-design" / safe_dirname(args.name)
 
     created: list[str] = []
     skipped: list[str] = []

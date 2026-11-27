@@ -14,7 +14,7 @@
   uv run boss_apply_visual.py --label "杭州·实施"   # 正式投递当前屏可见卡片
 
 节奏（均衡档）：卡间停顿 2.5~6s，每 8~12 张插入一次 8~15s 长停顿。
-产物：.agents/out/auto-browser-boss/apply-YYYYMMDD.jsonl（与接管模式共用，额度共享）。
+产物：.agents/out/YYYYMMDD/auto-browser-boss/apply-YYYYMMDD.jsonl（YYYYMMDD 为当天日期目录）（与接管模式共用，额度共享）。
 安全阀：连续 2 张定位失败即停；鼠标甩到屏幕左上角可紧急中断（pyautogui FAILSAFE）。
 """
 import argparse

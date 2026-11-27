@@ -6,7 +6,7 @@
 """Boss直聘自动投递：按 .env 筛选条件遍历搜索结果，逐个「点卡片→详情面板→立即沟通」，达到当日上限停止。
 
 用法：uv run boss_apply.py [--limit N] [--dry-run]
-产物：.agents/out/auto-browser-boss/apply-YYYYMMDD.jsonl
+产物：.agents/out/YYYYMMDD/auto-browser-boss/apply-YYYYMMDD.jsonl（YYYYMMDD 为当天日期目录）
 已知限制：薪资数字被 Boss 字体混淆（.job-salary 文本为 -K），记录保留原样。
 """
 import argparse
@@ -204,7 +204,7 @@ def main():
         print("[分页] 本页职位已用尽。请手动翻页或切换其他组合的搜索页，然后说「继续」再跑一轮。")
 
     print(f"[结果] 本次投递 {applied} 个，跳过 {skipped}，今日累计 {done_today + applied}/{daily_limit}。")
-    print(f"[记录] {bc.out_dir() / ('apply-' + time.strftime('%Y%m%d') + '.jsonl')}")
+    print(f"[记录] {bc.day_dir() / ('apply-' + time.strftime('%Y%m%d') + '.jsonl')}")
     h.browser.close()
     h.pw.stop()
 

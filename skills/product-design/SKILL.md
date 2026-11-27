@@ -1,7 +1,7 @@
 ---
 name: product-design
 description: 产品设计 skill——把想法、需求描述或 PRD 变成本地高保真 HTML 原型（Web 页面 + 移动端 App 界面），全程离线可用、浏览器直接打开。内置方法论：先建设计系统 DESIGN.md（色板/字体/组件/动效/反模式清单）作为唯一视觉基准，再按反 AI 味 taste 规则逐页生成自包含 HTML，支持多页面迭代建站（SITE.md + 页面清单推进）、已有原型调整、纯设计系统输出三种模式，附三视口（375/768/1440）截图验证。当用户说「设计一个 XX 页面」「画个原型」「出个设计稿」「高保真原型」「UI 设计」「产品设计」「做个 App 界面原型」「多页面原型/建站原型」「帮我改下这个原型」「生成设计系统」时使用。不适用于：需要后端的动态网站开发、把页面发布到公网（用 html-pages-publish）、PRD 评审（用 prd-review）、PRD 转后端技术文档（用 prd-techdoc）。
-compatibility: 核心流程零依赖（AI 直接生成 HTML，Python 脚本均为 3.9+ 纯标准库，python/uv run 均可）；screenshot.py 为可选增强（PEP 723 声明 playwright，复用本机已装 Chrome/Edge，无需额外装浏览器内核）；产物输出到运行时工作目录 .agents/out/product-design/（非 git 托管）。
+compatibility: 核心流程零依赖（AI 直接生成 HTML，Python 脚本均为 3.9+ 纯标准库，python/uv run 均可）；screenshot.py 为可选增强（PEP 723 声明 playwright，复用本机已装 Chrome/Edge，无需额外装浏览器内核）；产物输出到运行时工作目录 .agents/out/YYYYMMDD/product-design/（非 git 托管）。
 metadata:
   author: AI-Redfish
   version: "1.0.0"
@@ -44,7 +44,7 @@ metadata:
 
 - `<skill_dir>` = 本 SKILL.md 所在目录；脚本带 `<skill_dir>` 前缀调用，不假设 cwd
 - `<workdir>` = 运行时工作目录（Agent 当前工作空间）
-- **产物 git 托管指定**：原型 HTML、DESIGN.md、SITE.md、截图**不需要被 git 管理**（展示性交付物），统一输出到 `<workdir>/.agents/out/product-design/<项目名>/`（非 git 托管产物目录，由 .gitignore 忽略）；目录结构：
+- **产物 git 托管指定**：原型 HTML、DESIGN.md、SITE.md、截图**不需要被 git 管理**（展示性交付物），统一输出到 `<workdir>/.agents/out/YYYYMMDD/product-design/<项目名>/`（非 git 托管产物目录，由 .gitignore 忽略）；目录结构：
   - `DESIGN.md` — 设计系统（唯一视觉基准）
   - `SITE.md` — 站点愿景与页面路线图（仅多页模式）
   - `pages/<page>.html` — 原型页面（单文件自包含）
@@ -90,7 +90,8 @@ python --version   # 需 3.9+；脚本纯标准库，python 或 uv run 均可
 |---|---|---|
 | 平台 | 从描述推断；推断不出→问 | 移动端界面用手机壳容器（390px 框架）呈现，见 html-standards.md |
 | 视觉风格 | 已有 DESIGN.md 则沿用；全新项目按项目气质从 references/design-system-guide.md「四档刻度」选组合 | 不因风格缺失阻塞：给出推荐并说明可随时调整 |
-| 输出目录 | `<workdir>/.agents/out/product-design/<项目名>/` | 用户指定目录时用用户的 |
+| 输出目录 | `<workdir>/.agents/out/YYYYMMDD/product-design/<项目名>/` | 用户指定目录时用用户的 |
+| 产物清理 | 日期目录超 15 天提示用户可删，确认后删除 | AI 不自行删除；日期目录之外的持久数据不清理 |
 | 数据真实性 | 用户提供了数据用真实数据；未提供用有机感示例数据（如 47.2% 而非 99.9%），交付时标注「示例数据，需替换」 | 禁止编造"99.99% 正常运行"式 AI 填充指标 |
 | 单文件上限 | 单页 HTML ≤ 2000 行；超出优先精简内容而非拆文件 | 保持自包含单文件，便于分享打开 |
 | 迭代节奏（多页） | 每轮一个页面，完成后更新 SITE.md 并交付；不自动连续生成多页 | 用户说"继续下一页"再推进 |
@@ -111,7 +112,7 @@ python --version   # 需 3.9+；脚本纯标准库，python 或 uv run 均可
 ```
 一句话复述需求：<用户要什么>
 已完成：<模式>：<页面/文件清单>
-产物路径：<.agents/out/product-design/<项目名>/ 下的具体文件>
+产物路径：<.agents/out/YYYYMMDD/product-design/<项目名>/ 下的具体文件>
 校验结果：check_html 通过（N warning 已自查）；截图：<有/跳过原因>
 关键假设：<风格/数据等假设逐条列出>
 待办：<用户可能想继续的事，如"继续下一页"、"换主色"、"导出截图">
@@ -122,7 +123,7 @@ HTML 页面本体不粘贴到对话；用户要看效果时给出文件路径并
 ## 输出精简约束（所有落盘产物与答复通用）
 
 1. **只落盘有用的**：只把用户会直接使用的产物写到磁盘；过程稿、中间草稿、重复副本、无人引用的说明文件一律不落盘。
-2. **中间产物隔离**：确需保留的中间产物收进 `.agents/out/product-design/` 子目录（非 git 托管产物目录），不与交付产物混放；交付目录顶层只出现用户要的文件。
+2. **中间产物隔离**：确需保留的中间产物收进 `.agents/out/YYYYMMDD/product-design/` 子目录（非 git 托管产物目录），不与交付产物混放；交付目录顶层只出现用户要的文件。
 3. **落盘前自问**：写文件前先问"用户会直接使用它吗"；不会就不写，改为文字说明。
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
 5. **本 skill 针对性约束**：交付物只有 DESIGN.md、（多页时）SITE.md、pages/*.html、shots/*.png；设计推演、增强简报等中间思考不落盘，只在对话或内部完成。

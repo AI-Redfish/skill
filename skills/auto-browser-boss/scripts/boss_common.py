@@ -52,6 +52,13 @@ def out_dir(sub: str = "") -> Path:
     return d
 
 
+def day_dir() -> Path:
+    """当日产物目录：.agents/out/YYYYMMDD/auto-browser-boss/（日期目录，超 15 天可提示清理）。"""
+    d = workspace_root() / ".agents" / "out" / time.strftime("%Y%m%d") / "auto-browser-boss"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 # ---------------- .env 配置 ----------------
 
 ENV_KEYS = {
@@ -203,14 +210,14 @@ def ev(page, js, retries=4, wait=3000):
 # ---------------- 产物写入 ----------------
 
 def append_jsonl(name: str, record: dict):
-    f = out_dir() / name
+    f = day_dir() / name
     with f.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def today_count(name_prefix: str) -> int:
     """当日 jsonl 记录数（按文件名日期后缀）。"""
-    d = out_dir()
+    d = day_dir()
     ts = time.strftime("%Y%m%d")
     f = d / f"{name_prefix}-{ts}.jsonl"
     if not f.exists():

@@ -47,7 +47,7 @@ def main() -> int:
     if not html.is_file():
         print(json.dumps({"status": "error", "error": {
             "message": f"HTML 文件不存在：{html}",
-            "hint": "检查路径；原型默认在 .agents/out/product-design/<项目名>/pages/"}},
+            "hint": "检查路径；原型默认在 .agents/out/YYYYMMDD/product-design/<项目名>/pages/"}},
             ensure_ascii=False), file=sys.stderr)
         return 2
     try:

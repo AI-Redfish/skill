@@ -1,6 +1,6 @@
 ---
 name: coding-review
-description: 通用 coding-review（代码审查）规范，持续迭代中。两种审查模式：① 变更审查——基于 Git diff 的行级审查，集成阿里开源 ocr CLI（open-code-review）做确定性文件筛选与规则匹配，适合代码变更、增量复查、提交前自查；② 全量静态安全审查——BPS（basic-platform-service，Java 多模块 + Redis/MySQL/RocketMQ/MinIO）专项：Redis 滥用（KEYS 命令/永久 key/凭据硬编码）、MySQL 事务与 SQL 注入面、索引核对（对照 basic-platform-service-sql 归档）、前后端接口抽查（对照 wukong 前端仓库）、MQ 中间件及自主扩展角度（上传下载、日志泄漏、依赖停维、越权抽查），产出双格式（Markdown + HTML）审查报告到 .agents/out/coding-review/。当用户要求"代码审查""code review""coding review""变更审查""diff 审查""检查这次改动""增量复查""检查项目安全隐患""安全审查""代码安全扫描""审查 Redis/MySQL/MQ 使用是否不当""核对索引是否缺失"时使用。不适用于：运行时渗透测试（无运行环境探测）、依赖漏洞 CVE 全量比对（需联网 OSV/NVD）、修复代码本身（审查通过后由用户另行安排修复）。
+description: 通用 coding-review（代码审查）规范，持续迭代中。两种审查模式：① 变更审查——基于 Git diff 的行级审查，集成阿里开源 ocr CLI（open-code-review）做确定性文件筛选与规则匹配，适合代码变更、增量复查、提交前自查；② 全量静态安全审查——BPS（basic-platform-service，Java 多模块 + Redis/MySQL/RocketMQ/MinIO）专项：Redis 滥用（KEYS 命令/永久 key/凭据硬编码）、MySQL 事务与 SQL 注入面、索引核对（对照 basic-platform-service-sql 归档）、前后端接口抽查（对照 wukong 前端仓库）、MQ 中间件及自主扩展角度（上传下载、日志泄漏、依赖停维、越权抽查），产出双格式（Markdown + HTML）审查报告到 .agents/out/YYYYMMDD/coding-review/。当用户要求"代码审查""code review""coding review""变更审查""diff 审查""检查这次改动""增量复查""检查项目安全隐患""安全审查""代码安全扫描""审查 Redis/MySQL/MQ 使用是否不当""核对索引是否缺失"时使用。不适用于：运行时渗透测试（无运行环境探测）、依赖漏洞 CVE 全量比对（需联网 OSV/NVD）、修复代码本身（审查通过后由用户另行安排修复）。
 compatibility: 变更审查模式优先使用 `ocr` CLI（`npm install -g @alibaba-group/open-code-review`，需 Git >= 2.41）；未安装时降级为纯 git diff + 本规范流程。BPS 安全专项依赖 scripts/check-missing-indexes.py 等脚本（Python 3.9+ 纯标准库）；索引核对需本地存在 D:/develop/project/basic-platform-service-sql 归档仓库；接口抽查需前端仓库 D:/develop/project/wukong。适用于 BPS 主仓库 release 或 dev 分支基线。
 metadata:
   author: AI-Redfish
@@ -60,7 +60,7 @@ metadata:
 
 ### 全量审查输出（BPS 专项）
 
-- 位置：`.agents/out/coding-review/security-review-<YYYY-MM-DD>.md` 与同名 `.html`，内容一致（用户已确认此约定）；同日复查加 `-r2`/`-rN` 后缀，不覆盖既有报告。
+- 位置：`.agents/out/YYYYMMDD/coding-review/security-review-<YYYY-MM-DD>.md` 与同名 `.html`，内容一致（用户已确认此约定）；同日复查加 `-r2`/`-rN` 后缀，不覆盖既有报告。
 - 结构：元信息（基线 commit、方式）→ 风险总览表（编号 H/M/L + 文件:行）→ 分方向详述（每项：证据代码、影响、建议）→ 正面样本 → 修复优先级（立即/短期/中期）→ 覆盖范围与未覆盖项。
 - 分级标准：高=可远程利用或凭据泄漏；中=性能劣化/防御缺失/停维组件；低=规范偏差/触发条件苛刻。
 - 未覆盖项必须如实列（Nacos 实际配置、运行时实测等），不确定性明说，不编造。
@@ -74,10 +74,11 @@ metadata:
 ## 输出精简约束与产物 git 托管指定（所有落盘产物与答复通用）
 
 1. **只落盘有用的**：只把用户会直接使用的产物写到磁盘；过程稿、中间草稿、重复副本一律不落盘。
-2. **中间产物隔离**：确需保留的中间产物收进 `.agents/out/coding-review/`（非 git 托管产物目录），不与交付产物混放。
+2. **中间产物隔离**：确需保留的中间产物收进 `.agents/out/YYYYMMDD/coding-review/`（非 git 托管产物目录），不与交付产物混放。
 3. **落盘前自问**：写文件前先问「用户会直接使用它吗」；不会就不写，改为文字说明。
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
-5. **产物 git 托管指定**：审查报告（Markdown 与 HTML）不需要被 git 管理，输出到 `<工作目录>/.agents/out/coding-review/`；不生成用户没要的总结或分析文件。
+5. **产物 git 托管指定**：审查报告（Markdown 与 HTML）不需要被 git 管理，输出到 `<工作目录>/.agents/out/YYYYMMDD/coding-review/`（YYYYMMDD 为当天日期）；不生成用户没要的总结或分析文件。
+6. **out 产物清理**：今日首次执行任务时检查一次 `.agents/out/` 日期目录；目录日期距今天超过 15 天提示用户可删除，用户确认后删除，AI 不自行删除；日期目录之外的持久数据不清理。
 
 ## 验证与交付
 

@@ -37,11 +37,12 @@ metadata:
 | ↑ 多城市多岗位 | `BOSS_QUERY` 与 `BOSS_CITY_CODE` 支持逗号分隔多值（如 `实施工程师,JAVA开发` / `101110100,101210100,101200100`），脚本按组合循环；**推荐用法**：AI 依次用 `--query X --city Y` 单组合触发，每组合一次调用、间隔自然拉长，避免连续导航触发风控 | 用户指定目标时更新写入 |
 | ↑ 薪资/经验/学历编码值 | `BOSS_SALARY`/`BOSS_EXPERIENCE`/`BOSS_DEGREE` 为 Boss 筛选编码值（如 `salary=13Z20`），可选；取值方法：用户在 Chrome 搜索页点选筛选后，从地址栏 URL 抄取对应 query 值 | 用户提供时写入，缺省不过滤 |
 | FAQ 知识库（**git 托管**） | `<工作空间>/.agents/data/auto-browser-boss/faq.md`（每条目两行：`关键词: a\|b` / `回复: 文案`；# 开头行忽略） | 首次触发时 AI 与用户共建；用户可直接改文件，下次触发生效 |
-| 投递记录 | `.agents/out/auto-browser-boss/apply-YYYYMMDD.jsonl` | 每日累积，用于当日上限判断与投递沉淀 |
-| 未匹配消息 | `.agents/out/auto-browser-boss/unmatched-YYYYMMDD.jsonl` | 每日累积，触发结束时上报 |
-| Chrome profile | `.agents/out/auto-browser-boss/chrome-profile` | 持久登录态 |
+| 投递记录 | `.agents/out/YYYYMMDD/auto-browser-boss/apply-YYYYMMDD.jsonl` | 每日累积，用于当日上限判断与投递沉淀 |
+| 未匹配消息 | `.agents/out/YYYYMMDD/auto-browser-boss/unmatched-YYYYMMDD.jsonl` | 每日累积，触发结束时上报 |
+| Chrome profile | `.agents/out/auto-browser-boss/chrome-profile` | 持久登录态（不在日期目录，不参与清理） |
 
-- **产物 git 托管指定**：FAQ 知识库**需要被 git 管理**，落在 `.agents/data/auto-browser-boss/faq.md`（可版本化、可追溯）；其余产物（投递记录、未匹配消息、Chrome profile、`.agents/.env` 筛选配置）**不需要被 git 管理**，统一输出到 `<工作空间>/.agents/out/auto-browser-boss/`（非 git 托管产物目录，由 .gitignore 忽略）。用户明确指定目录时以用户为准。
+- **产物 git 托管指定**：FAQ 知识库**需要被 git 管理**，落在 `.agents/data/auto-browser-boss/faq.md`（可版本化、可追溯）；其余产物（投递记录、未匹配消息、Chrome profile、`.agents/.env` 筛选配置）**不需要被 git 管理**：投递/未匹配记录输出到 `<工作空间>/.agents/out/YYYYMMDD/auto-browser-boss/`（YYYYMMDD 为当天日期；非 git 托管产物目录，由 .gitignore 忽略）；Chrome profile 与 `.agents/.env` 为持久数据，不在日期目录。用户明确指定目录时以用户为准。
+- **out 产物清理**：今日首次执行任务时检查一次 `.agents/out/` 日期目录；目录日期距今天超过 15 天提示用户可删除，用户确认后删除，AI 不自行删除；只清理日期目录，chrome-profile 等持久数据不清理。
 - 脚本以运行时 cwd 为工作空间根解析路径；cwd 无 `.agents/` 时以 skill 目录所在工作空间为根。
 
 ## 用法
@@ -114,10 +115,10 @@ uv run .agents/skills/auto-browser-boss/scripts/boss_reply.py --dry-run
 ## 输出精简约束（所有落盘产物与答复通用）
 
 1. **只落盘有用的**：只把用户会直接使用的产物写到磁盘；过程稿、中间草稿、重复副本、无人引用的说明文件一律不落盘。
-2. **中间产物隔离**：确需保留的中间产物收进 `.agents/out/auto-browser-boss/` 子目录（非 git 托管产物目录），不与交付产物混放；交付目录顶层只出现用户要的文件。
+2. **中间产物隔离**：确需保留的中间产物收进 `.agents/out/YYYYMMDD/auto-browser-boss/` 子目录（非 git 托管产物目录），不与交付产物混放；交付目录顶层只出现用户要的文件。
 3. **落盘前自问**：写文件前先问「用户会直接使用它吗」；不会就不写，改为文字说明。
 4. **答复同理**：汇报只讲结论、路径、风险与待办，不复述中间过程与脚本日志。
-5. **本 skill 针对性约束**：交付物只有投递/回复执行报告与 `.agents/out/auto-browser-boss/` 下的运行数据；探索脚本、临时 dump 一律不落盘（放系统临时目录并说明清理方式）。
+5. **本 skill 针对性约束**：交付物只有投递/回复执行报告与 `.agents/out/YYYYMMDD/auto-browser-boss/` 下的运行数据；探索脚本、临时 dump 一律不落盘（放系统临时目录并说明清理方式）。
 
 ## 自我沉淀闭环（每次对话结束必检，最高优先级）
 

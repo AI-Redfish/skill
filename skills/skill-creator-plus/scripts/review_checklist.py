@@ -249,13 +249,19 @@ def check(skill: Path, workdir: Path) -> dict:
           "自我沉淀闭环已内嵌 | 缺少自我沉淀闭环规则（每次对话结束检查沉淀/主动询问用户/确认后修改并递增版本）",
           "按 references/authoring-standards.md 的「自我沉淀闭环」模板整段写入 SKILL.md，"
           "放在「输出精简约束」章节之后")
-    # 产物 git 托管指定（error 级，见 references/authoring-standards.md 同名小节）
-    git_policy = ("产物 git 托管指定" in body) and (".agents/out" in body)
+    # 产物 git 托管指定 + out 日期目录规范（error 级，见 references/authoring-standards.md 同名小节）
+    git_policy = ("产物 git 托管指定" in body) and (".agents/out" in body) and ("YYYYMMDD" in body)
     c.add("body.output_git_policy", "error", git_policy,
           "产物 git 托管指定已内嵌 | 缺少产物是否被 git 管理的指定"
-          "（产物清单分类 × 是否入库 × 非托管产物输出到 .agents/out/<skill-name>/）",
+          "（产物清单分类 × 是否入库 × 非托管产物输出到 .agents/out/YYYYMMDD/<skill-name>/）",
           "在「路径与输出位置约定」中按 references/authoring-standards.md 的"
-          "「输出产物 git 托管指定」模板写入产物分类与目录约定")
+          "「输出产物 git 托管指定」模板写入产物分类、日期目录约定与 out 清理规则")
+    cleanup = ("15 天" in body) and ("YYYYMMDD" in body)
+    c.add("body.output_cleanup", "error", cleanup,
+          "out 产物清理规则已内嵌 | 缺少 out 清理规则（今日首次任务后检查 .agents/out/ 日期目录，"
+          "超 15 天提示用户、确认后删除，AI 不自行删除；日期目录之外的持久数据不清理）",
+          "按 references/authoring-standards.md 的「输出产物 git 托管指定」模板中的"
+          "「out 产物清理」条目写入「路径与输出位置约定」")
     has_ref_dir = (skill / "references").is_dir()
     if lines > LONG_BODY_NO_REF and not has_ref_dir:
         c.add("body.progressive_disclosure", "warn", False,

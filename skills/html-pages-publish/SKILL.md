@@ -104,13 +104,13 @@ metadata:
 
 ## 发布工作流（标准步骤）
 
-1. 生成页面到本地暂存目录 **`<工作目录>/.agents/out/html-pages-publish/workspace/<slug>/index.html`**
+1. 生成页面到本地暂存目录 **`<工作目录>/.agents/out/YYYYMMDD/html-pages-publish/workspace/<slug>/index.html`**
    （非 git 托管产物目录：本地暂存不入任何仓库；**发布后的页面需要被 git 管理**——
    由脚本推送到部署仓库）；不要把暂存页放进 skill 目录或业务仓库；
 2. 请用户预览确认（`file://` 直接打开，或
    `python -m http.server -d <目录>` 后给 `http://localhost:8000`）；
 3. 用户确认后执行发布（按 provider 二选一）：
-   - AgentR：`python <skill_dir>/scripts/publish.py --page <slug> --src <工作目录>/.agents/out/html-pages-publish/workspace/<slug> --update-index`
+   - AgentR：`python <skill_dir>/scripts/publish.py --page <slug> --src <工作目录>/.agents/out/YYYYMMDD/html-pages-publish/workspace/<slug> --update-index`
      （自动上传 + 刷新 nav 导航页 + 输出永久链接与局域网地址）；
    - git 类：同一条命令，自动同步到部署仓库并输出公网 URL；
 4. 向用户输出：站点入口 URL、本次页面 URL、出口平台注意事项
@@ -122,10 +122,11 @@ metadata:
 ## 输出精简约束与产物 git 托管指定（所有落盘产物与答复通用）
 
 1. **只落盘有用的**：只把用户会直接使用的产物写到磁盘；过程稿、中间草稿、重复副本、无人引用的说明文件一律不落盘。
-2. **中间产物隔离**：本地预览稿、调试副本收进 `<工作目录>/.agents/out/html-pages-publish/`（非 git 托管产物目录）。
+2. **中间产物隔离**：本地预览稿、调试副本收进 `<工作目录>/.agents/out/YYYYMMDD/html-pages-publish/`（非 git 托管产物目录）。
 3. **落盘前自问**：写文件前先问"用户会直接使用它吗"；不会就不写，改为文字说明。
 4. **答复同理**：汇报只讲结论、URL、路径与待办，不复述中间过程与脚本日志。
-5. **产物 git 托管指定**：本地暂存页面不需要被 git 管理，放 `<工作目录>/.agents/out/html-pages-publish/workspace/`；发布到部署仓库的页面**需要被 git 管理**（由脚本推送）。
+5. **产物 git 托管指定**：本地暂存页面不需要被 git 管理，放 `<工作目录>/.agents/out/YYYYMMDD/html-pages-publish/workspace/`（YYYYMMDD 为当天日期）；发布到部署仓库的页面**需要被 git 管理**（由脚本推送）。
+6. **out 产物清理**：今日首次执行任务时检查一次 `.agents/out/` 日期目录；目录日期距今天超过 15 天提示用户可删除，用户确认后删除，AI 不自行删除；日期目录之外的持久数据不清理。
 
 ## 常见故障与处理
 

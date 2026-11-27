@@ -14,7 +14,7 @@ metadata:
 ## 路径约定
 
 - Skill 目录：`<工作空间>/.agents/skills/auto-mobile/`，所有命令在此目录内执行。
-- 运行产物（截图、元素树 XML）输出到 `<工作空间>/.agents/out/auto-mobile/`（已被 .gitignore 忽略，非 git 托管）。
+- 运行产物（截图、元素树 XML）输出到 `<工作空间>/.agents/out/YYYYMMDD/auto-mobile/`（YYYYMMDD 为当天日期；已被 .gitignore 忽略，非 git 托管）。日期目录超 15 天提示用户可删，确认后删除，AI 不自行删除。
 - 背景知识：仓库记忆 `store/.agents/memory/learned/mobile-automation-from-pc.md`（双平台方案、荣耀真机坑、PYTHONHOME 解法）。
 
 ## 前置检查（每会话一次）
@@ -32,8 +32,8 @@ env -u PYTHONHOME -u PYTHONPATH uv run android_ctl.py info   # 首跑自动建 .
 ```bash
 S="env -u PYTHONHOME -u PYTHONPATH uv run android_ctl.py"
 $S info                                  # 当前前台 App（package/activity）
-$S shot  <工作空间>/.agents/out/auto-mobile/s.png        # 截图
-$S dump  <工作空间>/.agents/out/auto-mobile/page.xml     # 页面元素树 XML
+$S shot  <工作空间>/.agents/out/YYYYMMDD/auto-mobile/s.png        # 截图
+$S dump  <工作空间>/.agents/out/YYYYMMDD/auto-mobile/page.xml     # 页面元素树 XML
 $S tap   --text "设置"                    # 按可见文本点击（或 --res com.xxx:id/btn）
 $S input --res com.xxx:id/et --text "你好" # 输入框写入（支持中文）
 $S swipe up                              # 滑动 up/down/left/right

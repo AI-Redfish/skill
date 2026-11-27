@@ -38,7 +38,7 @@
 
 - snakeyaml 按 GBK 读默认配置会炸：必须 `-Dfile.encoding=UTF-8`。
 - Nacos 五参数要给全：config/discovery 的 server-addr + namespace + group（namespace 用 UUID）。
-- 现成模板：worktree 下 `.agents/out/alarm-service-restart/start-alarm.ps1`（Start-Process + RedirectStandardOutput 落日志）。
+- 现成模板：worktree 下 `.agents/out/YYYYMMDD/coding/alarm-service-restart/start-alarm.ps1`（Start-Process + RedirectStandardOutput 落日志）。
 
 ## 7. 本地实例会注册到共享 Nacos——验证完必须停
 
@@ -112,7 +112,7 @@ java -Dfile.encoding=UTF-8 -jar <服务>.jar \
 ### 12.2 并行启动（总耗时 = 最慢服务 ≈ 2.5 分钟，而非串行累加）
 
 1. **启动前预检**：一次查全部目标端口 `powershell "Get-NetTCPConnection -LocalPort 8082,9000,11004 -State Listen"`，有占用先清理（见 12.4），避免启动到 100 秒才报 PortInUse。
-2. 每服务一个启动脚本（模板见第 6 节 + `.agents/out/<service>-restart/start-<service>.ps1`），**并行**执行全部脚本（Start-Process 立即返回不阻塞）。
+2. 每服务一个启动脚本（模板见第 6 节 + `.agents/out/YYYYMMDD/coding/<service>-restart/start-<service>.ps1`），**并行**执行全部脚本（Start-Process 立即返回不阻塞）。
 3. **等待策略**：`sleep 90` 后逐个 grep 就绪关键词，未就绪再补 `sleep 60` 重查。禁止单条长 sleep（>120s）阻塞等待——命令会被超时 abort，且 abort 后进程仍会拉起（见 12.4）。
 4. 各服务启动耗时基线：alarm ≈103–113s、upms ≈159s；gateway 打完 sa-token banner 后可能不再输出就绪行，以端口探测为准（见 12.3）。
 
